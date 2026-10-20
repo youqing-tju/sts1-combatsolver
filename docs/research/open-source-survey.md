@@ -6,7 +6,12 @@
 
 | 项目 | 形态 | 关键事实 | 用途 |
 |---|---|---|---|
-| [Torch1230/CombatSolver](https://github.com/Torch1230/CombatSolver) | C# / .NET 9 / Godot 的 STS2 mod，MIT，v0.48.0 | 主线程捕获根状态 → 后台独立分支搜索 → 只读路线快照 → 原生入口执行 → 状态偏离即重算。`src/` 分 `Engine / Search / Strategy / Runtime / UI / Prediction / Replay / Diagnostics / Api / Testing`。搜索 = Beam Search，受**时间/节点/内存**三重预算约束；默认档 120 s / 12 万节点 | **复刻蓝本** |
+| [Torch1230/CombatSolver](https://github.com/Torch1230/CombatSolver) | C# / .NET 9 / Godot 的 STS2 mod，MIT，v0.48.0 | 主线程捕获根状态 → **后台线程**分支搜索 → 只读路线快照 → 原生入口执行 → 状态偏离即重算。`src/` 分 `Engine / Search / Strategy / Runtime / UI / Prediction / Replay / Diagnostics / Api / Testing`。搜索 = Beam Search，三重预算约束；默认档 120 s / 12 万节点 | **复刻蓝本** |
+
+> ⚠️ 两处易误读，已核 `docs/ARCHITECTURE.md` 原文更正：
+> 1. 它的 **Mirror 是「方法镜像」**（`Engine/InCombat/Mirrors/` = 原版 Hook/Model 方法镜像），即照着原版规则重写等价实现，**不是**把战场对象整体复制后跑原版卡牌代码；实际是「根快照 + 影子状态 + 克隆模型（COW）+ 方法镜像」的混合体。
+> 2. 正因为是影子模拟，搜索才能放**后台线程**（原文：主线程捕获根 → 后台分支搜索 → 主线程部署）。若改跑真卡牌代码，就只能在主线程。
+> 3. **信息口径 = 全知**：模拟分支自持 RNG 与牌堆，能「预测抽牌、洗牌」；攻击意图由分支 AI 派生。
 | [hotwords123/StS2.RandomForeseer](https://github.com/hotwords123/StS2.RandomForeseer) | C#（STS2） | 提供 Combat / Fork / Mirror / History / RNG 基础逻辑，是 CombatSolver 模拟核心的上游 | 架构思想参考（**STS1 无对应实现**） |
 
 ## 二、STS1 可用的现成件
