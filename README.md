@@ -11,8 +11,9 @@
 | | CombatSolver (STS2) | 本项目 (STS1) |
 |---|---|---|
 | 语言/宿主 | C# / .NET 9 / Godot | Java 8 / libGDX（ModTheSpire） |
-| 模拟核心 | 改造 Random Foreseer 的 Mirror | 自建 Mirror（游戏自带 `Random.copy()` / `AbstractCard.makeCopy()`） |
-| 搜索 | Beam Search（时间/节点/内存三重预算） | 同构，另加状态指纹去重与主线程分片 |
+| 模拟核心 | 根快照 + 影子状态 + 方法镜像（改写自 Random Foreseer） | 同构：自建影子状态 + 逐条镜像卡牌/遗物/怪物语义 |
+| 搜索 | Beam Search，三重预算，**后台并行** | 同构，另加状态指纹去重与确定性提交 |
+| 信息口径 | 全知（自持 RNG 与牌堆） | 同构：全知为默认，另留信息集对照实验 |
 
 ## 文档
 
@@ -24,15 +25,27 @@
 ## 构建
 
 ```powershell
-# 1) 从 Steam 目录同步编译所需的两个 jar 到 lib/
-pwsh -File tools/sync-libs.ps1
+# 1) 从 Steam 目录同步编译所需的两个 jar 到 lib/（不入库）
+powershell -File tools/sync-libs.ps1
 
-# 2) 构建链自检（不产生 mod，只验证 JDK/类路径）
-pwsh -File tools/build.ps1 -Smoke
+# 2) 构建 + 测试（Gradle 9.8.2，产物 Java 8 字节码）
+.\gradlew.bat build
+#    本机已隔离安装 Gradle 时也可：powershell -File tools/gradle.ps1 build
 
-# 3) 正式构建（有源码后）
-pwsh -File tools/build.ps1 -Configuration Release
+# 3) 产物
+#    build/libs/STS1CombatSolver.jar
 ```
+
+> 无 Gradle 环境时可用备用链：`powershell -File tools/build.ps1 -Smoke`（只验证工具链，不产出 mod）。
+
+## 环境
+
+| 项 | 值 |
+|---|---|
+| 游戏 | `C:\Users\22757\steam\steamapps\common\SlayTheSpire`（`desktop-1.0.jar`） |
+| ModTheSpire | 创意工坊 `646570/1605060445/ModTheSpire.jar`（不在游戏根目录） |
+| JDK | 24（`--release 8`，产物 class 版本 52） |
+| Gradle | 9.8.2（隔离安装于 `~/.workbuddy/binaries/gradle/`） |
 
 ## 许可
 

@@ -28,3 +28,9 @@ __pycache__/
 
 # WorkBuddy 工作区数据（不随仓库发布）
 .workbuddy/
+
+# Gradle
+.gradle/
+
+# Gradle wrapper 的 jar 必须入库（上面的 *.jar 会误伤）
+!gradle/wrapper/gradle-wrapper.jar

@@ -1,0 +1,10 @@
+{
+  "modid": "sts1combatsolver",
+  "name": "STS1 Combat Solver",
+  "author_list": ["youqing"],
+  "description": "In-process combat solver for Slay the Spire 1: Beam Search over a mirrored combat simulation.",
+  "version": "0.0.1",
+  "sts_version": "12-18-2022",
+  "mts_version": "3.30.0",
+  "dependencies": []
+}

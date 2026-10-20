@@ -10,7 +10,7 @@
 - [x] JDK：24（`javac 24.0.2`），`--release 8` 实测编译通过（产物 class v52）
 - [x] C++ 工具链（后期训练用）：`w64devkit` g++ 16.2、cmake 4.4.3、ninja
 - [x] git 2.55 + GitHub 凭据可用（`youqing-tju`，免密 `ls-remote` 实测通过）
-- [ ] 🔴 Gradle 不可用（本机未安装）→ **构建链改用 `javac + jar` 脚本**，零外网依赖
+- [x] **Gradle 9.8.2**：已隔离安装到 `~/.workbuddy/binaries/gradle/`，wrapper 已生成，`gradle build` 实测通过（39 s，2 个测试全绿，产物 class 版本 52）
 
 ## B. 仓库
 
@@ -22,9 +22,10 @@
 
 ## C. 构建链
 
-- [ ] `tools/sync-libs.ps1`：从 Steam 目录同步 `desktop-1.0.jar` + `ModTheSpire.jar` 到 `lib/`
-- [ ] `tools/build.ps1`：`javac --release 8` → `jar`，产物 `build/STS1CombatSolver.jar`
-- [ ] `-Smoke` 自检通过（编译并运行 `tools/probe/Probe.java`）
+- [x] `tools/sync-libs.ps1`：从 Steam 目录同步 `desktop-1.0.jar` + `ModTheSpire.jar` 到 `lib/`
+- [x] `build.gradle.kts` + wrapper + `tools/gradle.ps1`（Gradle 9.8.2）
+- [x] `gradle build` 通过：编译 `--release 8`、JUnit 5 跑通、`build/libs/STS1CombatSolver.jar` 出包
+- [x] 备用链 `tools/build.ps1 -Smoke`（无 Gradle 时验证工具链与类路径）
 - [ ] 🔴 `MTS-launch.cmd` 启动链路可用（先开 Steam → 双击脚本）
 
 ## D. 隔离与安全（沙箱前置）
@@ -48,8 +49,9 @@
 - [ ] `CHANGELOG.md` 骨架（Keep a Changelog 格式）
 - [ ] 每轮迭代模板：`docs/plans/TEMPLATE-iteration.md`
 
-## G. 待用户拍板
+## G. 已拍板
 
-- [ ] **D3 搜索内核**：甲 方法镜像（蓝本原味，后台多线程）/ 乙 对象克隆跑真代码（主线程）/ 丙 混合
-- [ ] **D8 信息口径**：全知 / 严格信息集 / 全知+开关（蓝本已确认用全知）
-- [ ] **D9 覆盖门槛**：A6 要求 100% 等价，还是允许白名单例外
+- [x] **D3 搜索内核**：**甲 方法镜像**（蓝本原味，影子模拟 + 后台多线程）
+- [x] **D8 信息口径**：**全知**（M2 另跑严格信息集对照，只出数据）
+- [x] **构建工具**：Gradle（非 javac 脚本）
+- [ ] **D9 覆盖门槛**：A6 要求 100% 等价，还是允许白名单例外（M3 前定）
