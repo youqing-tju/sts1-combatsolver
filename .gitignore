@@ -25,3 +25,6 @@ runs/
 __pycache__/
 *.pyc
 .venv/
+
+# WorkBuddy 工作区数据（不随仓库发布）
+.workbuddy/
