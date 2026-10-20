@@ -1,0 +1,10 @@
+# 复制为 local.properties 后按本机实际路径修改
+# 构建脚本会读取本文件；不存在时回退到下面的默认探测路径。
+
+sts.home=C:/Users/22757/steam/steamapps/common/SlayTheSpire
+mts.jar=C:/Users/22757/steam/steamapps/workshop/content/646570/1605060445/ModTheSpire.jar
+
+# 构建产物的 modid / 显示名
+mod.id=sts1combatsolver
+mod.name=STS1 Combat Solver
+mod.version=0.0.1
