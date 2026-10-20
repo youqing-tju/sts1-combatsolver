@@ -4,7 +4,7 @@
 
 进入战斗后，mod 捕获真实战斗根状态 → 克隆出独立沙箱 → 在沙箱里**执行游戏自己的卡牌代码**展开 Beam Search → 给出跨回合路线、预计战损与关键行动 → 可只查看、执行本回合，或连续全自动。
 
-> 状态：**准备阶段**。当前仓库只有设计文档与构建链，尚无 mod 代码。
+> 状态：**M0 骨架**（mod 可加载、面板可拖动/点击、进战斗打印根状态摘要）。
 
 ## 与 CombatSolver 的关键差异
 
@@ -34,6 +34,10 @@ powershell -File tools/sync-libs.ps1
 
 # 3) 产物
 #    build/libs/STS1CombatSolver.jar
+
+# 4) 安装到游戏 mods/ 并启动
+powershell -File tools/install.ps1
+#    先开 Steam，再双击游戏目录下的 MTS-launch.cmd
 ```
 
 > 无 Gradle 环境时可用备用链：`powershell -File tools/build.ps1 -Smoke`（只验证工具链，不产出 mod）。

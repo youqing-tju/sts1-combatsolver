@@ -27,6 +27,10 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.test {
     useJUnitPlatform()
+    // HTML 报告在本机会被外部索引进程占用句柄，导致 Gradle 无法清理旧报告而构建失败。
+    // 只保留 JUnit XML（CI 与脚本都用它），需要人读时再临时打开 HTML。
+    reports.html.required.set(false)
+    reports.junitXml.required.set(true)
 }
 
 tasks.jar {
