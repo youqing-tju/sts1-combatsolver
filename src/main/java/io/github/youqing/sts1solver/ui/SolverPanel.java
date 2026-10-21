@@ -21,7 +21,10 @@ import io.github.youqing.sts1solver.diag.Trace;
  *
  * <p>Layout is measured from the actual font metrics instead of hard-coded pixel
  * offsets: the game ships several fonts with very different line heights, and a fixed
- * 24px row pitch made the rows overlap (and a fixed width made long lines overflow).
+ * row pitch made the rows overlap (and a fixed width made long lines overflow).
+ *
+ * <p>The panel is anchored by its <b>top</b> edge, not its bottom: content grows
+ * downward, so a longer line can never push the panel into the game's top bar.
  *
  * <p>All input is polled from {@link InputHelper}, so we never install a custom
  * InputProcessor and never fight the game for input.
@@ -35,9 +38,10 @@ public final class SolverPanel {
     private static final float TITLE_BAR = 34f;
     private static final float MIN_W = 380f;
     private static final float MAX_W = 900f;
+    private static final float TOP_MARGIN = 190f;
 
     private static float x = 40f;
-    private static float y = Float.NaN;
+    private static float topY = Float.NaN;
     private static boolean placed;
 
     private static boolean dragging;
@@ -78,9 +82,9 @@ public final class SolverPanel {
         float vw = Settings.WIDTH > 0 ? Settings.WIDTH : 1920f;
         float vh = Settings.HEIGHT > 0 ? Settings.HEIGHT : 1080f;
         x = 40f;
-        y = vh - 430f;
+        topY = vh - TOP_MARGIN;
         placed = true;
-        Trace.info("panel placed at " + x + "," + y + " (viewport " + vw + "x" + vh + ")");
+        Trace.info("panel placed at x=" + x + " top=" + topY + " (viewport " + vw + "x" + vh + ")");
     }
 
     private static BitmapFont uiFont() {
@@ -115,7 +119,7 @@ public final class SolverPanel {
             widest = Math.max(widest, layout.width);
         }
 
-        // 行高由字体自身决定；老版本固定 24-26px 的间距小于字高，四行会叠在一起
+        // 行高由字体自身决定；固定 24-26px 的间距小于字高，四行会叠在一起
         rowPitch = Math.max(font.getLineHeight(), font.getCapHeight()) + ROW_GAP;
         panelW = Math.min(MAX_W, Math.max(MIN_W, widest + PAD * 2f));
         panelH = PAD + rows.length * rowPitch + 10f + BUTTON_H + PAD;
@@ -123,6 +127,10 @@ public final class SolverPanel {
         layoutDirty = false;
         Trace.info("panel layout " + Math.round(panelW) + "x" + Math.round(panelH)
                 + " fontLineHeight=" + font.getLineHeight());
+    }
+
+    private static float bottom() {
+        return topY - panelH;
     }
 
     // ------------------------------------------------------------------ render
@@ -140,13 +148,13 @@ public final class SolverPanel {
                 return;
             }
 
-            float top = y + panelH;
+            float y = bottom();
 
             sb.setColor(new Color(0f, 0f, 0f, 0.82f));
             sb.draw(ImageMaster.WHITE_SQUARE_IMG, x, y, panelW, panelH);
 
             sb.setColor(new Color(0.55f, 0.58f, 0.62f, 0.95f));
-            sb.draw(ImageMaster.WHITE_SQUARE_IMG, x, top - 2f, panelW, 2f);
+            sb.draw(ImageMaster.WHITE_SQUARE_IMG, x, topY - 2f, panelW, 2f);
             sb.draw(ImageMaster.WHITE_SQUARE_IMG, x, y, panelW, 2f);
 
             String[] rows = lines();
@@ -157,7 +165,7 @@ public final class SolverPanel {
                     new Color(0.6f, 0.62f, 0.66f, 1f)
             };
             for (int i = 0; i < rows.length; i++) {
-                float rowTop = top - PAD - i * rowPitch;
+                float rowTop = topY - PAD - i * rowPitch;
                 FontHelper.renderFontLeftTopAligned(sb, font, rows[i], x + PAD, rowTop, colors[i]);
             }
 
@@ -192,18 +200,18 @@ public final class SolverPanel {
                 } else if (inTitleBar()) {
                     dragging = true;
                     dragDX = InputHelper.mX - x;
-                    dragDY = InputHelper.mY - y;
+                    dragDY = InputHelper.mY - topY;
                 }
             }
 
             if (dragging) {
                 if (InputHelper.isMouseDown) {
                     x = InputHelper.mX - dragDX;
-                    y = InputHelper.mY - dragDY;
+                    topY = InputHelper.mY - dragDY;
                     clampToScreen();
                 } else {
                     dragging = false;
-                    Trace.info("panel moved to " + Math.round(x) + "," + Math.round(y));
+                    Trace.info("panel moved to " + Math.round(x) + "," + Math.round(bottom()));
                 }
             }
         } catch (Throwable t) {
@@ -219,28 +227,28 @@ public final class SolverPanel {
 
     private static boolean inButton() {
         float bx = x + panelW - BUTTON_W - PAD;
-        float by = y + PAD;
+        float by = bottom() + PAD;
         return InputHelper.mX >= bx && InputHelper.mX <= bx + BUTTON_W
                 && InputHelper.mY >= by && InputHelper.mY <= by + BUTTON_H;
     }
 
     private static boolean inTitleBar() {
         return InputHelper.mX >= x && InputHelper.mX <= x + panelW
-                && InputHelper.mY >= y + panelH - TITLE_BAR && InputHelper.mY <= y + panelH;
+                && InputHelper.mY >= topY - TITLE_BAR && InputHelper.mY <= topY;
     }
 
     private static void clampToScreen() {
         if (x < 0f) {
             x = 0f;
         }
-        if (y < 0f) {
-            y = 0f;
-        }
         if (x > Settings.WIDTH - panelW) {
             x = Settings.WIDTH - panelW;
         }
-        if (y > Settings.HEIGHT - panelH) {
-            y = Settings.HEIGHT - panelH;
+        if (topY > Settings.HEIGHT) {
+            topY = Settings.HEIGHT;
+        }
+        if (topY - panelH < 0f) {
+            topY = panelH;
         }
     }
 }

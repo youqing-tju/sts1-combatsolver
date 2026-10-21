@@ -70,7 +70,25 @@ od -An -tu1 -j6 -N2 path/to/X.class    # 期望输出 0 52
 PowerShell 5.1 按 ANSI 读取脚本，UTF-8 中文会导致解析错误（报"意外的标记"）。
 所有脚本只用英文输出与注释。
 
-## 8. 构建/安装/启动
+## 8. 随机数语义（已用实机数据验证）
+
+三条结论，全部有证据：
+
+1. **`Random.random(n)` 是闭区间 `[0, n]`** —— 反编译确认实现为
+   `counter++; return random.nextInt(n + 1);`。写镜像时若按 `[0, n)` 处理，抽取边界会偏。
+2. **整条流可由 `(state0, state1, counter)` 完整重建** —— `RandomXS128.getState(0/1)`
+   取出两个 128 位状态，`new RandomXS128(s0, s1)` 还原后序列逐位相同。
+   实机证据：2026-10-21 12:34 捕获 `cardRandomRng`，`RngForkProbe` 连抽 8 个数
+   `584,505,979,733,584,398,877,516`，离线重建完全一致（回归测试
+   `RngStreamTest.restoresTheExactStreamSeenInTheLiveGame`）。
+3. **`counter` 只是记账**，不参与状态；但保留它便于日志对账。
+
+⚠️ 未解：实机快照里 `shuffle` 与 `misc` 两条流的 `(counter, s0, s1)` **完全相同**
+（都是 `1, 5149783851214758911, 6590155140523980037`）。可能是游戏本就用同一随机源初始化，
+也可能是 `getState` 的读法有问题。M1 需要验证：分别 fork 两条流，确认推进时互不影响。
+若二者真的同源，跨回合搜索里「洗牌」与「杂项」就不能当成独立流。
+
+## 9. 构建/安装/启动
 
 ```powershell
 powershell -File tools/sync-libs.ps1      # 首次
