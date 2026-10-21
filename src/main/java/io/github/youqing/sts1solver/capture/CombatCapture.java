@@ -7,6 +7,8 @@ import com.megacrit.cardcrawl.ui.panels.EnergyPanel;
 import java.util.List;
 
 import io.github.youqing.sts1solver.diag.Trace;
+import io.github.youqing.sts1solver.mirror.Coverage;
+import io.github.youqing.sts1solver.mirror.MirrorRegistry;
 import io.github.youqing.sts1solver.sim.SimState;
 import io.github.youqing.sts1solver.ui.SolverPanel;
 
@@ -74,6 +76,12 @@ public final class CombatCapture {
             // A1 的第一步：深拷贝必须逐字段等价（这是后续所有 fork 的前提）
             List<String> diffs = state.diff(state.copy());
             Trace.info("COPY diff=" + diffs.size() + (diffs.isEmpty() ? " (identical)" : " " + diffs));
+
+            List<String> missing = Coverage.unsupportedCards(state);
+            Trace.info("COVER distinct=" + Coverage.distinctCards(state)
+                    + " mirrored=" + MirrorRegistry.size()
+                    + " unsupported=" + missing.size()
+                    + (missing.isEmpty() ? "" : " " + missing));
 
             Trace.info("RNG " + RngForkProbe.run());
             SolverPanel.onCombatStart(state.shortLine());
