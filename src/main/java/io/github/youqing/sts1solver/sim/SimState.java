@@ -280,6 +280,11 @@ public final class SimState {
 
     // ------------------------------------------------------------------- output
 
+    /** 四个牌堆的总张数。用来发现「某张牌在两侧都没了」这类丢卡问题。 */
+    public int totalCards() {
+        return hand.size() + draw.size() + discard.size() + exhaust.size();
+    }
+
     /** Stable one-line summary for the overlay. */
     public String shortLine() {
         return "A" + act + " F" + floor + "  hp " + hp + "/" + maxHp

@@ -39,6 +39,7 @@ public final class ShadowTracker {
     private static int pendingTarget;
     private static boolean pending;
     private static int framesAfterPlay;
+    private static int expectedDiscardSize;
 
     private static int comparisons;
     private static int matches;
@@ -82,6 +83,9 @@ public final class ShadowTracker {
         pendingTarget = indexOf(target);
         pending = true;
         framesAfterPlay = 0;
+        // 这张牌结算完，实机弃牌堆必然 +1。用它当「真的结算完了」的判据，
+        // 比猜固定帧数可靠 —— limbo 空了也不代表牌已经落到弃牌堆。
+        expectedDiscardSize = pre.discard.size() + 1;
     }
 
     public static void tick() {
@@ -95,7 +99,7 @@ public final class ShadowTracker {
                 if (framesAfterPlay < SETTLE_FRAMES) {
                     return;
                 }
-                if (actionsDrained()) {
+                if (actionsDrained() && discardSettled()) {
                     resolve(false);
                 } else if (framesAfterPlay >= MAX_PENDING_FRAMES) {
                     resolve(true);
@@ -137,7 +141,9 @@ public final class ShadowTracker {
             mismatches++;
             Trace.info("DIFF " + pendingKey + " MISMATCH " + diffs.size()
                     + " field(s) (" + matches + "/" + comparisons + ")"
-                    + " limbo=" + liveLimboSize() + tag + ": " + head(diffs));
+                    + " limbo=" + liveLimboSize()
+                    + " cards=" + sim.totalCards() + "/" + live.totalCards()
+                    + tag + ": " + head(diffs));
         }
         baseline = live;
     }
@@ -145,6 +151,16 @@ public final class ShadowTracker {
     private static int liveLimboSize() {
         return AbstractDungeon.player == null || AbstractDungeon.player.limbo == null
                 ? -1 : AbstractDungeon.player.limbo.size();
+    }
+
+    private static int liveDiscardSize() {
+        return AbstractDungeon.player == null || AbstractDungeon.player.discardPile == null
+                ? -1 : AbstractDungeon.player.discardPile.size();
+    }
+
+    /** 打出的牌是否已经真正落进弃牌堆。 */
+    private static boolean discardSettled() {
+        return liveDiscardSize() >= expectedDiscardSize;
     }
 
     private static String head(List<String> diffs) {
