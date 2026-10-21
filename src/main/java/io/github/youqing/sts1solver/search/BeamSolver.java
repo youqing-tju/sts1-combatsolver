@@ -36,6 +36,16 @@ public final class BeamSolver {
     /** 上一次搜索的规模与耗时（A4 指标：120 秒 ≥ 10 万节点）。 */
     public int lastNodes;
     public long lastMillis;
+    /** 转置表（每次搜索重建，避免跨回合脏数据）。 */
+    private TranspositionTable tt = new TranspositionTable();
+
+    public int ttHits() {
+        return tt.hits();
+    }
+
+    public int ttMisses() {
+        return tt.misses();
+    }
 
     public BeamSolver(int energyPerTurn, int handSize, int beamWidth, int depth) {
         this.energyPerTurn = energyPerTurn;
@@ -60,6 +70,7 @@ public final class BeamSolver {
     public PlanAction bestFirstAction(SimState root) {
         long startedAt = System.nanoTime();
         lastNodes = 0;
+        tt = new TranspositionTable();
         List<SearchNode> beam = new ArrayList<SearchNode>();
         beam.add(new SearchNode(root.copy(), null, null, 0, evaluate(root)));
 
@@ -137,6 +148,9 @@ public final class BeamSolver {
         Map<String, SearchNode> byState = new LinkedHashMap<String, SearchNode>();
         for (SearchNode node : candidates) {
             String key = node.state.fingerprint();
+            if (!DEBUG && tt.dominated(key, node.score) && byState.containsKey(key)) {
+                continue;
+            }
             SearchNode existing = byState.get(key);
             if (existing == null || node.score > existing.score) {
                 byState.put(key, node);
@@ -152,24 +166,7 @@ public final class BeamSolver {
      * 越靠前的项权重必须大到"不可能被后面几项反超"。
      */
     public static long evaluate(SimState state) {
-        int alive = 0;
-        int enemyHp = 0;
-        for (SimMonster m : state.monsters) {
-            if (m.hp > 0) {
-                alive++;
-                enemyHp += m.hp;
-            }
-        }
-        long score = 0;
-        score -= alive * 1_000_000_000L;
-        score += (long) state.hp * 1_000_000L;
-        score -= (long) enemyHp * 1_000L;
-        if (alive > 0) {
-            // 场上还有敌人时格挡才有价值；战斗已结束时剩下的格挡一分不值，
-            // 否则「先防再杀」会因为残留格挡而微弱胜出，属于估值噪声。
-            score += state.block;
-        }
-        return score;
+        return Score.of(state).total();
     }
 
     private static int firstAliveIndex(SimState state) {

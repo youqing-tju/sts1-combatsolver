@@ -274,6 +274,7 @@ public final class AutoPilot {
             } else if (searchCount % 50 == 0) {
                 Trace.info("SEARCH #" + searchCount + " avgNodes=" + (searchNodesTotal / searchCount)
                         + " lastMs=" + solver.lastMillis
+                        + " tt=" + solver.ttHits() + "/" + (solver.ttHits() + solver.ttMisses())
                         + " intentHits=" + io.github.youqing.sts1solver.sim.IntentLearning.hits()
                         + " misses=" + io.github.youqing.sts1solver.sim.IntentLearning.misses());
             }
