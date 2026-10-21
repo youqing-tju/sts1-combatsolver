@@ -35,6 +35,13 @@ public final class AutoPilot {
     private static String queuedKey;
     private static int queuedFrames;
 
+    /**
+     * 连续「空手牌结束回合」的次数。对应蓝本的 {@code ShouldPruneCrossTurnNoProgress}：
+     * 跨回合无进展就不该无限推进，否则会像实测那样每 0.5 秒空转一个回合（能量涨到 400+）。
+     */
+    private static int noProgressEndTurns;
+    private static final int NO_PROGRESS_LIMIT = 12;
+
     private AutoPilot() {
     }
 
@@ -84,7 +91,8 @@ public final class AutoPilot {
             if (!ShadowTracker.isIdle()) {
                 return;
             }
-            if (player.isEndingTurn || player.endTurnQueued || !drained()) {
+            if (player.isEndingTurn || player.endTurnQueued
+                    || AbstractDungeon.actionManager.turnHasEnded || !drained()) {
                 return;
             }
             // 任何界面（选牌网格、牌堆浏览、地图…）打开时都不插手
@@ -97,9 +105,22 @@ public final class AutoPilot {
                 if (!CombatCapture.isCaptured()) {
                     return;
                 }
-                Trace.info("AUTO end turn (empty hand, energy=" + EnergyPanel.totalCount + ")");
+                noProgressEndTurns++;
+                if (noProgressEndTurns > NO_PROGRESS_LIMIT) {
+                    Trace.warn("AUTO stopped: " + noProgressEndTurns + " turns in a row with an empty hand"
+                            + " (draw=" + player.drawPile.size()
+                            + " discard=" + player.discardPile.size()
+                            + " exhaust=" + player.exhaustPile.size()
+                            + ") — the fight cannot progress, automatic play disabled");
+                    enabled = false;
+                    return;
+                }
+                Trace.info("AUTO end turn (empty hand #" + noProgressEndTurns
+                        + ", energy=" + EnergyPanel.totalCount
+                        + ", draw=" + player.drawPile.size()
+                        + ", discard=" + player.discardPile.size() + ")");
                 AbstractDungeon.actionManager.endTurn();
-                cooldown = 30;
+                cooldown = 45;
                 return;
             }
             // 玩家正在手动选牌/拖动时让位，避免两边同时入队
@@ -112,6 +133,13 @@ public final class AutoPilot {
                 return;
             }
             if (!playOneCard(player, target)) {
+                noProgressEndTurns++;
+                if (noProgressEndTurns > NO_PROGRESS_LIMIT) {
+                    Trace.warn("AUTO stopped: " + noProgressEndTurns
+                            + " turns in a row with nothing playable — automatic play disabled");
+                    enabled = false;
+                    return;
+                }
                 Trace.info("AUTO end turn (nothing playable)  " + describeHand(player));
                 AbstractDungeon.actionManager.endTurn();
                 cooldown = 30;
@@ -140,6 +168,7 @@ public final class AutoPilot {
         AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
         queuedKey = key;
         queuedFrames = 0;
+        noProgressEndTurns = 0;   // 本当に進んだので「无进展」计数清零
         Trace.info("AUTO play " + key + (target == null ? "" : " -> " + target.name)
                 + (mirrored ? "  (mirrored, diff)" : "  (unmirrored, record)"));
         cooldown = 6;
