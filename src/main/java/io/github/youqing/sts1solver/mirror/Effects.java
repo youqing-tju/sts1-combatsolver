@@ -495,6 +495,70 @@ public final class Effects {
         };
     }
 
+    /**
+     * 把状态牌插入抽牌堆的**随机位置**（野性打击 / 鲁莽冲锋）。
+     *
+     * <p>插入算法复刻自游戏：{@code CardGroup.addToRandomSpot} →
+     * {@code Random.random(size)}（闭区间 0..size），随机源用 {@code cardRandomRng}
+     * （对应影子里的 {@link io.github.youqing.sts1solver.sim.RngKind#CARD}）。
+     */
+    public static Effect insertIntoDrawPileRandom(final String id, final int count) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                for (int i = 0; i < count; i++) {
+                    SimCard status = new SimCard(id, false, -2);
+                    if (rng == null) {
+                        state.draw.add(status);
+                        continue;
+                    }
+                    int index = rng.random(state.draw.size());
+                    state.draw.add(Math.min(index, state.draw.size()), status);
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "drawPile+=" + id + "x" + count + " (random)";
+            }
+        };
+    }
+
+    /**
+     * 对**随机敌人**造成 times 段伤害（剑刃回旋）。
+     *
+     * <p>选敌复刻 {@code MonsterGroup.getRandomMonster(null, false, cardRandomRng)}：
+     * 下标 = {@code rng.random(0, monsters.size() - 1)}。
+     */
+    public static Effect damageRandomEnemies(final int times, final int base) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                for (int i = 0; i < times; i++) {
+                    if (state.monsters.isEmpty()) {
+                        return;
+                    }
+                    int index = rng == null
+                            ? 0
+                            : rng.random(state.monsters.size() - 1);
+                    SimMonster target = state.monsters.get(
+                            Math.min(index, state.monsters.size() - 1));
+                    DamageCalc.hit(state, target,
+                            DamageCalc.attackDamage(state, base, target));
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "randomDamage(" + base + "x" + times + ")";
+            }
+        };
+    }
+
     private static boolean isAttackId(String id) {
         // 攻击牌占比在红卡里很高，这里用已注册的镜像判断是否为攻击类
         return ATTACK_IDS.contains(id);

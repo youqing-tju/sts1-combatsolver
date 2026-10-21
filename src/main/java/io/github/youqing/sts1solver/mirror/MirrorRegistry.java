@@ -244,6 +244,23 @@ public final class MirrorRegistry {
         // 完美打击：6 伤 + 每张 Strike 牌 +2
         register("Perfected Strike", Effects.damagePlusPerStrike(6, 2));
         register("Perfected Strike+", Effects.damagePlusPerStrike(6, 3));
+
+        // ---- 第五批：随机位置 / 随机目标（用游戏自带的种子随机，可复现） --------
+        // 野性打击：12/17 伤 + 1 张伤口随机插入抽牌堆
+        register("Wild Strike", Arrays.asList(
+                Effects.damage(12), Effects.insertIntoDrawPileRandom("Wound", 1)));
+        register("Wild Strike+", Arrays.asList(
+                Effects.damage(17), Effects.insertIntoDrawPileRandom("Wound", 1)));
+
+        // 鲁莽冲锋：7/10 伤 + 1 张眩晕随机插入抽牌堆
+        register("Reckless Charge", Arrays.asList(
+                Effects.damage(7), Effects.insertIntoDrawPileRandom("Dazed", 1)));
+        register("Reckless Charge+", Arrays.asList(
+                Effects.damage(10), Effects.insertIntoDrawPileRandom("Dazed", 1)));
+
+        // 剑刃回旋：3/4 段 3 伤，目标随机
+        register("Sword Boomerang", Effects.damageRandomEnemies(3, 3));
+        register("Sword Boomerang+", Effects.damageRandomEnemies(4, 3));
     }
 
     private MirrorRegistry() {

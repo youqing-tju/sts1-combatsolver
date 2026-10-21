@@ -2,6 +2,7 @@ package io.github.youqing.sts1solver.mirror;
 
 import io.github.youqing.sts1solver.sim.SimCard;
 import io.github.youqing.sts1solver.sim.SimMonster;
+import io.github.youqing.sts1solver.sim.RngStream;
 import io.github.youqing.sts1solver.sim.SimState;
 import org.junit.jupiter.api.Test;
 
@@ -349,6 +350,42 @@ class CardPlayerTest {
         CardPlayer.play(s, 0, 0);
         // 6 + 2 x 2 张 Strike（手牌里的 Perfected Strike 本身不算）
         assertEquals(30, s.monsters.get(0).hp);
+    }
+
+    // ---- 第五批：随机位置 / 随机目标 ----
+
+    @Test
+    void wildStrikeInsertsAWoundIntoTheDrawPileAndBurnsRng() {
+        SimState s = combat("Wild Strike");
+        s.draw.add(new SimCard("Defend_R", false, 1));
+        s.rng.put(SimState.RngKind.CARD, RngStream.from(12345L, 67890L, 0));
+        int before = s.rng.get(SimState.RngKind.CARD).counter();
+
+        CardPlayer.play(s, 0, 0);
+
+        assertEquals(2, s.draw.size(), "the Wound was inserted, nothing was drawn");
+        assertEquals(before + 1, s.rng.get(SimState.RngKind.CARD).counter(),
+                "placement must consume exactly one card-rng step");
+        boolean hasWound = false;
+        for (SimCard c : s.draw) {
+            if ("Wound".equals(c.id)) {
+                hasWound = true;
+            }
+        }
+        assertTrue(hasWound);
+    }
+
+    @Test
+    void swordBoomerangSpreadsThreeHitsAcrossEnemies() {
+        SimState s = combat("Sword Boomerang");
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("A", 40, 40, 0, Collections.<String, Integer>emptyMap()));
+        s.monsters.add(new SimMonster("B", 40, 40, 0, Collections.<String, Integer>emptyMap()));
+
+        CardPlayer.play(s, 0, 0);
+
+        int lost = (40 - s.monsters.get(0).hp) + (40 - s.monsters.get(1).hp);
+        assertEquals(9, lost, "3 hits x 3 damage, target chosen at random");
     }
 
     @Test
