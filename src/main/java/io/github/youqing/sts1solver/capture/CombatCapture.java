@@ -4,13 +4,16 @@ import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
 import com.megacrit.cardcrawl.rooms.AbstractRoom;
 import com.megacrit.cardcrawl.ui.panels.EnergyPanel;
 
+import java.util.List;
+
 import io.github.youqing.sts1solver.diag.Trace;
+import io.github.youqing.sts1solver.sim.SimState;
 import io.github.youqing.sts1solver.ui.SolverPanel;
 
 /**
  * The room-entry hook fires before cards are drawn and before energy is set, so the
  * real "combat root" only exists a few frames later. We arm on entry and capture on the
- * first frame where the room is in COMBAT and the hand is non-empty.
+ * first frame where the room is in COMBAT and the hand is fully dealt.
  */
 public final class CombatCapture {
 
@@ -18,7 +21,7 @@ public final class CombatCapture {
     private static boolean captured;
     private static int framesWaited;
 
-    /** 兜底：地形/遗物让手牌永远发不满时，等 3 秒也要抓一次，但要留下告警。 */
+    /** 兜底：遗物/地形让手牌永远发不满时，等 3 秒也要抓一次，但要留下告警。 */
     private static final int MAX_WAIT_FRAMES = 180;
 
     private CombatCapture() {
@@ -64,14 +67,16 @@ public final class CombatCapture {
                         + " expected=" + expected + " energy=" + EnergyPanel.totalCount + ")");
             }
 
-            Trace.info("ROOT " + RootSummary.describe());
+            SimState state = SimState.capture();
+            Trace.info("STATE " + state.shortLine() + "  fp=" + state.fingerprint());
+            Trace.info("STATE file " + state.save());
 
-            RootSnapshot snapshot = RootSnapshot.capture();
-            Trace.info("SNAP " + snapshot.summary());
-            Trace.info("SNAP file " + snapshot.save());
+            // A1 的第一步：深拷贝必须逐字段等价（这是后续所有 fork 的前提）
+            List<String> diffs = state.diff(state.copy());
+            Trace.info("COPY diff=" + diffs.size() + (diffs.isEmpty() ? " (identical)" : " " + diffs));
+
             Trace.info("RNG " + RngForkProbe.run());
-
-            SolverPanel.onCombatStart(RootSummary.describeShort());
+            SolverPanel.onCombatStart(state.shortLine());
         } catch (Throwable t) {
             Trace.error("combat capture failed", t);
         }
