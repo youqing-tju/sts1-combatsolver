@@ -41,6 +41,11 @@ public final class CombatCapture {
         Trace.info("combat entry detected, waiting for deal");
     }
 
+    /** 本场战斗的根状态是否已经抓过（即首轮发牌已完成）。 */
+    public static boolean isCaptured() {
+        return captured;
+    }
+
     public static void tick() {
         try {
             AbstractRoom room = AbstractDungeon.getCurrRoom();

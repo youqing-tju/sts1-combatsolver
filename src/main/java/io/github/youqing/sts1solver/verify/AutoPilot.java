@@ -11,6 +11,7 @@ import com.megacrit.cardcrawl.ui.panels.EnergyPanel;
 
 import java.util.ArrayList;
 
+import io.github.youqing.sts1solver.capture.CombatCapture;
 import io.github.youqing.sts1solver.diag.Trace;
 import io.github.youqing.sts1solver.mirror.MirrorRegistry;
 
@@ -90,8 +91,15 @@ public final class AutoPilot {
             if (AbstractDungeon.isScreenUp) {
                 return;
             }
-            // 发牌还没完成时手牌为空，不能据此判定「无牌可出」而结束回合
+            // 手牌为空有两种情况：① 首轮发牌还没完成；② 真的没牌了（全消耗光/牌堆空）。
+            // 前者要等，后者必须结束回合，否则直接卡死（实测：4 能量 0 手牌）。
             if (player.hand == null || player.hand.size() == 0) {
+                if (!CombatCapture.isCaptured()) {
+                    return;
+                }
+                Trace.info("AUTO end turn (empty hand, energy=" + EnergyPanel.totalCount + ")");
+                AbstractDungeon.actionManager.endTurn();
+                cooldown = 30;
                 return;
             }
             // 玩家正在手动选牌/拖动时让位，避免两边同时入队
