@@ -62,6 +62,9 @@ public final class AutoPilot {
     private static int chosenTargetIndex = -1;
 
     private static int searchCount;
+    /** M2-7 A/B：终端估值与静态估值给出不同选择的比例。 */
+    private static int abTotal;
+    private static int abDisagreed;
     private static long searchNodesTotal;
 
     private static final int BEAM_WIDTH = 8;
@@ -294,11 +297,16 @@ public final class AutoPilot {
 
             searchCount++;
             searchNodesTotal += solver.lastNodes;
+            abTotal++;
+            if (solver.lastAbDisagreed) {
+                abDisagreed++;
+            }
             if (solver.lastMillis > 30) {
                 Trace.warn("SEARCH slow: " + solver.lastMillis + " ms, " + solver.lastNodes + " nodes");
             } else if (searchCount % 50 == 0) {
                 Trace.info("SEARCH #" + searchCount + " avgNodes=" + (searchNodesTotal / searchCount)
                         + " lastMs=" + solver.lastMillis
+                        + " ab=" + abDisagreed + "/" + abTotal
                         + " tt=" + solver.ttHits() + "/" + (solver.ttHits() + solver.ttMisses())
                         + " intentHits=" + io.github.youqing.sts1solver.sim.IntentLearning.hits()
                         + " misses=" + io.github.youqing.sts1solver.sim.IntentLearning.misses());

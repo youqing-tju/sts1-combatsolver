@@ -36,6 +36,18 @@ public final class BeamSolver {
     /** 上一次搜索的规模与耗时（A4 指标：120 秒 ≥ 10 万节点）。 */
     public int lastNodes;
     public long lastMillis;
+    /**
+     * M2-7 终端估值：把候选路线用贪心策略一路打到战斗结束再打分。
+     * 静态估值只看「这一帧」，会高估「现在多打 6 点血」而低估「下回合会被打死」。
+     */
+    public boolean useRollout = true;
+    /** 回放最多推进几个回合（防止无限对局把每帧预算吃光）。 */
+    private static final int ROLLOUT_MAX_TURNS = 6;
+    /** 上一次搜索里终端估值与静态估值给出的选择是否一致（A/B 数据）。 */
+    public boolean lastAbDisagreed;
+    public long lastStaticScore;
+    public long lastTerminalScore;
+
     /** 转置表（每次搜索重建，避免跨回合脏数据）。 */
     private TranspositionTable tt = new TranspositionTable();
 
@@ -93,14 +105,40 @@ public final class BeamSolver {
         }
         finished.addAll(beam);
 
-        SearchNode best = null;
+        SearchNode bestStatic = null;
         for (SearchNode node : finished) {
-            if (DEBUG) {
+            if (bestStatic == null || better(node, bestStatic)) {
+                bestStatic = node;
+            }
+        }
+        SearchNode bestRollout = null;
+        if (useRollout) {
+            long bestValue = Long.MIN_VALUE;
+            for (SearchNode node : finished) {
+                if (node.action == null) {
+                    continue;   // 根节点，没有可执行动作
+                }
+                long value = terminalValue(node.state);
+                if (value > bestValue) {
+                    bestValue = value;
+                    bestRollout = node;
+                }
+            }
+        }
+
+        SearchNode best = bestStatic;
+        if (bestRollout != null) {
+            lastAbDisagreed = bestStatic != null && bestStatic.action != null
+                    && !sameAction(bestStatic, bestRollout);
+            best = bestRollout;
+        }
+        lastStaticScore = bestStatic == null ? 0 : bestStatic.score;
+        lastTerminalScore = best == null ? 0 : best.score;
+
+        if (DEBUG) {
+            for (SearchNode node : finished) {
                 System.out.println("FIN depth=" + node.depth + " score=" + node.score
                         + " action=" + node.action + " first=" + node.firstAction());
-            }
-            if (best == null || better(node, best)) {
-                best = node;
             }
         }
         if (DEBUG && best != null) {
@@ -123,6 +161,60 @@ public final class BeamSolver {
         }
         out.add(new SearchNode(copy, PlanAction.play(cardIndex, targetIndex), node,
                 node.depth + 1, evaluate(copy)));
+    }
+
+    private static boolean sameAction(SearchNode a, SearchNode b) {
+        PlanAction x = a.firstAction();
+        PlanAction y = b.firstAction();
+        if (x == null || y == null) {
+            return x == y;
+        }
+        return x.kind == y.kind && x.cardIndex == y.cardIndex && x.targetIndex == y.targetIndex;
+    }
+
+    /**
+     * 从给定状态出发，用贪心策略打到战斗结束（或回合上限），返回终局估值。
+     * 贪心规则：只打「立刻让分变高」的牌，打完再结束回合。
+     */
+    public long terminalValue(SimState start) {
+        SimState s = start.copy();
+        for (int turn = 0; turn < ROLLOUT_MAX_TURNS; turn++) {
+            if (s.hp <= 0 || SearchNode.noAliveMonster(s)) {
+                break;
+            }
+            boolean played = true;
+            while (played) {
+                played = false;
+                long base = evaluate(s);
+                SimState bestState = null;
+                long bestGain = 0;
+                for (int i = 0; i < s.hand.size(); i++) {
+                    int targets = s.monsters.size();
+                    for (int t = -1; t < targets; t++) {
+                        if (t >= 0 && s.monsters.get(t).hp <= 0) {
+                            continue;
+                        }
+                        SimState copy = s.copy();
+                        try {
+                            CardPlayer.play(copy, i, t);
+                        } catch (Throwable rejected) {
+                            continue;
+                        }
+                        long gain = evaluate(copy) - base;
+                        if (gain > bestGain) {
+                            bestGain = gain;
+                            bestState = copy;
+                        }
+                    }
+                }
+                if (bestState != null) {
+                    s = bestState;
+                    played = true;
+                }
+            }
+            CombatFlow.endTurn(s, energyPerTurn, handSize);
+        }
+        return evaluate(s);
     }
 
     /** 先比分数，分数相同则优先「更早收场」的那条路线（蓝本的 CombatEndedTurn 次序）。 */

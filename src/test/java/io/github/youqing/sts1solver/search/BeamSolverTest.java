@@ -9,6 +9,7 @@ import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 搜索层的验收：**该防的时候防，该杀的时候杀**。
@@ -47,6 +48,21 @@ class BeamSolverTest {
         assertNotNull(action);
         assertEquals(PlanAction.Kind.PLAY_CARD, action.kind);
         assertEquals(1, action.cardIndex, "should play Defend_R (index 1) instead of Strike_R");
+    }
+
+    @Test
+    void terminalValuePrefersTheStateWhereCombatIsOver() {
+        BeamSolver solver = new BeamSolver(3, 5, 4, 3);
+        SimState alive = state(40, 8, "Strike_R");
+        SimState cleared = state(0, 0, "Strike_R");
+        cleared.monsters.clear();
+
+        long valueAlive = solver.terminalValue(alive);
+        long valueCleared = solver.terminalValue(cleared);
+
+        assertTrue(valueCleared > valueAlive,
+                "a finished fight must always outweigh an ongoing one: "
+                        + valueCleared + " vs " + valueAlive);
     }
 
     @Test
