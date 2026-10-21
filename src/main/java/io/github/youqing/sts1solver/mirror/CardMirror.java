@@ -13,8 +13,15 @@ public final class CardMirror {
     public final boolean targeted;
     /** 是否需要从手牌里挑一张（军备/战吼/烧牌契约）。 */
     public final boolean needsChoice;
+    /** 打出后进消耗堆（虹吸 / 威吓 / 冲击波 / 铜墙铁壁 / 恶魔之火 …）。 */
+    public final boolean exhaustsOnPlay;
 
     public CardMirror(String key, List<Effect> effects) {
+        this(key, effects, false);
+    }
+
+    public CardMirror(String key, List<Effect> effects, boolean exhaustsOnPlay) {
+        this.exhaustsOnPlay = exhaustsOnPlay;
         this.key = key;
         this.effects = Collections.unmodifiableList(new ArrayList<Effect>(effects));
         boolean needsTarget = false;

@@ -123,8 +123,8 @@ public final class MirrorRegistry {
         register("Ghostly Armor", Effects.block(10));
         register("Ghostly Armor+", Effects.block(13));
 
-        register("Impervious", Effects.block(30));
-        register("Impervious+", Effects.block(40));
+        registerExhaust("Impervious", Effects.block(30));
+        registerExhaust("Impervious+", Effects.block(40));
 
         // 上勾拳：13 伤 + 虚弱 + 易伤
         register("Uppercut", Arrays.asList(
@@ -137,20 +137,20 @@ public final class MirrorRegistry {
                 Effects.powerOnTarget(DamageCalc.VULNERABLE, 2)));
 
         // 威吓：全体虚弱
-        register("Intimidate", Effects.powerOnAll(DamageCalc.WEAKENED, 1));
+        registerExhaust("Intimidate", Effects.powerOnAll(DamageCalc.WEAKENED, 1));
         register("Intimidate+", Effects.powerOnAll(DamageCalc.WEAKENED, 2));
 
         // 冲击波：全体虚弱 + 易伤
-        register("Shockwave", Arrays.asList(
+        registerExhaust("Shockwave", Arrays.asList(
                 Effects.powerOnAll(DamageCalc.WEAKENED, 3),
                 Effects.powerOnAll(DamageCalc.VULNERABLE, 3)));
-        register("Shockwave+", Arrays.asList(
+        registerExhaust("Shockwave+", Arrays.asList(
                 Effects.powerOnAll(DamageCalc.WEAKENED, 5),
                 Effects.powerOnAll(DamageCalc.VULNERABLE, 5)));
 
         // 缴械：目标失去力量
-        register("Disarm", Effects.powerOnTarget(DamageCalc.STRENGTH, -2));
-        register("Disarm+", Effects.powerOnTarget(DamageCalc.STRENGTH, -3));
+        registerExhaust("Disarm", Effects.powerOnTarget(DamageCalc.STRENGTH, -2));
+        registerExhaust("Disarm+", Effects.powerOnTarget(DamageCalc.STRENGTH, -3));
 
         // 壁垒 / 重击 / 自伤 / 回能
         register("Entrench", Effects.doubleBlock());
@@ -161,11 +161,11 @@ public final class MirrorRegistry {
 
         register("Bloodletting", Arrays.asList(Effects.loseHp(3), Effects.gainEnergy(2)));
         register("Bloodletting+", Arrays.asList(Effects.loseHp(3), Effects.gainEnergy(3)));
-        register("Seeing Red", Effects.gainEnergy(2));
+        registerExhaust("Seeing Red", Effects.gainEnergy(2));
 
-        register("Offering", Arrays.asList(
+        registerExhaust("Offering", Arrays.asList(
                 Effects.loseHp(6), Effects.gainEnergy(2), Effects.draw(3)));
-        register("Offering+", Arrays.asList(
+        registerExhaust("Offering+", Arrays.asList(
                 Effects.loseHp(6), Effects.gainEnergy(2), Effects.draw(5)));
 
         // 血液沸腾：15 伤 + 自伤 2
@@ -230,8 +230,8 @@ public final class MirrorRegistry {
                 Effects.damage(22), Effects.exhaustNonAttacks()));
 
         // 恶魔之火：消耗整手牌，每张 7 点伤害
-        register("Fiend Fire", Effects.exhaustHandForDamage(7));
-        register("Fiend Fire+", Effects.exhaustHandForDamage(10));
+        registerExhaust("Fiend Fire", Effects.exhaustHandForDamage(7));
+        registerExhaust("Fiend Fire+", Effects.exhaustHandForDamage(10));
 
         // 回旋踢：5 伤 + 抽 1；若目标易伤则 +2 能量 +1 抽牌
         register("Dropkick", Arrays.asList(
@@ -288,6 +288,59 @@ public final class MirrorRegistry {
         // 观察弱点：目标本回合意图为攻击时 +3/+4 力量
         register("Spot Weakness", Effects.strengthIfEnemyAttacks(3));
         register("Spot Weakness+", Effects.strengthIfEnemyAttacks(4));
+
+        // ---- 第九批：无色牌（数值取自 cards.json，COLORLESS） -------------------
+        // 戏剧登场：0 费 8/12 伤，消耗
+        registerExhaust("Dramatic Entrance", Effects.damage(8));
+        registerExhaust("Dramatic Entrance+", Effects.damage(12));
+
+        // 钢铁闪光：0 费 3/6 伤 + 抽 1
+        register("Flash of Steel", Arrays.asList(Effects.damage(3), Effects.draw(1)));
+        register("Flash of Steel+", Arrays.asList(Effects.damage(6), Effects.draw(1)));
+
+        // 良好直觉：0 费 6/9 格挡
+        register("Good Instincts", Effects.block(6));
+        register("Good Instincts+", Effects.block(9));
+
+        // 迅捷打击：0 费 7/10 伤
+        register("Swift Strike", Effects.damage(7));
+        register("Swift Strike+", Effects.damage(10));
+
+        // 匕首：0 费 4/6 伤，消耗
+        registerExhaust("Shiv", Effects.damage(4));
+        registerExhaust("Shiv+", Effects.damage(6));
+
+        // 重击：1 费 12/16 伤，消耗
+        registerExhaust("Smite", Effects.damage(12));
+        registerExhaust("Smite+", Effects.damage(16));
+
+        // 致盲：2 层虚弱（原版单体，升级版全体）
+        register("Blind", Effects.powerOnTarget(DamageCalc.WEAKENED, 2));
+        register("Blind+", Effects.powerOnAll(DamageCalc.WEAKENED, 2));
+
+        // 绊倒：2 层易伤（原版单体，升级版全体）
+        register("Trip", Effects.powerOnTarget(DamageCalc.VULNERABLE, 2));
+        register("Trip+", Effects.powerOnAll(DamageCalc.VULNERABLE, 2));
+
+        // 黑暗镣铐：0 费，目标 -9/-15 力量，消耗
+        registerExhaust("Dark Shackles", Effects.powerOnTarget(DamageCalc.STRENGTH, -9));
+        registerExhaust("Dark Shackles+", Effects.powerOnTarget(DamageCalc.STRENGTH, -15));
+
+        // 技巧：0 费 2/4 格挡 + 抽 1，消耗
+        registerExhaust("Finesse", Arrays.asList(Effects.block(2), Effects.draw(1)));
+        registerExhaust("Finesse+", Arrays.asList(Effects.block(4), Effects.draw(1)));
+
+        // 包扎：0 费治疗 4/6，消耗
+        registerExhaust("Bandage Up", Effects.heal(4));
+        registerExhaust("Bandage Up+", Effects.heal(6));
+
+        // 战略大师：0 费抽 3/4，消耗
+        registerExhaust("Master of Strategy", Effects.draw(3));
+        registerExhaust("Master of Strategy+", Effects.draw(4));
+
+        // 咬：7/8 伤 + 治疗 2/3
+        register("Bite", Arrays.asList(Effects.damage(7), Effects.heal(2)));
+        register("Bite+", Arrays.asList(Effects.damage(8), Effects.heal(3)));
     }
 
     private MirrorRegistry() {
@@ -299,6 +352,15 @@ public final class MirrorRegistry {
 
     private static void register(String key, java.util.List<Effect> effects) {
         CARDS.put(key, new CardMirror(key, effects));
+    }
+
+    /** 打出后进消耗堆的牌。 */
+    private static void registerExhaust(String key, Effect... effects) {
+        registerExhaust(key, Arrays.asList(effects));
+    }
+
+    private static void registerExhaust(String key, java.util.List<Effect> effects) {
+        CARDS.put(key, new CardMirror(key, effects, true));
     }
 
     /** @return the mirror, or {@code null} when this card is not supported yet */

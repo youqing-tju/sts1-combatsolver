@@ -59,7 +59,11 @@ public final class CardPlayer {
             }
         }
 
-        state.discard.add(card);
+        if (mirror.exhaustsOnPlay) {
+            state.exhaust.add(card);
+        } else {
+            state.discard.add(card);
+        }
         // 不在这里移除死亡怪物：游戏会保留 0 血单位直到死亡动画播完。
         // 影子若立刻删除，怪物列表长度就和实机对不上，核对前统一做归一化。
     }

@@ -310,7 +310,8 @@ class CardPlayerTest {
                 Collections.<String, Integer>emptyMap()));
         CardPlayer.play(s, 0, 0);
         assertEquals(0, s.hand.size());
-        assertEquals(2, s.exhaust.size());
+        // 2 张手牌 + 恶魔之火自身（打出后消耗）
+        assertEquals(3, s.exhaust.size());
         assertEquals(26, s.monsters.get(0).hp, "7 damage x 2 cards");
     }
 
