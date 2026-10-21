@@ -65,6 +65,12 @@ public final class CombatCapture {
             }
 
             Trace.info("ROOT " + RootSummary.describe());
+
+            RootSnapshot snapshot = RootSnapshot.capture();
+            Trace.info("SNAP " + snapshot.summary());
+            Trace.info("SNAP file " + snapshot.save());
+            Trace.info("RNG " + RngForkProbe.run());
+
             SolverPanel.onCombatStart(RootSummary.describeShort());
         } catch (Throwable t) {
             Trace.error("combat capture failed", t);

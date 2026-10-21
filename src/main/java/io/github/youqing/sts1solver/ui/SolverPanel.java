@@ -78,7 +78,7 @@ public final class SolverPanel {
         float vw = Settings.WIDTH > 0 ? Settings.WIDTH : 1920f;
         float vh = Settings.HEIGHT > 0 ? Settings.HEIGHT : 1080f;
         x = 40f;
-        y = vh - 320f;
+        y = vh - 430f;
         placed = true;
         Trace.info("panel placed at " + x + "," + y + " (viewport " + vw + "x" + vh + ")");
     }
