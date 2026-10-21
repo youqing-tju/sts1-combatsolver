@@ -14,6 +14,10 @@ import java.util.ArrayList;
 import io.github.youqing.sts1solver.capture.CombatCapture;
 import io.github.youqing.sts1solver.diag.Trace;
 import io.github.youqing.sts1solver.mirror.MirrorRegistry;
+import io.github.youqing.sts1solver.search.BeamSolver;
+import io.github.youqing.sts1solver.search.PlanAction;
+import io.github.youqing.sts1solver.search.SearchNode;
+import io.github.youqing.sts1solver.sim.SimState;
 
 /**
  * Auto-play driver used to generate validation data without a human: it plays any
@@ -52,6 +56,10 @@ public final class AutoPilot {
     private static int endPhase;
     private static int endPhaseFrames;
     private static final int MAX_END_PHASE_FRAMES = 900;
+
+    /** 搜索宽度与深度：先给保守值，能用后再调（每帧都要跑，太大会掉帧）。 */
+    private static final int BEAM_WIDTH = 8;
+    private static final int SEARCH_DEPTH = 5;
 
     private AutoPilot() {
     }
@@ -199,18 +207,22 @@ public final class AutoPilot {
 
     /** 先打未镜像的牌（探索盲区），没有可探索的再打已镜像的（产出对拍）。 */
     private static boolean playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
-        ArrayList<AbstractCard> hand = new ArrayList<AbstractCard>(player.hand.group);
-
-        AbstractCard chosen = firstPlayable(player, hand, attackTarget, Pref.UNMIRRORED);
-        boolean mirrored = chosen == null;
+        AbstractCard chosen = chooseBySearch(player);
+        boolean mirrored = chosen != null && MirrorRegistry.supports(key(chosen));
         if (chosen == null) {
-            chosen = firstPlayable(player, hand, attackTarget, Pref.MIRRORED);
+            // 搜索失败（没镜像/异常）时退回旧策略，保证 AUTO 不会因为搜索挂掉而停摆
+            ArrayList<AbstractCard> hand = new ArrayList<AbstractCard>(player.hand.group);
+            chosen = firstPlayable(player, hand, attackTarget, Pref.UNMIRRORED);
+            mirrored = chosen == null;
+            if (chosen == null) {
+                chosen = firstPlayable(player, hand, attackTarget, Pref.MIRRORED);
+            }
         }
         if (chosen == null) {
             return false;
         }
 
-        String key = chosen.cardID + (chosen.upgraded ? "+" : "");
+        String key = key(chosen);
         AbstractMonster target = resolveTarget(chosen, attackTarget);
         AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
         queuedCard = chosen;
@@ -220,6 +232,68 @@ public final class AutoPilot {
                 + (mirrored ? "  (mirrored, diff)" : "  (unmirrored, record)"));
         cooldown = 6;
         return true;
+    }
+
+    private static String key(AbstractCard card) {
+        return card.cardID + (card.upgraded ? "+" : "");
+    }
+
+    /**
+     * 用 beam search 选牌。
+     *
+     * <p>照蓝本的骨架：动作是候选集合里的一等公民（含「结束回合」），
+     * 见 {@code reference/sts2-combatsolver/src/Search/CombatBeamSolver.Expansion.cs}。
+     *
+     * <p>额外加一条**只在平分时生效**的取舍：同样好的一步，优先挑还没镜像的牌，
+     * 这样既不牺牲决策质量，也不放弃数据采集。
+     */
+    private static AbstractCard chooseBySearch(AbstractPlayer player) {
+        try {
+            SimState snapshot = SimState.capture();
+            BeamSolver solver = new BeamSolver(CombatCapture.baseEnergy(),
+                    player.gameHandSize, BEAM_WIDTH, SEARCH_DEPTH);
+            PlanAction action = solver.bestFirstAction(snapshot);
+            if (action == null || action.kind == PlanAction.Kind.END_TURN) {
+                return null;
+            }
+            if (action.cardIndex < 0 || action.cardIndex >= player.hand.group.size()) {
+                return null;
+            }
+
+            AbstractCard best = player.hand.group.get(action.cardIndex);
+            if (!MirrorRegistry.supports(key(best))) {
+                return best;
+            }
+            // 平分时优先未镜像：找出与所选动作同分的未镜像牌
+            long bestScore = Long.MIN_VALUE;
+            for (SearchNode child : solver.rootChildren(snapshot)) {
+                if (child.action.kind != PlanAction.Kind.PLAY_CARD
+                        || child.action.cardIndex < 0
+                        || child.action.cardIndex >= player.hand.group.size()) {
+                    continue;
+                }
+                AbstractCard candidate = player.hand.group.get(child.action.cardIndex);
+                if (MirrorRegistry.supports(key(candidate))) {
+                    continue;
+                }
+                bestScore = Math.max(bestScore, child.score);
+            }
+            for (SearchNode child : solver.rootChildren(snapshot)) {
+                if (child.action.kind == PlanAction.Kind.PLAY_CARD
+                        && child.score == bestScore
+                        && child.action.cardIndex >= 0
+                        && child.action.cardIndex < player.hand.group.size()) {
+                    AbstractCard candidate = player.hand.group.get(child.action.cardIndex);
+                    if (!MirrorRegistry.supports(key(candidate))) {
+                        return candidate;
+                    }
+                }
+            }
+            return best;
+        } catch (Throwable t) {
+            Trace.warn("search failed, falling back: " + t);
+            return null;
+        }
     }
 
     private enum Pref {

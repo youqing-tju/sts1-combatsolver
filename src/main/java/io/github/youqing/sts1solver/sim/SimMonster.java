@@ -13,6 +13,14 @@ public final class SimMonster {
 
     public int hp;
     public int block;
+
+    /**
+     * 本回合意图伤害（{@code AbstractMonster.getIntentDmg()}）。
+     * 只用于搜索时估算「如果现在结束回合会掉多少血」，**不参与对拍比较**——
+     * 它每回合都会变，而影子并不预测意图。
+     */
+    public int intentDmg;
+
     public final TreeMap<String, Integer> powers;
 
     public SimMonster(String type, int hp, int maxHp, int block, Map<String, Integer> powers) {
@@ -24,7 +32,9 @@ public final class SimMonster {
     }
 
     public SimMonster copy() {
-        return new SimMonster(type, hp, maxHp, block, powers);
+        SimMonster c = new SimMonster(type, hp, maxHp, block, powers);
+        c.intentDmg = intentDmg;
+        return c;
     }
 
     public Map<String, Integer> powersView() {

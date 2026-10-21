@@ -24,6 +24,8 @@ public final class CombatCapture {
     private static boolean armed;
     private static boolean captured;
     private static int framesWaited;
+    /** 战斗开始时的能量值 = 每回合基础能量（搜索模拟回合开始要用）。 */
+    private static int baseEnergy = 3;
 
     /** 兜底：遗物/地形让手牌永远发不满时，等 3 秒也要抓一次，但要留下告警。 */
     private static final int MAX_WAIT_FRAMES = 180;
@@ -46,6 +48,11 @@ public final class CombatCapture {
     /** 本场战斗的根状态是否已经抓过（即首轮发牌已完成）。 */
     public static boolean isCaptured() {
         return captured;
+    }
+
+    /** 每回合基础能量（战斗开始时抓到的值，用于搜索里模拟回合开始）。 */
+    public static int baseEnergy() {
+        return baseEnergy;
     }
 
     public static void tick() {
@@ -99,6 +106,7 @@ public final class CombatCapture {
             }
 
             SimState state = SimState.capture();
+            baseEnergy = Math.max(1, state.energy);   // 首回合能量 = 每回合基础能量
             Trace.info("STATE " + state.shortLine() + "  fp=" + state.fingerprint());
             Trace.info("STATE file " + state.save());
 

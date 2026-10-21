@@ -86,12 +86,18 @@ public final class SimState {
         MonsterGroup group = AbstractDungeon.getMonsters();
         if (group != null && group.monsters != null) {
             for (AbstractMonster m : group.monsters) {
-                s.monsters.add(new SimMonster(
+                SimMonster monster = new SimMonster(
                         m.getClass().getSimpleName(),
                         m.currentHealth,
                         m.maxHealth,
                         m.currentBlock,
-                        powersOf(m.powers)));
+                        powersOf(m.powers));
+                try {
+                    monster.intentDmg = Math.max(0, m.getIntentDmg());
+                } catch (Throwable ignored) {
+                    monster.intentDmg = 0;
+                }
+                s.monsters.add(monster);
             }
         }
 
