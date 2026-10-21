@@ -118,20 +118,17 @@ public final class AutoPilot {
     private static boolean playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
         ArrayList<AbstractCard> hand = new ArrayList<AbstractCard>(player.hand.group);
 
-        AbstractCard chosen = firstPlayable(hand, attackTarget, Pref.UNMIRRORED);
+        AbstractCard chosen = firstPlayable(player, hand, attackTarget, Pref.UNMIRRORED);
         boolean mirrored = chosen == null;
         if (chosen == null) {
-            chosen = firstPlayable(hand, attackTarget, Pref.MIRRORED);
+            chosen = firstPlayable(player, hand, attackTarget, Pref.MIRRORED);
         }
         if (chosen == null) {
             return false;
         }
 
         String key = chosen.cardID + (chosen.upgraded ? "+" : "");
-        AbstractMonster target = needsMonsterTarget(chosen) ? attackTarget : null;
-        if (needsMonsterTarget(chosen) && target == null) {
-            return false;
-        }
+        AbstractMonster target = resolveTarget(chosen, attackTarget);
         AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
         queuedKey = key;
         queuedFrames = 0;
@@ -141,22 +138,12 @@ public final class AutoPilot {
         return true;
     }
 
-    /**
-     * 是否需要指定怪物。**不能只看是不是攻击牌**：缴械（Disarm）、威吓这类
-     * 「指定一个敌人」的技能同样需要目标，传 null 会导致游戏根本不执行这一手，
-     * 牌留在手上 → 自动器反复入队同一张（实测刷了 30+ 次）。
-     */
-    private static boolean needsMonsterTarget(AbstractCard card) {
-        return card.target == AbstractCard.CardTarget.ENEMY
-                || card.type == AbstractCard.CardType.ATTACK;
-    }
-
     private enum Pref {
         UNMIRRORED, MIRRORED
     }
 
-    private static AbstractCard firstPlayable(ArrayList<AbstractCard> hand, AbstractMonster target,
-                                             Pref pref) {
+    private static AbstractCard firstPlayable(AbstractPlayer player, ArrayList<AbstractCard> hand,
+                                             AbstractMonster target, Pref pref) {
         for (AbstractCard card : hand) {
             String key = card.cardID + (card.upgraded ? "+" : "");
             boolean mirrored = MirrorRegistry.supports(key);
@@ -170,12 +157,28 @@ public final class AutoPilot {
             if (cost < 0 || cost > EnergyPanel.totalCount) {
                 continue;
             }
-            if (card.type == AbstractCard.CardType.ATTACK && target == null) {
+            // 关键：可打性交给游戏自己判断。交锋（Clash）要求「手上全是攻击牌」，
+            // 这类条件只有 canUse 知道，靠我们自己拼条件必然漏。
+            AbstractMonster t = resolveTarget(card, target);
+            if (!card.canUse(player, t)) {
+                continue;
+            }
+            if (resolveTargetNeeded(card) && t == null) {
                 continue;
             }
             return card;
         }
         return null;
+    }
+
+    /** 需要指向某个怪物的牌（攻击牌，或 target 标记为 ENEMY 的技能如缴械）。 */
+    private static boolean resolveTargetNeeded(AbstractCard card) {
+        return card.target == AbstractCard.CardTarget.ENEMY
+                || card.type == AbstractCard.CardType.ATTACK;
+    }
+
+    private static AbstractMonster resolveTarget(AbstractCard card, AbstractMonster attackTarget) {
+        return resolveTargetNeeded(card) ? attackTarget : null;
     }
 
     /**
