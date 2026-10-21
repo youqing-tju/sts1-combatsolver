@@ -135,9 +135,9 @@ class CardPlayerTest {
 
     @Test
     void unknownCardIsRejectedNotGuessed() {
-        SimState s = combat("Infernal Blade");
+        SimState s = combat("Discovery");
         ActionRejected ex = assertThrows(ActionRejected.class, () -> CardPlayer.play(s, 0, 0));
-        assertTrue(ex.getMessage().contains("no mirror for card Infernal Blade"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("no mirror for card Discovery"), ex.getMessage());
         assertEquals(4, s.energy, "a rejected action must not spend anything");
     }
 
@@ -157,7 +157,7 @@ class CardPlayerTest {
         assertNotNull(MirrorRegistry.lookup("Bash+"));
         assertNotNull(MirrorRegistry.lookup("Anger"));
         assertNotNull(MirrorRegistry.lookup("Thunderclap+"));
-        assertNull(MirrorRegistry.lookup("Infernal Blade"), "needs the full attack card pool, still unsupported");
+        assertNull(MirrorRegistry.lookup("Discovery"), "needs a three-choice card picker, still unsupported");
         assertTrue(MirrorRegistry.size() >= 28, "batch 2 should be registered: " + MirrorRegistry.size());
     }
 
@@ -497,6 +497,21 @@ class CardPlayerTest {
 
         assertEquals(2, s.hand.size(), "Strike_R + 1 drawn");
         assertEquals("Defend_R", s.draw.get(s.draw.size() - 1).id, "top of the draw pile");
+    }
+
+    @Test
+    void infernalBladeAddsOneFreeAttackAndBurnsExactlyOneRngStep() {
+        SimState s = combat("Infernal Blade");
+        s.rng.put(SimState.RngKind.CARD, RngStream.from(999L, 12345L, 0));
+        int before = s.rng.get(SimState.RngKind.CARD).counter();
+
+        CardPlayer.play(s, 0, 0);
+
+        assertEquals(1, s.hand.size(), "exactly one attack is added");
+        SimCard added = s.hand.get(0);
+        assertTrue(added.baseDamage >= 0, "the card must come from the attack pool: " + added.id);
+        assertEquals(before + 1, s.rng.get(SimState.RngKind.CARD).counter(),
+                "one cardRandomRng step is consumed");
     }
 
     @Test

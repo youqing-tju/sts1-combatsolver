@@ -578,6 +578,43 @@ public final class Effects {
         }
     }
 
+    /**
+     * 随机一张铁甲战士攻击牌加入手牌，本回合费用为 0（地狱之刃 Infernal Blade）。
+     *
+     * <p>复刻依据：{@code AbstractDungeon.returnTrulyRandomCardInCombat(CardType.ATTACK)}
+     * → 取当前角色攻击池 → {@code cardRandomRng.random(...)}，然后
+     * {@code makeCopy()} + {@code setCostForTurn(0)} + 塞进手牌。
+     * 红卡已 74/75 覆盖，池子是完整的。
+     */
+    public static Effect addRandomAttackToHand(final boolean upgraded) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                int size = AttackPool.size();
+                if (size <= 0) {
+                    return;
+                }
+                int index = rng == null ? 0 : rng.random(size - 1);
+                String id = AttackPool.idAt(index);
+                int cost = upgraded ? AttackPool.upgradedCostAt(index) : AttackPool.costAt(index);
+                int dmg = upgraded ? AttackPool.upgradedDamageAt(index) : AttackPool.damageAt(index);
+                // setCostForTurn(0)：本回合免费
+                state.hand.add(new SimCard(id, upgraded, 0, dmg));
+                if (cost < 0) {
+                    // X 费牌本回合仍是 X，交给 XEffect 处理
+                    state.hand.set(state.hand.size() - 1, new SimCard(id, upgraded, -1, dmg));
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "hand+=randomAttack" + (upgraded ? "+" : "");
+            }
+        };
+    }
+
     /** 伤害 = 这张牌当前的卡面伤害（暴走 / 灼烧打击这类会成长的牌）。 */
     public static Effect damageEqualToCardBase() {
         return new Effect() {

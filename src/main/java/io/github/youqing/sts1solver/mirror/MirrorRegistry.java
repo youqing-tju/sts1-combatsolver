@@ -403,6 +403,10 @@ public final class MirrorRegistry {
         // 捕获时读出来即可，不需要我们自己维护成长计数器。
         register("Rampage", Effects.damageEqualToCardBase());
         register("Rampage+", Effects.damageEqualToCardBase());
+
+        // 地狱之刃：随机一张铁甲战士攻击牌加入手牌，本回合 0 费（升级版给升级牌）
+        register("Infernal Blade", Effects.addRandomAttackToHand(false));
+        register("Infernal Blade+", Effects.addRandomAttackToHand(true));
     }
 
     private MirrorRegistry() {
