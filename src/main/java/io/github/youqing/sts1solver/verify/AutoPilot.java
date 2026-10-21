@@ -69,6 +69,10 @@ public final class AutoPilot {
             if (player.isEndingTurn || player.endTurnQueued || !drained()) {
                 return;
             }
+            // 任何界面（选牌网格、牌堆浏览、地图…）打开时都不插手
+            if (AbstractDungeon.isScreenUp) {
+                return;
+            }
             // 发牌还没完成时手牌为空，不能据此判定「无牌可出」而结束回合
             if (player.hand == null || player.hand.size() == 0) {
                 return;
@@ -119,11 +123,25 @@ public final class AutoPilot {
         return true;
     }
 
+    /**
+     * 打出后会弹出「选一张牌」网格的牌。自动器没法替玩家做这个选择，
+     * 强行打会把回合卡住（实测：双持 Dual Wield 之后必须手动点选）。
+     * 这些牌由玩家自己决定何时用；AUTO 直接跳过。
+     */
+    private static final java.util.Set<String> NEEDS_SELECTION =
+            new java.util.HashSet<String>(java.util.Arrays.asList(
+                    "Dual Wield", "Armaments", "Warcry", "Headbutt",
+                    "Exhume", "Burning Pact", "True Grit", "Nightmare", "Setup"
+            ));
+
     private static AbstractCard firstPlayable(ArrayList<AbstractCard> hand, AbstractMonster target,
                                              boolean mirroredOnly) {
         for (AbstractCard card : hand) {
             String key = card.cardID + (card.upgraded ? "+" : "");
             if (mirroredOnly && !MirrorRegistry.supports(key)) {
+                continue;
+            }
+            if (NEEDS_SELECTION.contains(card.cardID)) {
                 continue;
             }
             int cost = effectiveCost(card);

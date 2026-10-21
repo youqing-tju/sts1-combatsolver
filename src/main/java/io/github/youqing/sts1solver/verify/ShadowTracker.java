@@ -99,6 +99,11 @@ public final class ShadowTracker {
             return;
         }
         try {
+            // 选牌网格/地图等界面打开时，状态处于「半途」，连帧计数都要暂停，
+            // 否则 1.5 秒兜底会在界面里强行比对，产生假差异
+            if (AbstractDungeon.isScreenUp) {
+                return;
+            }
             if (pending) {
                 framesAfterPlay++;
                 if (framesAfterPlay < SETTLE_FRAMES) {
@@ -184,7 +189,9 @@ public final class ShadowTracker {
         boolean cardQueueEmpty = am.cardQueue == null || am.cardQueue.isEmpty();
         // limbo 是「打出去但还没落到弃牌堆」的暂存区；这里不空同样说明还没结算完
         boolean limboEmpty = liveLimboSize() == 0;
-        return actionsEmpty && cardQueueEmpty && limboEmpty;
+        // 选牌网格等界面打开时状态是「半途」的，不能用作判据
+        boolean noScreen = !AbstractDungeon.isScreenUp;
+        return actionsEmpty && cardQueueEmpty && limboEmpty && noScreen;
     }
 
     private static boolean inCombat() {
