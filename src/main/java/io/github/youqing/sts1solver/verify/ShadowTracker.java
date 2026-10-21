@@ -119,7 +119,9 @@ public final class ShadowTracker {
             CardPlayer.playByKey(sim, pendingKey, pendingTarget);
         } catch (ActionRejected e) {
             Trace.info("DIFF " + pendingKey + " SKIP (" + e.getMessage() + ")");
-            baseline = null;
+            // 这张牌没镜像，但实机已经走完了 —— 直接把 baseline 拉回真值。
+            // 早期这里置 null，导致紧跟着的下一张牌被判成 no baseline / card not in hand。
+            baseline = SimState.capture();
             return;
         }
 

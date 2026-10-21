@@ -36,6 +36,32 @@ public final class Coverage {
         return keys.size();
     }
 
+    /** 与逐卡核对无关的遗物（不产生战斗内触发）。其余遗物都算「未镜像」。 */
+    private static final java.util.Set<String> INERT_RELICS =
+            new java.util.HashSet<String>(java.util.Arrays.asList(
+                    "Ectoplasm",          // 只影响金币
+                    "Burning Blood",      // 战斗结束才回血
+                    "Anchor",             // 开局格挡，已被根状态捕获
+                    "Bag of Marbles",     // 开局易伤，已被根状态捕获
+                    "Vajra",              // 开局力量，已被根状态捕获
+                    "Bag of Preparation"  // 开局多抽两张，已被根状态捕获
+            ));
+
+    /**
+     * 遗物触发是逐卡核对的头号噪声源：例如 Shuriken 每 3 次攻击给 1 力量，
+     * 会让「影子算的伤害」和实机从第三张牌起全部对不上。
+     * 目前还镜像不了遗物，所以把未镜像的列出来，让读数的人知道噪声从哪来。
+     */
+    public static List<String> unmirroredRelics(SimState state) {
+        List<String> out = new ArrayList<String>();
+        for (String id : state.relics.keySet()) {
+            if (!INERT_RELICS.contains(id)) {
+                out.add(id);
+            }
+        }
+        return out;
+    }
+
     private static void collect(List<SimCard> cards, Set<String> missing) {
         for (SimCard c : cards) {
             if (!MirrorRegistry.supports(c.key())) {

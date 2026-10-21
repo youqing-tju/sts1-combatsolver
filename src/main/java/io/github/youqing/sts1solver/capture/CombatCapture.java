@@ -85,6 +85,13 @@ public final class CombatCapture {
                     + " unsupported=" + missing.size()
                     + (missing.isEmpty() ? "" : " " + missing));
 
+            List<String> noisyRelics = Coverage.unmirroredRelics(state);
+            if (!noisyRelics.isEmpty()) {
+                Trace.warn("RELIC 未镜像的遗物 " + noisyRelics.size() + " " + noisyRelics
+                        + " —— 它们的战斗内触发会让后面的 diff 变成噪声，"
+                        + "要干净的验证数据请用「只有起手牌组 + 无触发遗物」的开局");
+            }
+
             Trace.info("RNG " + RngForkProbe.run());
             ShadowTracker.resetCounters();
             ShadowTracker.setBaseline(state);
