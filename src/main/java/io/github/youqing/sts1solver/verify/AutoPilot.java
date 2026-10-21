@@ -60,6 +60,25 @@ public final class AutoPilot {
         return enabled;
     }
 
+    /**
+     * 每场战斗开始时清掉上一场的残留状态。
+     *
+     * <p>复刻蓝本 {@code SolverController.BeginCombat} 的第一行：{@code ResetCore("combat_starting")}——
+     * 它也是先清空再从零开始（`reference/sts2-combatsolver/src/Runtime/SolverController.cs:588`）。
+     * 不清的话，上一场留下的「无进展计数」「回合切换阶段」会让新战斗一开局就结束回合或原地卡住。
+     *
+     * <p>注意：{@code enabled} 属于玩家开关，跨战斗保留；清的是每场战斗的运行时状态。
+     */
+    public static void reset() {
+        cooldown = 0;
+        queuedCard = null;
+        queuedFrames = 0;
+        noProgressEndTurns = 0;
+        endPhase = 0;
+        endPhaseFrames = 0;
+        Trace.info("AUTO state reset (combat boundary)");
+    }
+
     public static void toggle() {
         enabled = !enabled;
         cooldown = 0;

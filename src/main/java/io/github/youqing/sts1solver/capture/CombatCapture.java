@@ -11,6 +11,7 @@ import io.github.youqing.sts1solver.mirror.Coverage;
 import io.github.youqing.sts1solver.mirror.MirrorRegistry;
 import io.github.youqing.sts1solver.sim.SimState;
 import io.github.youqing.sts1solver.ui.SolverPanel;
+import io.github.youqing.sts1solver.verify.AutoPilot;
 import io.github.youqing.sts1solver.verify.ShadowTracker;
 
 /**
@@ -38,6 +39,7 @@ public final class CombatCapture {
         captured = false;
         framesWaited = 0;
         ShadowTracker.reset();
+        AutoPilot.reset();
         Trace.info("combat entry detected, waiting for deal");
     }
 
@@ -54,6 +56,11 @@ public final class CombatCapture {
             }
             // 离开战斗就复位，下一场重新捕获
             if (room.phase != AbstractRoom.RoomPhase.COMBAT) {
+                if (armed) {
+                    // 复刻蓝本的 CombatEndedEvent -> SolverController.Reset("combat_ended")
+                    Trace.info("combat ended, state cleared");
+                    AutoPilot.reset();
+                }
                 armed = false;
                 captured = false;
                 return;
