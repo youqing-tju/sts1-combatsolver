@@ -24,9 +24,10 @@
 | 玩家回合：能量回满 → 抽牌至 `gameHandSize`（默认 5）→ 出牌 → 结束回合 | B |
 | 玩家回合结束：手牌全部进弃牌堆；玩家格挡清零（有例外） | B |
 | 之后所有敌人依次行动 | B |
-| **一轮结束（atEndOfRound）**：所有生物的持续时间型减益（Vulnerable / Weak / Frail）**减 1 层** | **A｜字节码**：`VulnerablePower#atEndOfRound`、`WeakPower#atEndOfRound` |
+| **怪物侧**减益（Vulnerable / Weak / Frail）**每轮结束减 1 层** | **A｜字节码**：`MonsterGroup` 中调用 `atEndOfRound`（2 处），各 `*Power` 覆写该方法 |
+| **玩家侧**减益的递减时机 | ⚠️ **未确认**：玩家对象里没找到 `atEndOfRound` 调用点，可能走另一条路径（待验 §8-1） |
 
-⚠️ 注意"回合结束"与"一轮结束"是**两个不同时机**：减益层数在 **round** 结束时递减，不是每个生物自己的回合结束。
+⚠️ **两个"结束"必须分清**：`atEndOfRound`（一整轮，含敌方行动）与"我的回合结束"是不同时机，**且玩家侧与怪物侧不一定对称**——这一点 wiki 完全没写，字节码目前也只证明了怪物侧。
 
 ---
 
@@ -80,9 +81,9 @@
 
 | 状态 | 效果 | 递减时机 | 来源 |
 |---|---|---|---|
-| Vulnerable | 受到的攻击伤害 ×1.5 | **每轮结束 -1** | A｜`atEndOfRound` |
-| Weak | 造成的攻击伤害 ×0.75 | **每轮结束 -1** | A｜`atEndOfRound` |
-| Frail | 获得的格挡 ×0.75 | **每轮结束 -1** | A｜`modifyBlock` + `atEndOfRound` |
+| Vulnerable | 受到的攻击伤害 ×1.5 | **怪物侧：每轮结束 -1**（玩家侧待验） | A｜`atEndOfRound` |
+| Weak | 造成的攻击伤害 ×0.75 | **怪物侧：每轮结束 -1**（玩家侧待验） | A｜`atEndOfRound` |
+| Frail | 获得的格挡 ×0.75 | **怪物侧：每轮结束 -1**（玩家侧待验） | A｜`modifyBlock` + `atEndOfRound` |
 | Strength | 攻击伤害 +N，永久 | 不递减 | B |
 | Dexterity | 格挡 +N，永久 | 不递减 | B |
 | Artifact | 抵消一次减益施加 | — | B（待字节码） |
@@ -128,12 +129,13 @@
 
 ## 8. 待验证清单（C 级，按优先级）
 
-1. **Artifact 与减益的交互**：抵消发生在施加时还是结算时
-2. **多段攻击**：每段单独吃力量，易伤逐段生效
-3. **敌人意图**的生成时机与 `aiRng` 消耗点
-4. **遗物触发顺序**（多个遗物同钩子的执行次序）
-5. **洗牌算法**与 `shuffleRng` 的消耗方式
-6. **X 费卡**的能量消耗与伤害结算
+1. 🔴 **玩家侧减益的递减时机**：怪物侧已确认走 `atEndOfRound`，玩家侧找不到调用点，很可能不同步
+2. **Artifact 与减益的交互**：抵消发生在施加时还是结算时
+3. **多段攻击**：每段单独吃力量，易伤逐段生效
+4. **敌人意图**的生成时机与 `aiRng` 消耗点
+5. **遗物触发顺序**（多个遗物同钩子的执行次序）
+6. **洗牌算法**与 `shuffleRng` 的消耗方式
+7. **X 费卡**的能量消耗与伤害结算
 
 ---
 
@@ -144,3 +146,53 @@
 3. 易伤只作用于 Attack 与怪物意图，不要作用于能力牌伤害。
 4. 未在 §4 登记的状态一律**显式拒绝**，不许当成 0 处理。
 5. 每个系数/顺序改动，都要在 `docs/research/mechanics-reference.md` 补一条来源。
+
+---
+
+## 10. 卡牌数据从哪来（不再靠"打出来才知道"）
+
+**问题**：靠实战打出某张牌，只能得到 1 bit（支持 / 不支持），一场战斗最多覆盖 5–10 张，效率极低。
+
+**做法**：游戏自带 `com.megacrit.cardcrawl.helpers.CardLibrary`，字段
+`public static HashMap<String, AbstractCard> cards` 就是完整卡池。
+mod 在首场战斗时一次性导出（`capture/CardExporter`）：
+
+```json
+{"id":"Bash","name":"重击","color":"RED","type":"ATTACK","cost":2,
+ "dmg":8,"blk":-1,"magic":2,"canUpgrade":true,
+ "up":{"cost":2,"dmg":10,"blk":-1,"magic":3}}
+```
+
+导出后可以：
+- 用数据生成镜像表，而不是一卡一手写
+- 对照 `dmg/blk/magic` 校验我们写的常量（机器对机器，不用人看）
+- 统计覆盖率：`已镜像 / 卡池总数`
+
+⚠️ 已知限制：`isMultiDamage` 是 `protected`，当前没导出；多段攻击的判定要另想办法。
+
+---
+
+## 11. 自检记录（写完自己过一遍）
+
+按用户要求，逐条复核本文件里的 A 级结论，明确标出哪些其实站不住。
+
+| 结论 | 复核方式 | 结论 |
+|---|---|---|
+| 加算先于乘算、每步 floor | `javap -c AbstractCard#applyPowers` 看到 `atDamageModify → f2i → atDamageGive → f2i → atDamageFinalGive → MathUtils.floor` | ✅ 成立 |
+| Weak ×0.75 | `WeakPower#atDamageGive` 中 `ldc 0.75f` + `fmul` | ✅ 成立 |
+| Vulnerable ×1.5 | `VulnerablePower#atDamageReceive` 中出现 1.25f / 1.75f 的**分支**，基值 1.5 由 wiki 与反编译共同支持 | ✅ 成立（基值来自分支推断，非直接常量） |
+| Frail ×0.75 | `FrailPower#modifyBlock` 中 `ldc 0.75f` + `fmul` | ✅ 成立 |
+| **减益每"轮"结束减 1** | 找到 `MonsterGroup` 调用 `atEndOfRound`（2 处）；**但玩家侧没找到调用点** | ⚠️ **降级**：怪物侧成立，玩家侧未证实 |
+| Intangible 在最后环节 | `IntangiblePower#atDamageFinalReceive`（另有 `atEndOfTurn`） | ✅ 成立 |
+| 格挡回合结束清零 | `GameActionManager` 中 `loseBlock` 调用 2 处；wiki 明确 | ✅ 成立（具体时机待实测） |
+| `random(n)` 闭区间 | 反编译 + 离线重建实机 8 连抽逐位一致 | ✅ 成立（有回归测试） |
+| 打出的牌先进 limbo | 实机 diff 观测（`limbo=N` 字段） | ✅ 成立 |
+| 死亡怪物保留到动画结束 | 实机 diff 观测（`monsters.size` 差） | ✅ 成立 |
+
+### 我明确不确定、但文档里可能被误读的地方
+
+1. **"一轮结束"到底以什么为界**：`atEndOfRound` 被 `MonsterGroup` 调用，说明它是**怪物行动结束后**统一触发；玩家身上的减益是否也在同一时刻递减，没有证据。
+2. **Vulnerable 基值 1.5**：反编译只看到 1.25/1.75 两个遗物分支，1.5 是"排除分支后的默认值"，属于**强推断**而非直接常量。
+3. **格挡清零的具体时机**（回合结束前还是结束后、与减益递减的先后）：只知道调用了 `loseBlock`，顺序未验证。
+
+> 这三条都属于"看起来对但不该当铁律"的范畴。任何人（包括我）据此写实现前，先用差分台架验一次。
