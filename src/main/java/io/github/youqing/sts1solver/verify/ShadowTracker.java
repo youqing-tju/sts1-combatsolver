@@ -45,6 +45,8 @@ public final class ShadowTracker {
     private static int mismatches;
 
     private static final int SETTLE_FRAMES = 2;
+    /** 兜底：某张牌让 limbo 一直不空时，等 1.5 秒也要出结论，并标记 forced。 */
+    private static final int MAX_PENDING_FRAMES = 90;
     private static final int MAX_LOGGED_DIFFS = 6;
 
     private ShadowTracker() {
@@ -56,6 +58,11 @@ public final class ShadowTracker {
         pending = false;
         pendingKey = null;
         framesAfterPlay = 0;
+    }
+
+    /** Seeds the baseline at combat start so the very first card is already comparable. */
+    public static void setBaseline(SimState state) {
+        baseline = state == null ? null : state.copy();
     }
 
     public static void resetCounters() {
@@ -85,10 +92,14 @@ public final class ShadowTracker {
         try {
             if (pending) {
                 framesAfterPlay++;
-                if (framesAfterPlay < SETTLE_FRAMES || !actionsDrained()) {
+                if (framesAfterPlay < SETTLE_FRAMES) {
                     return;
                 }
-                resolve();
+                if (actionsDrained()) {
+                    resolve(false);
+                } else if (framesAfterPlay >= MAX_PENDING_FRAMES) {
+                    resolve(true);
+                }
                 return;
             }
             if (actionsDrained() && !AbstractDungeon.player.isEndingTurn) {
@@ -99,7 +110,7 @@ public final class ShadowTracker {
         }
     }
 
-    private static void resolve() {
+    private static void resolve(boolean forced) {
         pending = false;
         SimState sim = pre.copy();
         pre = null;
@@ -116,15 +127,22 @@ public final class ShadowTracker {
         // 死亡动画期间游戏仍保留 0 血怪物，两边先归一化，否则长度差异与这张牌无关
         List<String> diffs = sim.dropDeadMonsters().diff(live.dropDeadMonsters());
         comparisons++;
+        String tag = forced ? " (forced after " + framesAfterPlay + "f)" : "";
         if (diffs.isEmpty()) {
             matches++;
-            Trace.info("DIFF " + pendingKey + " MATCH  (" + matches + "/" + comparisons + ")");
+            Trace.info("DIFF " + pendingKey + " MATCH  (" + matches + "/" + comparisons + ")" + tag);
         } else {
             mismatches++;
             Trace.info("DIFF " + pendingKey + " MISMATCH " + diffs.size()
-                    + " field(s) (" + matches + "/" + comparisons + "): " + head(diffs));
+                    + " field(s) (" + matches + "/" + comparisons + ")"
+                    + " limbo=" + liveLimboSize() + tag + ": " + head(diffs));
         }
         baseline = live;
+    }
+
+    private static int liveLimboSize() {
+        return AbstractDungeon.player == null || AbstractDungeon.player.limbo == null
+                ? -1 : AbstractDungeon.player.limbo.size();
     }
 
     private static String head(List<String> diffs) {
@@ -137,9 +155,11 @@ public final class ShadowTracker {
     private static boolean actionsDrained() {
         com.megacrit.cardcrawl.actions.GameActionManager am = AbstractDungeon.actionManager;
         boolean actionsEmpty = am.actions == null || am.actions.isEmpty();
-        // 关键：卡牌动画队列未空时，牌还没真正进入弃牌堆，此时比对必然差一张
+        // 卡牌动画队列未空时，牌还没真正进入弃牌堆
         boolean cardQueueEmpty = am.cardQueue == null || am.cardQueue.isEmpty();
-        return actionsEmpty && cardQueueEmpty;
+        // limbo 是「打出去但还没落到弃牌堆」的暂存区；这里不空同样说明还没结算完
+        boolean limboEmpty = liveLimboSize() == 0;
+        return actionsEmpty && cardQueueEmpty && limboEmpty;
     }
 
     private static boolean inCombat() {

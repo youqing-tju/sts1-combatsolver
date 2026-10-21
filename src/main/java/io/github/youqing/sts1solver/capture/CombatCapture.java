@@ -87,6 +87,7 @@ public final class CombatCapture {
 
             Trace.info("RNG " + RngForkProbe.run());
             ShadowTracker.resetCounters();
+            ShadowTracker.setBaseline(state);
             SolverPanel.onCombatStart(state.shortLine());
         } catch (Throwable t) {
             Trace.error("combat capture failed", t);
