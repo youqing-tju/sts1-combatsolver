@@ -75,8 +75,8 @@ class CardPlayerTest {
 
         CardPlayer.play(s, 0, 0);
 
-        // (6 + 2) * 1.5 = 12 -> the slime dies and is removed
-        assertTrue(s.monsters.isEmpty(), "lethal damage removes the monster");
+        // (6 + 2) * 1.5 = 12 -> lethal; the monster stays at 0 HP until the game removes it
+        assertEquals(0, s.monsters.get(0).hp, "lethal damage must land");
     }
 
     @Test

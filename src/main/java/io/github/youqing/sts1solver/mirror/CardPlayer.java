@@ -44,7 +44,8 @@ public final class CardPlayer {
         }
 
         state.discard.add(card);
-        removeDeadMonsters(state);
+        // 不在这里移除死亡怪物：游戏会保留 0 血单位直到死亡动画播完。
+        // 影子若立刻删除，怪物列表长度就和实机对不上，核对前统一做归一化。
     }
 
     /**
@@ -60,14 +61,5 @@ public final class CardPlayer {
             }
         }
         throw new ActionRejected("card not in hand: " + cardKey);
-    }
-
-    /** The game removes a monster once its death animation ends; the shadow state removes it at once. */
-    private static void removeDeadMonsters(SimState state) {
-        for (int i = state.monsters.size() - 1; i >= 0; i--) {
-            if (state.monsters.get(i).hp <= 0) {
-                state.monsters.remove(i);
-            }
-        }
     }
 }

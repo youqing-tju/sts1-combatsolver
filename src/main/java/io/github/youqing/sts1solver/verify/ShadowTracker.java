@@ -113,7 +113,8 @@ public final class ShadowTracker {
         }
 
         SimState live = SimState.capture();
-        List<String> diffs = sim.diff(live);
+        // 死亡动画期间游戏仍保留 0 血怪物，两边先归一化，否则长度差异与这张牌无关
+        List<String> diffs = sim.dropDeadMonsters().diff(live.dropDeadMonsters());
         comparisons++;
         if (diffs.isEmpty()) {
             matches++;
@@ -134,8 +135,11 @@ public final class ShadowTracker {
     }
 
     private static boolean actionsDrained() {
-        java.util.ArrayList<AbstractGameAction> actions = AbstractDungeon.actionManager.actions;
-        return actions == null || actions.isEmpty();
+        com.megacrit.cardcrawl.actions.GameActionManager am = AbstractDungeon.actionManager;
+        boolean actionsEmpty = am.actions == null || am.actions.isEmpty();
+        // 关键：卡牌动画队列未空时，牌还没真正进入弃牌堆，此时比对必然差一张
+        boolean cardQueueEmpty = am.cardQueue == null || am.cardQueue.isEmpty();
+        return actionsEmpty && cardQueueEmpty;
     }
 
     private static boolean inCombat() {

@@ -159,7 +159,6 @@ public final class SimState {
     }
 
     // -------------------------------------------------------------------- diff
-
     /**
      * Field-by-field comparison. Empty result means the two states are identical.
      * This is what the A1/A2 acceptance gates are built on.
@@ -175,7 +174,8 @@ public final class SimState {
         cmp(out, "energy", energy, o.energy);
 
         diffMap(out, "playerPowers", playerPowers, o.playerPowers);
-        diffCards(out, "hand", hand, o.hand);
+        // 手牌顺序对策略没有意义（同名牌完全等价），按多重集比较，避免位置噪声淹没真问题
+        diffHand(out, "hand", hand, o.hand);
         diffCards(out, "draw", draw, o.draw);
         diffCards(out, "discard", discard, o.discard);
         diffCards(out, "exhaust", exhaust, o.exhaust);
@@ -246,6 +246,36 @@ public final class SimState {
                 out.add(path + "[" + i + "]: " + a.get(i) + " vs " + b.get(i));
             }
         }
+    }
+
+    /** Hand order carries no strategic meaning, so it is compared as a multiset. */
+    private static void diffHand(List<String> out, String path, List<SimCard> a, List<SimCard> b) {
+        List<SimCard> x = new ArrayList<SimCard>(a);
+        List<SimCard> y = new ArrayList<SimCard>(b);
+        java.util.Collections.sort(x, BY_KEY);
+        java.util.Collections.sort(y, BY_KEY);
+        diffCards(out, path + "(unordered)", x, y);
+    }
+
+    private static final java.util.Comparator<SimCard> BY_KEY = new java.util.Comparator<SimCard>() {
+        @Override
+        public int compare(SimCard left, SimCard right) {
+            return left.key().compareTo(right.key());
+        }
+    };
+
+    /**
+     * Removes monsters at 0 HP. The game keeps them during the death animation, so any
+     * comparison must normalize both sides first — otherwise the list length differs for
+     * reasons that have nothing to do with the simulated card.
+     */
+    public SimState dropDeadMonsters() {
+        for (int i = monsters.size() - 1; i >= 0; i--) {
+            if (monsters.get(i).hp <= 0) {
+                monsters.remove(i);
+            }
+        }
+        return this;
     }
 
     // ------------------------------------------------------------------- output

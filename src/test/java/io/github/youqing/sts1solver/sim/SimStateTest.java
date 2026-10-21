@@ -88,4 +88,38 @@ class SimStateTest {
         assertEquals("Bash+", new SimCard("Bash", true, 2).key());
         assertEquals("Bash", new SimCard("Bash", false, 2).key());
     }
+
+    @Test
+    void handOrderIsNotADifference() {
+        SimState a = sample();
+        SimState b = a.copy();
+        java.util.Collections.reverse(b.hand);
+
+        assertTrue(a.diff(b).isEmpty(),
+                "the same cards in a different order are the same hand: " + a.diff(b));
+    }
+
+    @Test
+    void drawOrderStillIsADifference() {
+        SimState a = sample();
+        SimState b = a.copy();
+        b.draw.add(0, new SimCard("Strike_R", false, 1));
+
+        assertTrue(a.diff(b).toString().contains("draw.size"), "draw pile order/length matters");
+    }
+
+    @Test
+    void deadMonsterPresenceIsIgnoredAfterNormalisation() {
+        // 影子保留 0 血怪物，游戏在死亡动画结束后才移除 —— 两边描述的是同一件事
+        SimState shadow = sample();
+        shadow.monsters.get(0).hp = 0;
+
+        SimState live = sample();
+        live.monsters.clear();
+
+        assertTrue(shadow.diff(live).toString().contains("monsters.size"),
+                "raw diff still sees the length difference");
+        assertTrue(shadow.dropDeadMonsters().diff(live.dropDeadMonsters()).isEmpty(),
+                "after dropping 0-HP monsters the two sides agree");
+    }
 }
