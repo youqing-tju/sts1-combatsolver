@@ -11,10 +11,22 @@ public final class SimCard {
     /** Current cost: 0..3 normal, -1 = X cost, -2 = unplayable. */
     public final int cost;
 
+    /**
+     * 卡面当前伤害（{@code AbstractCard.baseDamage}）。
+     * 暴走每次打出 +5、灼烧打击多次升级，都会体现到这个值上，
+     * 所以镜像直接用「卡面伤害」比用固定常数更准。
+     */
+    public final int baseDamage;
+
     public SimCard(String id, boolean upgraded, int cost) {
+        this(id, upgraded, cost, -1);
+    }
+
+    public SimCard(String id, boolean upgraded, int cost, int baseDamage) {
         this.id = id;
         this.upgraded = upgraded;
         this.cost = cost;
+        this.baseDamage = baseDamage;
     }
 
     /** Stable key used by fingerprints and the mirror registry: {@code Strike_R+}. */
@@ -23,7 +35,7 @@ public final class SimCard {
     }
 
     public SimCard withCost(int newCost) {
-        return new SimCard(id, upgraded, newCost);
+        return new SimCard(id, upgraded, newCost, baseDamage);
     }
 
     @Override

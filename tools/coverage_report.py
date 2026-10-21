@@ -70,7 +70,8 @@ SKIP_COLORS = {"CURSE", "STATUS"}
 def registered_keys(path: Path):
     text = path.read_text(encoding="utf-8")
     keys = set()
-    for m in re.finditer(r'register(?:Exhaust)?\("([^"]+)"', text):
+    # 匹配所有 register / registerExhaust / registerHpCosted / registerDrawFrom* 等变体
+    for m in re.finditer(r'register\w*\("([^"]+)"', text):
         keys.add(m.group(1))
     return keys
 

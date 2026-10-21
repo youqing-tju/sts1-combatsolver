@@ -19,6 +19,31 @@ public final class CardPlayer {
     private CardPlayer() {
     }
 
+    /**
+     * 强制打出一张**不在手牌里**的牌（破灭 Havoc：打出抽牌堆顶那张）。
+     * 不检查也不扣能量 —— 游戏里这类效果是免费的。
+     */
+    public static void playFromPile(SimState state, SimCard card, int targetIndex) {
+        CardMirror mirror = MirrorRegistry.lookup(card.key());
+        if (mirror == null) {
+            throw new ActionRejected("no mirror for card " + card.key());
+        }
+        for (Effect effect : mirror.effects) {
+            if (effect instanceof XEffect) {
+                ((XEffect) effect).applyWithX(state, targetIndex, card, 0);
+            } else if (effect instanceof ChoiceEffect) {
+                ((ChoiceEffect) effect).applyWithChoice(state, targetIndex, card, -1);
+            } else {
+                effect.applyTo(state, targetIndex, card);
+            }
+        }
+        if (mirror.exhaustsOnPlay) {
+            Effects.exhaustCard(state, card);
+        } else {
+            state.discard.add(card);
+        }
+    }
+
     public static void play(SimState state, int handIndex, int targetIndex) {
         play(state, handIndex, targetIndex, -1);
     }
@@ -32,6 +57,12 @@ public final class CardPlayer {
         if (mirror == null) {
             throw new ActionRejected("no mirror for card " + card.key());
         }
+        // 动态费用（浴血奋战：本场每损失一次 HP，费用 -1，最低 0）
+        int effectiveCost = card.cost;
+        if (mirror.costDropsWithHpLoss && effectiveCost > 0) {
+            effectiveCost = Math.max(0, effectiveCost - state.hpLossCount);
+        }
+
         // cost == -1 是 X 费：出牌时消耗全部能量，效果按 X 结算（旋风斩）
         int xValue = 0;
         if (card.cost < 0) {
@@ -41,11 +72,11 @@ public final class CardPlayer {
             xValue = state.energy;
             state.energy = 0;
         } else {
-            if (card.cost > state.energy) {
+            if (effectiveCost > state.energy) {
                 throw new ActionRejected("not enough energy for " + card.key()
-                        + " (need " + card.cost + ", have " + state.energy + ")");
+                        + " (need " + effectiveCost + ", have " + state.energy + ")");
             }
-            state.energy -= card.cost;
+            state.energy -= effectiveCost;
         }
         state.hand.remove(handIndex);
 
@@ -60,7 +91,7 @@ public final class CardPlayer {
         }
 
         if (mirror.exhaustsOnPlay) {
-            state.exhaust.add(card);
+            Effects.exhaustCard(state, card);
         } else {
             state.discard.add(card);
         }

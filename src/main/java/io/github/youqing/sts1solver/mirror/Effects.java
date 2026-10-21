@@ -200,6 +200,7 @@ public final class Effects {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 state.hp = Math.max(0, state.hp - amount);
+                state.hpLossCount++;
             }
 
             @Override
@@ -385,7 +386,7 @@ public final class Effects {
                         continue;      // 攻击牌保留，非攻击牌才消耗
                     }
                     it.remove();
-                    state.exhaust.add(c);
+                    exhaustCard(state, c);
                     count++;
                 }
                 state.block += DamageCalc.blockAmount(state, blockPer * count);
@@ -410,7 +411,7 @@ public final class Effects {
                         continue;      // 攻击牌保留，非攻击牌才消耗
                     }
                     it.remove();
-                    state.exhaust.add(c);
+                    exhaustCard(state, c);
                 }
             }
 
@@ -428,7 +429,9 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
                 int count = state.hand.size();
-                state.exhaust.addAll(state.hand);
+                for (SimCard c : new java.util.ArrayList<SimCard>(state.hand)) {
+                    exhaustCard(state, c);
+                }
                 state.hand.clear();
                 for (int i = 0; i < count; i++) {
                     DamageCalc.hit(state, target, DamageCalc.attackDamage(state, damagePer, target));
@@ -559,6 +562,139 @@ public final class Effects {
         };
     }
 
+    /**
+     * 统一的「消耗一张牌」入口。
+     * 哨兵（Sentinel）在**被消耗**时回 2 点能量，所以所有消耗路径都必须走这里，
+     * 否则那张牌的触发会被漏掉。
+     */
+    public static void exhaustCard(SimState state, SimCard card) {
+        if (card == null) {
+            return;
+        }
+        state.exhaust.add(card);
+        if ("Sentinel".equals(card.id) || "Sentinel+".equals(card.id)
+                || "Sentinel".equals(card.id)) {
+            state.energy += 2;
+        }
+    }
+
+    /** 伤害 = 这张牌当前的卡面伤害（暴走 / 灼烧打击这类会成长的牌）。 */
+    public static Effect damageEqualToCardBase() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                int base = played == null || played.baseDamage < 0 ? 0 : played.baseDamage;
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+
+            @Override
+            public String toString() {
+                return "damage(=card base)";
+            }
+        };
+    }
+
+    /** 打出抽牌堆顶那张，然后把它消耗掉（破灭 Havoc）。 */
+    public static Effect playTopOfDrawPile() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                if (state.draw.isEmpty()) {
+                    return;
+                }
+                SimCard top = state.draw.remove(state.draw.size() - 1);
+                try {
+                    io.github.youqing.sts1solver.mirror.CardPlayer.playFromPile(state, top, targetIndex);
+                } catch (ActionRejected unsupported) {
+                    // 没镜像的牌：打不出去，直接进消耗堆（与游戏一致：破灭会把它消耗）
+                    state.exhaust.add(top);
+                    return;
+                }
+                // 破灭规则：打完之后该牌被消耗（若上一步已进消耗堆就不重复）
+                if (!state.exhaust.contains(top)) {
+                    state.exhaust.add(top);
+                    if (state.discard.remove(top)) {
+                        // 从弃牌堆移走
+                    }
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "play(top of draw)+exhaust";
+            }
+        };
+    }
+
+    /** 复制指定手牌 1/2 张（双持 Dual Wield）。 */
+    public static Effect copyChosenToHand(final int copies) {
+        return new ChoiceEffect() {
+            @Override
+            public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
+                if (choiceIndex < 0 || choiceIndex >= state.hand.size()) {
+                    return;
+                }
+                SimCard src = state.hand.get(choiceIndex);
+                for (int i = 0; i < copies; i++) {
+                    state.hand.add(new SimCard(src.id, src.upgraded, src.cost));
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "copy(chosen)x" + copies;
+            }
+        };
+    }
+
+    /** 从消耗堆取回一张牌到手牌（发掘 Exhume）。 */
+    public static Effect retrieveFromExhaust() {
+        return new ChoiceEffect() {
+            @Override
+            public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
+                if (choiceIndex < 0 || choiceIndex >= state.exhaust.size()) {
+                    return;
+                }
+                state.hand.add(state.exhaust.remove(choiceIndex));
+            }
+
+            @Override
+            public String toString() {
+                return "hand+=exhaust[chosen]";
+            }
+        };
+    }
+
+    /** 造成伤害后，把弃牌堆里指定的一张放到抽牌堆顶（头槌 Headbutt）。 */
+    public static Effect damageThenTopFromDiscard(final int base) {
+        return new ChoiceEffect() {
+            @Override
+            public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
+                SimMonster target = requireTarget(state, targetIndex);
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+                if (choiceIndex >= 0 && choiceIndex < state.discard.size()) {
+                    state.draw.add(state.discard.remove(choiceIndex));
+                }
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+
+            @Override
+            public String toString() {
+                return "damage(" + base + ")+top(discard[chosen])";
+            }
+        };
+    }
+
     /** 随机消耗一张手牌（真坚毅 True Grit 原版）。 */
     public static Effect exhaustRandomHandCard() {
         return new Effect() {
@@ -570,7 +706,7 @@ public final class Effects {
                 io.github.youqing.sts1solver.sim.RngStream rng =
                         state.rng.get(SimState.RngKind.CARD);
                 int index = rng == null ? 0 : rng.random(state.hand.size() - 1);
-                state.exhaust.add(state.hand.remove(Math.min(index, state.hand.size() - 1)));
+                exhaustCard(state, state.hand.remove(Math.min(index, state.hand.size() - 1)));
             }
 
             @Override
@@ -586,7 +722,7 @@ public final class Effects {
             @Override
             public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
                 if (choiceIndex >= 0 && choiceIndex < state.hand.size()) {
-                    state.exhaust.add(state.hand.remove(choiceIndex));
+                    exhaustCard(state, state.hand.remove(choiceIndex));
                 }
             }
 
@@ -760,7 +896,7 @@ public final class Effects {
             @Override
             public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
                 if (choiceIndex >= 0 && choiceIndex < state.hand.size()) {
-                    state.exhaust.add(state.hand.remove(choiceIndex));
+                    exhaustCard(state, state.hand.remove(choiceIndex));
                 }
                 draw(drawCount).applyTo(state, targetIndex, played);
             }

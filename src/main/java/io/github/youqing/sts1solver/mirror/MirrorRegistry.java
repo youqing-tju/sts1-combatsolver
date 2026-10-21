@@ -370,6 +370,39 @@ public final class MirrorRegistry {
         // 洞见：0 费抽 2/3，消耗
         registerExhaust("Insight", Effects.draw(2));
         registerExhaust("Insight+", Effects.draw(3));
+
+        // ---- 第十一批：补齐 RED 剩余机制 ---------------------------------------
+        // 双持：复制一张手牌 1/2 张（原版已升级版复制 2 张）
+        register("Dual Wield", Effects.copyChosenToHand(1));
+        register("Dual Wield+", Effects.copyChosenToHand(2));
+
+        // 发掘：从消耗堆取回一张牌
+        registerDrawFromExhaust("Exhume", java.util.Arrays.<Effect>asList(
+                Effects.retrieveFromExhaust()));
+        registerExhaust("Exhume+", Arrays.asList(Effects.retrieveFromExhaust()));
+
+        // 头槌：9/12 伤 + 弃牌堆一张放回牌堆顶
+        registerDrawFromDiscard("Headbutt", java.util.Arrays.<Effect>asList(
+                Effects.damageThenTopFromDiscard(9)));
+        registerDrawFromDiscard("Headbutt+", java.util.Arrays.<Effect>asList(
+                Effects.damageThenTopFromDiscard(12)));
+
+        // 哨兵：5/8 格挡（被消耗时回 2 能量，见 Effects.exhaustCard）
+        register("Sentinel", Effects.block(5));
+        register("Sentinel+", Effects.block(8));
+
+        // 浴血奋战：18/22 伤，本场每损失一次 HP 费用 -1（最低 0）
+        registerHpCosted("Blood for Blood", Effects.damage(18));
+        registerHpCosted("Blood for Blood+", Effects.damage(22));
+
+        // 破灭：打出抽牌堆顶那张，然后消耗它
+        register("Havoc", Effects.playTopOfDrawPile());
+        register("Havoc+", Effects.playTopOfDrawPile());
+
+        // 暴走：伤害用「卡面伤害」——游戏每次打出都会把 +5 写进 baseDamage，
+        // 捕获时读出来即可，不需要我们自己维护成长计数器。
+        register("Rampage", Effects.damageEqualToCardBase());
+        register("Rampage+", Effects.damageEqualToCardBase());
     }
 
     private MirrorRegistry() {
@@ -381,6 +414,22 @@ public final class MirrorRegistry {
 
     private static void register(String key, java.util.List<Effect> effects) {
         CARDS.put(key, new CardMirror(key, effects));
+    }
+
+    /** 选牌来自弃牌堆的牌（头槌）。 */
+    private static void registerDrawFromDiscard(String key, java.util.List<Effect> effects) {
+        CARDS.put(key, new CardMirror(key, effects, false, CardMirror.ChoicePile.DISCARD, false));
+    }
+
+    /** 选牌来自消耗堆的牌（发掘）。 */
+    private static void registerDrawFromExhaust(String key, java.util.List<Effect> effects) {
+        CARDS.put(key, new CardMirror(key, effects, false, CardMirror.ChoicePile.EXHAUST, false));
+    }
+
+    /** 费用随损血下降的牌（浴血奋战）。 */
+    private static void registerHpCosted(String key, Effect... effects) {
+        CARDS.put(key, new CardMirror(key, Arrays.asList(effects), false,
+                CardMirror.ChoicePile.HAND, true));
     }
 
     /** 打出后进消耗堆的牌。 */

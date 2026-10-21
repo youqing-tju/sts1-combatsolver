@@ -240,7 +240,14 @@ public final class BeamSolver {
 
             if (mirror != null && mirror.needsChoice) {
                 // 选牌也是动作的一部分：打出后手牌少一张，对剩下的每个位置各展开一条
-                int choices = Math.max(0, state.hand.size() - 1);
+                int choices;
+                if (mirror.choicePile == io.github.youqing.sts1solver.mirror.CardMirror.ChoicePile.DISCARD) {
+                    choices = state.discard.size();
+                } else if (mirror.choicePile == io.github.youqing.sts1solver.mirror.CardMirror.ChoicePile.EXHAUST) {
+                    choices = state.exhaust.size();
+                } else {
+                    choices = Math.max(0, state.hand.size() - 1);
+                }
                 for (int c = 0; c < choices; c++) {
                     addPlay(state, i, -1, c, node, out);
                 }

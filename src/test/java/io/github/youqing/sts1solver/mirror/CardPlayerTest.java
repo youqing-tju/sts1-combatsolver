@@ -135,9 +135,9 @@ class CardPlayerTest {
 
     @Test
     void unknownCardIsRejectedNotGuessed() {
-        SimState s = combat("Havoc");
+        SimState s = combat("Infernal Blade");
         ActionRejected ex = assertThrows(ActionRejected.class, () -> CardPlayer.play(s, 0, 0));
-        assertTrue(ex.getMessage().contains("no mirror for card Havoc"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("no mirror for card Infernal Blade"), ex.getMessage());
         assertEquals(4, s.energy, "a rejected action must not spend anything");
     }
 
@@ -157,7 +157,7 @@ class CardPlayerTest {
         assertNotNull(MirrorRegistry.lookup("Bash+"));
         assertNotNull(MirrorRegistry.lookup("Anger"));
         assertNotNull(MirrorRegistry.lookup("Thunderclap+"));
-        assertNull(MirrorRegistry.lookup("Havoc"), "Havoc needs recursion, still unsupported");
+        assertNull(MirrorRegistry.lookup("Infernal Blade"), "needs the full attack card pool, still unsupported");
         assertTrue(MirrorRegistry.size() >= 28, "batch 2 should be registered: " + MirrorRegistry.size());
     }
 

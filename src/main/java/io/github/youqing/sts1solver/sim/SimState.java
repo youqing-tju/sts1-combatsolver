@@ -46,6 +46,8 @@ public final class SimState {
     public int hp;
     public int maxHp;
     public int block;
+    /** 本场战斗损失 HP 的次数（浴血奋战的动态费用用）。 */
+    public int hpLossCount;
     public int energy;
 
     public final TreeMap<String, Integer> playerPowers = new TreeMap<String, Integer>();
@@ -137,7 +139,7 @@ public final class SimState {
             return;
         }
         for (AbstractCard c : group.group) {
-            into.add(new SimCard(c.cardID, c.upgraded, c.cost));
+            into.add(new SimCard(c.cardID, c.upgraded, c.cost, c.baseDamage));
         }
     }
 
@@ -163,6 +165,7 @@ public final class SimState {
         c.hp = hp;
         c.maxHp = maxHp;
         c.block = block;
+        c.hpLossCount = hpLossCount;
         c.energy = energy;
 
         c.playerPowers.putAll(playerPowers);

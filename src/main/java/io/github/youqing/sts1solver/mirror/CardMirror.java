@@ -16,12 +16,29 @@ public final class CardMirror {
     /** 打出后进消耗堆（虹吸 / 威吓 / 冲击波 / 铜墙铁壁 / 恶魔之火 …）。 */
     public final boolean exhaustsOnPlay;
 
+    /** 选牌时从哪个牌堆里挑（手牌 / 弃牌堆 / 消耗堆）。 */
+    public final ChoicePile choicePile;
+    /** 费用随战斗进程变化（浴血奋战：每次损血降 1 费）。 */
+    public final boolean costDropsWithHpLoss;
+
+    /** 选牌来源。 */
+    public enum ChoicePile {
+        HAND, DISCARD, EXHAUST
+    }
+
     public CardMirror(String key, List<Effect> effects) {
         this(key, effects, false);
     }
 
     public CardMirror(String key, List<Effect> effects, boolean exhaustsOnPlay) {
+        this(key, effects, exhaustsOnPlay, ChoicePile.HAND, false);
+    }
+
+    public CardMirror(String key, List<Effect> effects, boolean exhaustsOnPlay,
+                      ChoicePile choicePile, boolean costDropsWithHpLoss) {
         this.exhaustsOnPlay = exhaustsOnPlay;
+        this.choicePile = choicePile;
+        this.costDropsWithHpLoss = costDropsWithHpLoss;
         this.key = key;
         this.effects = Collections.unmodifiableList(new ArrayList<Effect>(effects));
         boolean needsTarget = false;
