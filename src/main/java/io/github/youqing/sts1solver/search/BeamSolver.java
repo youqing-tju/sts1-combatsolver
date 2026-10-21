@@ -37,10 +37,14 @@ public final class BeamSolver {
     public int lastNodes;
     public long lastMillis;
     /**
-     * M2-7 终端估值：把候选路线用贪心策略一路打到战斗结束再打分。
-     * 静态估值只看「这一帧」，会高估「现在多打 6 点血」而低估「下回合会被打死」。
+     * ⚠️ 非蓝本实现，已默认关闭。
+     *
+     * <p>蓝本没有 rollout：它用 {@code ProjectedPlayerHp + DeathPenalty} 做一阶前瞻
+     * （{@code CombatBeamSolver.BeamRetentionPolicy.Ranking.cs:892 BeamRankScore}）。
+     * 那个方案同样能避开「走进死亡」，成本却接近零，所以选择留在蓝本路线上。
+     * 这段代码仅保留作为对照实验（A/B），不参与默认决策。
      */
-    public boolean useRollout = true;
+    public boolean useRollout = false;
     /** 回放最多推进几个回合（防止无限对局把每帧预算吃光）。 */
     private static final int ROLLOUT_MAX_TURNS = 6;
     /** 上一次搜索里终端估值与静态估值给出的选择是否一致（A/B 数据）。 */

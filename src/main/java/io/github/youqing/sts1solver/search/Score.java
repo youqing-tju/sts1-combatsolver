@@ -20,14 +20,21 @@ public final class Score {
     public final int block;
     public final int energy;
     public final int handSize;
+    /**
+     * 投影血量：本回合结束后、敌方按当前意图打完，我还剩多少血（蓝本的 ProjectedPlayerHp）。
+     * 这是「一阶前瞻」——不需要回放，就能知道这一步会不会走进死亡。
+     */
+    public final int projectedHp;
 
-    private Score(int aliveEnemies, int playerHp, int enemyHp, int block, int energy, int handSize) {
+    private Score(int aliveEnemies, int playerHp, int enemyHp, int block, int energy,
+                  int handSize, int projectedHp) {
         this.aliveEnemies = aliveEnemies;
         this.playerHp = playerHp;
         this.enemyHp = enemyHp;
         this.block = block;
         this.energy = energy;
         this.handSize = handSize;
+        this.projectedHp = projectedHp;
     }
 
     public static Score of(SimState state) {
@@ -39,7 +46,15 @@ public final class Score {
                 enemyHp += m.hp;
             }
         }
-        return new Score(alive, state.hp, enemyHp, state.block, state.energy, state.hand.size());
+        int incoming = 0;
+        for (SimMonster m : state.monsters) {
+            if (m.hp > 0 && m.intentDmg > 0) {
+                incoming += m.intentDmg;
+            }
+        }
+        int projected = state.hp - Math.max(0, incoming - state.block);
+        return new Score(alive, state.hp, enemyHp, state.block, state.energy,
+                state.hand.size(), projected);
     }
 
     /**
@@ -57,6 +72,12 @@ public final class Score {
             score += (long) block * 10L;
             score += (long) energy * 5L;
             score += handSize;
+            // 一阶前瞻：敌人打完后的血量也要计入，且死了要重罚。
+            // 权重取 0.2 倍血量：小于「少一个敌人」(1e9)，大于普通血量波动。
+            score += (long) projectedHp * 200_000L;
+            if (projectedHp <= 0) {
+                score -= 300_000_000L;
+            }
         }
         return score;
     }
@@ -69,6 +90,7 @@ public final class Score {
                 + " block=" + block
                 + " energy=" + energy
                 + " hand=" + handSize
+                + " projHp=" + projectedHp
                 + " total=" + total();
     }
 }
