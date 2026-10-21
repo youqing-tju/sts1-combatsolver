@@ -32,8 +32,11 @@ class CardPlayerTest {
     }
 
     private static int costOf(String key) {
-        if (key.startsWith("Bash")) {
+        if (key.startsWith("Bash") || key.startsWith("Flame Barrier") || key.startsWith("Clothesline")) {
             return 2;
+        }
+        if (key.startsWith("Anger") || key.startsWith("Flex") || key.startsWith("Warcry")) {
+            return 0;
         }
         return 1;
     }
@@ -120,9 +123,9 @@ class CardPlayerTest {
 
     @Test
     void unknownCardIsRejectedNotGuessed() {
-        SimState s = combat("Anger");
+        SimState s = combat("Havoc");
         ActionRejected ex = assertThrows(ActionRejected.class, () -> CardPlayer.play(s, 0, 0));
-        assertTrue(ex.getMessage().contains("no mirror for card Anger"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("no mirror for card Havoc"), ex.getMessage());
         assertEquals(4, s.energy, "a rejected action must not spend anything");
     }
 
@@ -137,12 +140,79 @@ class CardPlayerTest {
     }
 
     @Test
-    void registryKnowsTheStarterDeckAndNothingElse() {
+    void registryCoversTheMirroredBatch() {
         assertNotNull(MirrorRegistry.lookup("Strike_R"));
-        assertNotNull(MirrorRegistry.lookup("Strike_R+"));
-        assertNotNull(MirrorRegistry.lookup("Defend_R"));
         assertNotNull(MirrorRegistry.lookup("Bash+"));
-        assertNull(MirrorRegistry.lookup("Anger"));
-        assertEquals(6, MirrorRegistry.size());
+        assertNotNull(MirrorRegistry.lookup("Anger"));
+        assertNotNull(MirrorRegistry.lookup("Thunderclap+"));
+        assertNull(MirrorRegistry.lookup("Havoc"), "Havoc needs recursion, still unsupported");
+        assertTrue(MirrorRegistry.size() >= 28, "batch 2 should be registered: " + MirrorRegistry.size());
+    }
+
+    // ---- 第二批效果 ----
+
+    @Test
+    void multiHitResolvesEachHitSeparately() {
+        SimState s = combat("Twin Strike");
+        CardPlayer.play(s, 0, 0);
+        assertEquals(2, s.monsters.get(0).hp, "5 + 5 = 10 damage on a 12 HP slime");
+    }
+
+    @Test
+    void aoeHitsEveryMonster() {
+        SimState s = combat("Cleave");
+        s.monsters.add(new SimMonster("SpikeSlime_M", 30, 30, 0, Collections.<String, Integer>emptyMap()));
+        CardPlayer.play(s, 0, 0);
+        assertEquals(4, s.monsters.get(0).hp, "12 - 8");
+        assertEquals(22, s.monsters.get(1).hp, "30 - 8");
+    }
+
+    @Test
+    void thunderclapAppliesVulnerableToAll() {
+        SimState s = combat("Thunderclap");
+        s.monsters.add(new SimMonster("SpikeSlime_M", 30, 30, 0, Collections.<String, Integer>emptyMap()));
+        CardPlayer.play(s, 0, 0);
+        assertEquals(8, s.monsters.get(0).hp, "12 - 4");
+        assertEquals(1, (int) s.monsters.get(0).powers.get(DamageCalc.VULNERABLE));
+        assertEquals(1, (int) s.monsters.get(1).powers.get(DamageCalc.VULNERABLE));
+    }
+
+    @Test
+    void angerCopiesItselfIntoTheDiscardPile() {
+        SimState s = combat("Anger");
+        CardPlayer.play(s, 0, 0);
+        assertEquals(2, s.discard.size(), "played copy + duplicated copy");
+        assertEquals("Anger", s.discard.get(1).id);
+        assertEquals(4, s.energy, "Anger costs 0");
+    }
+
+    @Test
+    void drawTakesFromTheTopOfTheDrawPile() {
+        SimState s = combat("Pommel Strike");
+        s.draw.add(new SimCard("Strike_R", false, 1));
+        CardPlayer.play(s, 0, 0);
+        assertEquals(1, s.hand.size(), "drew one card");
+        assertEquals(0, s.draw.size());
+    }
+
+    @Test
+    void drawRespectsTheTenCardHandLimit() {
+        SimState s = combat("Pommel Strike");
+        for (int i = 0; i < 6; i++) {
+            s.hand.add(new SimCard("Defend_R", false, 1));
+        }
+        s.draw.add(new SimCard("Strike_R", false, 1));
+        // 手牌 7 张：打出剑柄打击后剩 6，抽 1 张到 7，未触顶
+        CardPlayer.play(s, 0, 0);
+        assertEquals(7, s.hand.size());
+
+        SimState full = combat("Pommel Strike");
+        for (int i = 0; i < 9; i++) {
+            full.hand.add(new SimCard("Defend_R", false, 1));
+        }
+        full.draw.add(new SimCard("Strike_R", false, 1));
+        // 手牌 10 张：打出后剩 9，抽 1 张到 10；再抽就会撞上限
+        CardPlayer.play(full, 0, 0);
+        assertEquals(10, full.hand.size(), "hand stops at 10");
     }
 }

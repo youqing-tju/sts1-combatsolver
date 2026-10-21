@@ -34,6 +34,67 @@ public final class MirrorRegistry {
         register("Bash+", Arrays.asList(
                 Effects.damage(10),
                 Effects.powerOnTarget(DamageCalc.VULNERABLE, 3)));
+
+        // ---- 第二批：数值全部取自 solver-data/cards.json（CardLibrary 导出）----
+        // 愤怒：0 费 6 伤，打完后复制一份进弃牌堆
+        register("Anger", Arrays.asList(Effects.damage(6), Effects.copySelfToDiscard()));
+        register("Anger+", Arrays.asList(Effects.damage(8), Effects.copySelfToDiscard()));
+
+        // 闪电霹雳：全体 4 伤 + 全体易伤 1（magic 字段为 -1，易伤固定 1 层）
+        register("Thunderclap", Arrays.asList(
+                Effects.damageAll(4),
+                Effects.powerOnAll(DamageCalc.VULNERABLE, 1)));
+        register("Thunderclap+", Arrays.asList(
+                Effects.damageAll(7),
+                Effects.powerOnAll(DamageCalc.VULNERABLE, 1)));
+
+        // 双重打击：5 伤 x2
+        register("Twin Strike", Effects.damageTimes(2, 5));
+        register("Twin Strike+", Effects.damageTimes(2, 7));
+
+        // 剑柄打击：9 伤 + 抽 1（magic 1 / 2）
+        register("Pommel Strike", Arrays.asList(Effects.damage(9), Effects.draw(1)));
+        register("Pommel Strike+", Arrays.asList(Effects.damage(10), Effects.draw(2)));
+
+        // 耸肩无视：8 格挡 + 抽 1
+        register("Shrug It Off", Arrays.asList(Effects.block(8), Effects.draw(1)));
+        register("Shrug It Off+", Arrays.asList(Effects.block(11), Effects.draw(1)));
+
+        // 火焰屏障：12 格挡 + 反弹 4（power "Flame Barrier"）
+        register("Flame Barrier", Arrays.asList(
+                Effects.block(12),
+                Effects.powerOnPlayer("Flame Barrier", 4)));
+        register("Flame Barrier+", Arrays.asList(
+                Effects.block(16),
+                Effects.powerOnPlayer("Flame Barrier", 6)));
+
+        // 顺劈斩：全体 8 伤
+        register("Cleave", Effects.damageAll(8));
+        register("Cleave+", Effects.damageAll(11));
+
+        // 金刚臂：12 伤 + 虚弱 2
+        register("Clothesline", Arrays.asList(
+                Effects.damage(12),
+                Effects.powerOnTarget(DamageCalc.WEAKENED, 2)));
+        register("Clothesline+", Arrays.asList(
+                Effects.damage(14),
+                Effects.powerOnTarget(DamageCalc.WEAKENED, 3)));
+
+        // 燃烧：力量 +2
+        register("Inflame", Effects.powerOnPlayer(DamageCalc.STRENGTH, 2));
+        register("Inflame+", Effects.powerOnPlayer(DamageCalc.STRENGTH, 3));
+
+        // 金属化：每回合末获得 3 格挡
+        register("Metallicize", Effects.powerOnPlayer("Metallicize", 3));
+        register("Metallicize+", Effects.powerOnPlayer("Metallicize", 4));
+
+        // 活动肌肉：力量 +2，回合末失去（用两个 power 表达）
+        register("Flex", Arrays.asList(
+                Effects.powerOnPlayer(DamageCalc.STRENGTH, 2),
+                Effects.powerOnPlayer("Flex", 2)));
+        register("Flex+", Arrays.asList(
+                Effects.powerOnPlayer(DamageCalc.STRENGTH, 4),
+                Effects.powerOnPlayer("Flex", 4)));
     }
 
     private MirrorRegistry() {

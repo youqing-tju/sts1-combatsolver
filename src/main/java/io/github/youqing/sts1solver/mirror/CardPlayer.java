@@ -40,7 +40,7 @@ public final class CardPlayer {
         state.hand.remove(handIndex);
 
         for (Effect effect : mirror.effects) {
-            effect.applyTo(state, targetIndex);
+            effect.applyTo(state, targetIndex, card);
         }
 
         state.discard.add(card);
