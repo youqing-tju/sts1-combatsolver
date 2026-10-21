@@ -176,8 +176,157 @@ public final class Effects {
         };
     }
 
-    private static SimMonster requireTarget(SimState state, int targetIndex) {
-        if (targetIndex < 0 || targetIndex >= state.monsters.size()) {
+    // ---- 第三批需要的原语 ------------------------------------------------
+
+    /** 自伤：无视格挡，直接扣血（放血、 Offering、血液沸腾）。 */
+    public static Effect loseHp(final int amount) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                state.hp = Math.max(0, state.hp - amount);
+            }
+
+            @Override
+            public String toString() {
+                return "loseHp(" + amount + ")";
+            }
+        };
+    }
+
+    public static Effect heal(final int amount) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                state.hp = Math.min(state.maxHp, state.hp + amount);
+            }
+
+            @Override
+            public String toString() {
+                return "heal(" + amount + ")";
+            }
+        };
+    }
+
+    public static Effect gainEnergy(final int amount) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                state.energy += amount;
+            }
+
+            @Override
+            public String toString() {
+                return "energy(+" + amount + ")";
+            }
+        };
+    }
+
+    /** 把状态牌塞进手牌（硬撑 Power Through：2 张伤口）。手牌插入位置是确定的。 */
+    public static Effect addStatusToHand(final String id, final int count) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                for (int i = 0; i < count; i++) {
+                    state.hand.add(new SimCard(id, false, -2));
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "hand+=" + id + "x" + count;
+            }
+        };
+    }
+
+    /** 壁垒：格挡翻倍。 */
+    public static Effect doubleBlock() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                state.block *= 2;
+            }
+
+            @Override
+            public String toString() {
+                return "block*2";
+            }
+        };
+    }
+
+    /** 全身撞击：伤害等于当前格挡（力量/虚弱/易伤照常生效）。 */
+    public static Effect damageEqualToBlock() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, state.block, target));
+            }
+
+            @Override
+            public String toString() {
+                return "damage=block";
+            }
+        };
+    }
+
+    /** 突破极限：力量翻倍。 */
+    public static Effect doubleStrength() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                Integer strength = state.playerPowers.get(DamageCalc.STRENGTH);
+                if (strength != null && strength > 0) {
+                    state.playerPowers.put(DamageCalc.STRENGTH, strength * 2);
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "strength*2";
+            }
+        };
+    }
+
+    /** 重刃：力量按倍率计入。 */
+    public static Effect damageWithStrengthMult(final int base, final int mult) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                DamageCalc.hit(state, target,
+                        DamageCalc.attackDamageWithStrengthMult(state, base, mult, target));
+            }
+
+            @Override
+            public String toString() {
+                return "damage(" + base + "+str*" + mult + ")";
+            }
+        };
+    }
+
+    /** 收割：全体伤害，按实际扣血总量回复。 */
+    public static Effect damageAllAndHeal(final int base) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                int total = 0;
+                for (SimMonster m : state.monsters) {
+                    if (m.hp > 0) {
+                        total += DamageCalc.hitAndReturnDealt(m,
+                                DamageCalc.attackDamage(state, base, m));
+                    }
+                }
+                state.hp = Math.min(state.maxHp, state.hp + total);
+            }
+
+            @Override
+            public String toString() {
+                return "damageAll(" + base + ")+heal(dealt)";
+            }
+        };
+    }
+
+    private static SimMonster requireTarget(SimState state, int targetIndex) {        if (targetIndex < 0 || targetIndex >= state.monsters.size()) {
             throw new ActionRejected("effect needs a valid monster target, got index " + targetIndex);
         }
         return state.monsters.get(targetIndex);

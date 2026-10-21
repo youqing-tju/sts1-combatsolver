@@ -50,6 +50,11 @@ public final class DamageCalc {
      * animation, so expect a difference if you diff mid-animation).
      */
     public static void hit(SimState state, SimMonster target, int damage) {
+        hitAndReturnDealt(target, damage);
+    }
+
+    /** 同上，但返回**实际扣掉的血量**（吸血类卡牌需要）。 */
+    public static int hitAndReturnDealt(SimMonster target, int damage) {
         int remaining = damage;
         if (target.block > 0) {
             int absorbed = Math.min(target.block, remaining);
@@ -60,6 +65,21 @@ public final class DamageCalc {
         if (target.hp < 0) {
             target.hp = 0;
         }
+        return remaining;
+    }
+
+    /** 力量按倍率生效（重刃：力量 ×3/×5）。 */
+    public static int attackDamageWithStrengthMult(SimState state, int base, int mult,
+                                                   SimMonster target) {
+        int dmg = base + power(state, STRENGTH) * mult;
+        if (power(state, WEAKENED) > 0) {
+            dmg = (int) Math.floor(dmg * 0.75f);
+        }
+        if (target != null && powers(target).containsKey(VULNERABLE)
+                && powers(target).get(VULNERABLE) > 0) {
+            dmg = (int) Math.floor(dmg * 1.5f);
+        }
+        return Math.max(0, dmg);
     }
 
     private static int power(SimState state, String id) {

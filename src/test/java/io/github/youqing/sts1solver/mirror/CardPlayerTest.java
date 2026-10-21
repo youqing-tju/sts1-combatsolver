@@ -32,10 +32,20 @@ class CardPlayerTest {
     }
 
     private static int costOf(String key) {
-        if (key.startsWith("Bash") || key.startsWith("Flame Barrier") || key.startsWith("Clothesline")) {
+        if (key.startsWith("Bash") || key.startsWith("Flame Barrier") || key.startsWith("Clothesline")
+                || key.startsWith("Bludgeon") || key.startsWith("Uppercut") || key.startsWith("Reaper")
+                || key.startsWith("Heavy Blade") || key.startsWith("Entrench")
+                || key.startsWith("Carnage") || key.startsWith("Searing Blow")
+                || key.startsWith("Impervious")) {
             return 2;
         }
-        if (key.startsWith("Anger") || key.startsWith("Flex") || key.startsWith("Warcry")) {
+        if (key.startsWith("Bludgeon")) {
+            return 3;
+        }
+        if (key.startsWith("Anger") || key.startsWith("Flex") || key.startsWith("Warcry")
+                || key.startsWith("Clash") || key.startsWith("Bloodletting")
+                || key.startsWith("Offering") || key.startsWith("Battle Trance")
+                || key.startsWith("Seeing Red")) {
             return 0;
         }
         return 1;
@@ -193,6 +203,87 @@ class CardPlayerTest {
         CardPlayer.play(s, 0, 0);
         assertEquals(1, s.hand.size(), "drew one card");
         assertEquals(0, s.draw.size());
+    }
+
+    // ---- 第三批：新原语 ----
+
+    @Test
+    void bodySlamDealsDamageEqualToCurrentBlock() {
+        SimState s = combat("Body Slam");
+        s.block = 12;
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("AcidSlime_S", 30, 30, 0,
+                Collections.<String, Integer>emptyMap()));
+        CardPlayer.play(s, 0, 0);
+        assertEquals(18, s.monsters.get(0).hp, "12 block -> 12 damage");
+    }
+
+    @Test
+    void entrenchDoublesBlock() {
+        SimState s = combat("Entrench");
+        s.block = 9;
+        CardPlayer.play(s, 0, 0);
+        assertEquals(18, s.block);
+    }
+
+    @Test
+    void limitBreakDoublesStrength() {
+        SimState s = combat("Limit Break");
+        s.playerPowers.put(DamageCalc.STRENGTH, 3);
+        CardPlayer.play(s, 0, 0);
+        assertEquals(6, (int) s.playerPowers.get(DamageCalc.STRENGTH));
+    }
+
+    @Test
+    void heavyBladeCountsStrengthThreeTimes() {
+        SimState s = combat("Heavy Blade");
+        s.playerPowers.put(DamageCalc.STRENGTH, 2);
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("AcidSlime_S", 60, 60, 0,
+                Collections.<String, Integer>emptyMap()));
+        CardPlayer.play(s, 0, 0);
+        // 14 + 2*3 = 20
+        assertEquals(40, s.monsters.get(0).hp);
+    }
+
+    @Test
+    void offeringPaysHpForEnergyAndCards() {
+        SimState s = combat("Offering");
+        s.draw.add(new SimCard("Strike_R", false, 1));
+        s.draw.add(new SimCard("Defend_R", false, 1));
+        s.draw.add(new SimCard("Bash", false, 2));
+        CardPlayer.play(s, 0, 0);
+        assertEquals(74, s.hp, "6 HP paid");
+        assertEquals(6, s.energy, "0 cost + 2 energy gained");
+        assertEquals(3, s.hand.size());
+    }
+
+    @Test
+    void powerThroughAddsTwoWoundsToHand() {
+        SimState s = combat("Power Through");
+        CardPlayer.play(s, 0, 0);
+        assertEquals(15, s.block, "no dexterity");
+        assertEquals(2, s.hand.size());
+        assertEquals("Wound", s.hand.get(0).id);
+    }
+
+    @Test
+    void reaperHealsForUnblockedDamage() {
+        SimState s = combat("Reaper");
+        s.hp = 60;
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("AcidSlime_S", 30, 30, 0,
+                Collections.<String, Integer>emptyMap()));
+        CardPlayer.play(s, 0, 0);
+        assertEquals(26, s.monsters.get(0).hp, "4 damage");
+        assertEquals(64, s.hp, "healed by the 4 dealt");
+    }
+
+    @Test
+    void battleTranceAppliesNoDraw() {
+        SimState s = combat("Battle Trance");
+        CardPlayer.play(s, 0, 0);
+        assertEquals(-1, (int) s.playerPowers.get("No Draw"));
     }
 
     @Test

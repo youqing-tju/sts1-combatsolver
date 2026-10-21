@@ -95,6 +95,122 @@ public final class MirrorRegistry {
         register("Flex+", Arrays.asList(
                 Effects.powerOnPlayer(DamageCalc.STRENGTH, 4),
                 Effects.powerOnPlayer("Flex", 4)));
+
+        // ---- 第三批：攻击/技能 -------------------------------------------------
+        // 铁斩波：5 伤 + 5 格挡
+        register("Iron Wave", Arrays.asList(Effects.damage(5), Effects.block(5)));
+        register("Iron Wave+", Arrays.asList(Effects.damage(7), Effects.block(7)));
+
+        // 交锋：14 伤（前置条件由游戏 canUse 判定，模拟侧只管效果）
+        register("Clash", Effects.damage(14));
+        register("Clash+", Effects.damage(18));
+
+        register("Bludgeon", Effects.damage(32));
+        register("Bludgeon+", Effects.damage(42));
+
+        // 屠戮：20 伤（虚灵属性暂未建模，见 §待验）
+        register("Carnage", Effects.damage(20));
+        register("Carnage+", Effects.damage(28));
+
+        // 连击：2 伤 x4
+        register("Pummel", Effects.damageTimes(4, 2));
+        register("Pummel+", Effects.damageTimes(5, 2));
+
+        // 灼烧打击：12 伤（多次升级的成长曲线未建模，只支持 0/1 次升级）
+        register("Searing Blow", Effects.damage(12));
+        register("Searing Blow+", Effects.damage(16));
+
+        register("Ghostly Armor", Effects.block(10));
+        register("Ghostly Armor+", Effects.block(13));
+
+        register("Impervious", Effects.block(30));
+        register("Impervious+", Effects.block(40));
+
+        // 上勾拳：13 伤 + 虚弱 + 易伤
+        register("Uppercut", Arrays.asList(
+                Effects.damage(13),
+                Effects.powerOnTarget(DamageCalc.WEAKENED, 1),
+                Effects.powerOnTarget(DamageCalc.VULNERABLE, 1)));
+        register("Uppercut+", Arrays.asList(
+                Effects.damage(13),
+                Effects.powerOnTarget(DamageCalc.WEAKENED, 2),
+                Effects.powerOnTarget(DamageCalc.VULNERABLE, 2)));
+
+        // 威吓：全体虚弱
+        register("Intimidate", Effects.powerOnAll(DamageCalc.WEAKENED, 1));
+        register("Intimidate+", Effects.powerOnAll(DamageCalc.WEAKENED, 2));
+
+        // 冲击波：全体虚弱 + 易伤
+        register("Shockwave", Arrays.asList(
+                Effects.powerOnAll(DamageCalc.WEAKENED, 3),
+                Effects.powerOnAll(DamageCalc.VULNERABLE, 3)));
+        register("Shockwave+", Arrays.asList(
+                Effects.powerOnAll(DamageCalc.WEAKENED, 5),
+                Effects.powerOnAll(DamageCalc.VULNERABLE, 5)));
+
+        // 缴械：目标失去力量
+        register("Disarm", Effects.powerOnTarget(DamageCalc.STRENGTH, -2));
+        register("Disarm+", Effects.powerOnTarget(DamageCalc.STRENGTH, -3));
+
+        // 壁垒 / 重击 / 自伤 / 回能
+        register("Entrench", Effects.doubleBlock());
+        register("Body Slam", Effects.damageEqualToBlock());
+        register("Limit Break", Effects.doubleStrength());
+        register("Heavy Blade", Effects.damageWithStrengthMult(14, 3));
+        register("Heavy Blade+", Effects.damageWithStrengthMult(14, 5));
+
+        register("Bloodletting", Arrays.asList(Effects.loseHp(3), Effects.gainEnergy(2)));
+        register("Bloodletting+", Arrays.asList(Effects.loseHp(3), Effects.gainEnergy(3)));
+        register("Seeing Red", Effects.gainEnergy(2));
+
+        register("Offering", Arrays.asList(
+                Effects.loseHp(6), Effects.gainEnergy(2), Effects.draw(3)));
+        register("Offering+", Arrays.asList(
+                Effects.loseHp(6), Effects.gainEnergy(2), Effects.draw(5)));
+
+        // 血液沸腾：15 伤 + 自伤 2
+        register("Hemokinesis", Arrays.asList(Effects.damage(15), Effects.loseHp(2)));
+        register("Hemokinesis+", Arrays.asList(Effects.damage(20), Effects.loseHp(2)));
+
+        // 收割：全体 4 伤 + 按实际伤害回血
+        register("Reaper", Effects.damageAllAndHeal(4));
+        register("Reaper+", Effects.damageAllAndHeal(5));
+
+        // 硬撑：15 格挡 + 塞 2 张伤口进手牌
+        register("Power Through", Arrays.asList(
+                Effects.block(15), Effects.addStatusToHand("Wound", 2)));
+        register("Power Through+", Arrays.asList(
+                Effects.block(20), Effects.addStatusToHand("Wound", 2)));
+
+        // 战斗专注：抽 3，然后本回合禁止再抽
+        register("Battle Trance", Arrays.asList(
+                Effects.draw(3), Effects.powerOnPlayer("No Draw", -1)));
+        register("Battle Trance+", Arrays.asList(
+                Effects.draw(4), Effects.powerOnPlayer("No Draw", -1)));
+
+        // ---- 第三批：能力牌 ---------------------------------------------------
+        register("Demon Form", Effects.powerOnPlayer("Demon Form", 2));
+        register("Demon Form+", Effects.powerOnPlayer("Demon Form", 3));
+        register("Barricade", Effects.powerOnPlayer("Barricade", 1));
+        register("Corruption", Effects.powerOnPlayer("Corruption", 3));
+        register("Dark Embrace", Effects.powerOnPlayer("Dark Embrace", 1));
+        register("Evolve", Effects.powerOnPlayer("Evolve", 1));
+        register("Evolve+", Effects.powerOnPlayer("Evolve", 2));
+        register("Feel No Pain", Effects.powerOnPlayer("Feel No Pain", 3));
+        register("Feel No Pain+", Effects.powerOnPlayer("Feel No Pain", 4));
+        register("Fire Breathing", Effects.powerOnPlayer("Fire Breathing", 6));
+        register("Fire Breathing+", Effects.powerOnPlayer("Fire Breathing", 10));
+        register("Juggernaut", Effects.powerOnPlayer("Juggernaut", 5));
+        register("Juggernaut+", Effects.powerOnPlayer("Juggernaut", 7));
+        register("Rupture", Effects.powerOnPlayer("Rupture", 1));
+        register("Rupture+", Effects.powerOnPlayer("Rupture", 2));
+        register("Brutality", Effects.powerOnPlayer("Brutality", 1));
+        register("Combust", Effects.powerOnPlayer("Combust", 5));
+        register("Combust+", Effects.powerOnPlayer("Combust", 7));
+        register("Double Tap", Effects.powerOnPlayer("Double Tap", 1));
+        register("Double Tap+", Effects.powerOnPlayer("Double Tap", 2));
+        register("Rage", Effects.powerOnPlayer("Rage", 3));
+        register("Rage+", Effects.powerOnPlayer("Rage", 5));
     }
 
     private MirrorRegistry() {
