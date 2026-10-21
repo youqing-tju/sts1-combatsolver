@@ -31,6 +31,9 @@ public final class CombatCapture {
     }
 
     public static void arm() {
+        if (armed) {
+            return;
+        }
         armed = true;
         captured = false;
         framesWaited = 0;
@@ -39,12 +42,23 @@ public final class CombatCapture {
     }
 
     public static void tick() {
-        if (!armed || captured) {
-            return;
-        }
         try {
             AbstractRoom room = AbstractDungeon.getCurrRoom();
-            if (room == null || room.phase != AbstractRoom.RoomPhase.COMBAT) {
+            if (room == null) {
+                return;
+            }
+            // 离开战斗就复位，下一场重新捕获
+            if (room.phase != AbstractRoom.RoomPhase.COMBAT) {
+                armed = false;
+                captured = false;
+                return;
+            }
+            // 🔴 不依赖房间钩子：精英房/首领房重写了 onPlayerEntry，父类的补丁不会执行
+            // （实测 Act 2 精英战全程 combat: (none)）。直接用「房间阶段进入 COMBAT」判定。
+            if (!armed) {
+                arm();
+            }
+            if (captured) {
                 return;
             }
             if (AbstractDungeon.player == null || AbstractDungeon.player.hand == null) {
@@ -64,7 +78,8 @@ public final class CombatCapture {
             }
 
             captured = true;
-            armed = false;
+            // 注意：这里不能把 armed 复位，否则下一帧会重新 arm -> captured 又变 false -> 每帧重复捕获。
+            // armed/captured 只在「离开战斗」时统一复位。
 
             if (timedOut && !dealt) {
                 Trace.warn("capture timeout after " + framesWaited + " frames (hand=" + handSize
