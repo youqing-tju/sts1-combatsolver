@@ -25,9 +25,15 @@ public final class Score {
      * 这是「一阶前瞻」——不需要回放，就能知道这一步会不会走进死亡。
      */
     public final int projectedHp;
+    /**
+     * 最脆的那个敌人还剩多少有效血量（hp + 格挡）。
+     * 用来鼓励集火：把伤害堆到一个敌人身上比平均撒更容易减员。
+     * 蓝本对应概念见 {@code EnemyDurabilityVectorBuilder}（按每个敌人的耐久建向量）。
+     */
+    public final int easiestKill;
 
     private Score(int aliveEnemies, int playerHp, int enemyHp, int block, int energy,
-                  int handSize, int projectedHp) {
+                  int handSize, int projectedHp, int easiestKill) {
         this.aliveEnemies = aliveEnemies;
         this.playerHp = playerHp;
         this.enemyHp = enemyHp;
@@ -35,16 +41,22 @@ public final class Score {
         this.energy = energy;
         this.handSize = handSize;
         this.projectedHp = projectedHp;
+        this.easiestKill = easiestKill;
     }
 
     public static Score of(SimState state) {
         int alive = 0;
         int enemyHp = 0;
+        int easiest = Integer.MAX_VALUE;
         for (SimMonster m : state.monsters) {
             if (m.hp > 0) {
                 alive++;
                 enemyHp += m.hp;
+                easiest = Math.min(easiest, m.hp + m.block);
             }
+        }
+        if (easiest == Integer.MAX_VALUE) {
+            easiest = 0;
         }
         int incoming = 0;
         for (SimMonster m : state.monsters) {
@@ -54,7 +66,7 @@ public final class Score {
         }
         int projected = state.hp - Math.max(0, incoming - state.block);
         return new Score(alive, state.hp, enemyHp, state.block, state.energy,
-                state.hand.size(), projected);
+                state.hand.size(), projected, easiest);
     }
 
     /**
@@ -69,9 +81,13 @@ public final class Score {
         score += (long) playerHp * 1_000_000L;
         score -= (long) enemyHp * 1_000L;
         if (aliveEnemies > 0) {
-            score += (long) block * 10L;
+            // ⚠️ 不再按「格挡多少」加分：超出本回合伤害的格挡是浪费，
+            // 会让 AI 无脑防御（实测：不该防的时候也打 Defend）。
+            // 格挡的价值只通过 projectedHp 体现，天然被「本回合真实伤害」封顶。
             score += (long) energy * 5L;
             score += handSize;
+            // 集火倾向：最脆的敌人越接近死亡越好（权重高于敌方总血，低于「少一个敌人」）
+            score -= (long) easiestKill * 5_000L;
             // 一阶前瞻：敌人打完后的血量也要计入，且死了要重罚。
             // 权重取 0.2 倍血量：小于「少一个敌人」(1e9)，大于普通血量波动。
             score += (long) projectedHp * 200_000L;
@@ -91,6 +107,7 @@ public final class Score {
                 + " energy=" + energy
                 + " hand=" + handSize
                 + " projHp=" + projectedHp
+                + " easiest=" + easiestKill
                 + " total=" + total();
     }
 }

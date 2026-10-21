@@ -22,6 +22,7 @@ public final class IntentLearning {
 
     private static int hits;
     private static int misses;
+    private static int approxHits;
 
     private IntentLearning() {
     }
@@ -48,12 +49,17 @@ public final class IntentLearning {
      */
     public static int predict(String type, int turn, int fallback) {
         Map<Integer, Integer> byTurn = TABLE.get(type);
-        if (byTurn != null) {
+        if (byTurn != null && !byTurn.isEmpty()) {
             Integer known = byTurn.get(turn);
             if (known != null) {
                 hits++;
                 return known;
             }
+            // 精确回合没观测到，用「已观测到的最大回合」作近似 ——
+            // 比「沿用当前意图」更接近真实（怪物行为通常按回合循环）。
+            int latestTurn = java.util.Collections.max(byTurn.keySet());
+            approxHits++;
+            return byTurn.get(latestTurn);
         }
         misses++;
         return fallback;
@@ -67,6 +73,10 @@ public final class IntentLearning {
         return misses;
     }
 
+    public static int approxHits() {
+        return approxHits;
+    }
+
     /** 已学习到的怪物数（用于日志）。 */
     public static int learnedMonsters() {
         return TABLE.size();
@@ -75,6 +85,7 @@ public final class IntentLearning {
     public static void resetStats() {
         hits = 0;
         misses = 0;
+        approxHits = 0;
     }
 
     /** 清空学习表（换局或调试用）。 */

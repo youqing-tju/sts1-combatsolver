@@ -301,6 +301,7 @@ public final class AutoPilot {
                         + " lastMs=" + solver.lastMillis
                         + " tt=" + solver.ttHits() + "/" + (solver.ttHits() + solver.ttMisses())
                         + " intentHits=" + io.github.youqing.sts1solver.sim.IntentLearning.hits()
+                        + "A" + io.github.youqing.sts1solver.sim.IntentLearning.approxHits()
                         + " misses=" + io.github.youqing.sts1solver.sim.IntentLearning.misses());
             }
 

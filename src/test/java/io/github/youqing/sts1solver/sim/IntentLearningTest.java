@@ -27,11 +27,17 @@ class IntentLearningTest {
     }
 
     @Test
-    void fallsBackWhenTurnIsUnknown() {
+    void usesLatestObservedTurnWhenExactTurnIsUnknown() {
         IntentLearning.observe("GremlinNob", 1, 8);
 
-        assertEquals(42, IntentLearning.predict("GremlinNob", 5, 42),
-                "unknown turn must use the fallback, not a guess");
+        assertEquals(8, IntentLearning.predict("GremlinNob", 5, 42),
+                "an observed value from another turn beats the current-turn fallback");
+    }
+
+    @Test
+    void fallsBackWhenNothingIsKnownAboutTheMonster() {
+        assertEquals(42, IntentLearning.predict("Never Seen", 5, 42),
+                "with no observation at all we must use the fallback, not a guess");
     }
 
     @Test

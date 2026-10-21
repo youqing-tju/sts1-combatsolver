@@ -72,6 +72,36 @@ class ScoreAndTranspositionTest {
     }
 
     @Test
+    void excessBlockIsNotRewarded() {
+        SimState enough = state(10);
+        enough.block = 5;
+        enough.monsters.get(0).intentDmg = 5;
+
+        SimState overkill = state(10);
+        overkill.block = 20;          // 远超 5 点威胁，多余格挡毫无价值
+        overkill.monsters.get(0).intentDmg = 5;
+
+        assertEquals(Score.of(enough).total(), Score.of(overkill).total(),
+                "block beyond the incoming damage must not add score");
+    }
+
+    @Test
+    void prefersFocusFireOnTheWeakestEnemy() {
+        SimState focused = state(10);
+        focused.monsters.clear();
+        focused.monsters.add(new SimMonster("A", 4, 10, 0, Collections.<String, Integer>emptyMap()));
+        focused.monsters.add(new SimMonster("B", 10, 10, 0, Collections.<String, Integer>emptyMap()));
+
+        SimState spread = state(10);
+        spread.monsters.clear();
+        spread.monsters.add(new SimMonster("A", 7, 10, 0, Collections.<String, Integer>emptyMap()));
+        spread.monsters.add(new SimMonster("B", 7, 10, 0, Collections.<String, Integer>emptyMap()));
+
+        assertTrue(Score.of(focused).total() > Score.of(spread).total(),
+                "same total HP, but concentrating damage is better");
+    }
+
+    @Test
     void transpositionDropsDominatedStates() {
         TranspositionTable tt = new TranspositionTable();
         assertFalse(tt.dominated("k", 100), "first sighting must be kept");
