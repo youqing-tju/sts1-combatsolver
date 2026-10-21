@@ -130,8 +130,10 @@ public final class ShadowTracker {
         }
 
         SimState live = SimState.capture();
-        // 死亡动画期间游戏仍保留 0 血怪物，两边先归一化，否则长度差异与这张牌无关
-        List<String> diffs = sim.dropDeadMonsters().diff(live.dropDeadMonsters());
+        // 死亡动画期间游戏仍保留 0 血怪物，两边先归一化再比。
+        // 注意：必须比对副本 —— 直接 drop 会把 live 里的死怪删掉，而 live 随后要当 baseline，
+        // 那会让下一次出牌的怪物下标对不上（实测报过 "effect needs a valid monster target"）。
+        List<String> diffs = sim.copy().dropDeadMonsters().diff(live.copy().dropDeadMonsters());
         comparisons++;
         String tag = forced ? " (forced after " + framesAfterPlay + "f)" : "";
         if (diffs.isEmpty()) {

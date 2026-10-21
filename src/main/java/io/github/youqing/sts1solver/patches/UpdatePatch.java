@@ -6,6 +6,7 @@ import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
 
 import io.github.youqing.sts1solver.capture.CombatCapture;
 import io.github.youqing.sts1solver.ui.SolverPanel;
+import io.github.youqing.sts1solver.verify.AutoPilot;
 import io.github.youqing.sts1solver.verify.ShadowTracker;
 
 /**
@@ -24,6 +25,7 @@ public final class UpdatePatch {
         public static void Postfix(AbstractDungeon __instance) {
             CombatCapture.tick();
             ShadowTracker.tick();
+            AutoPilot.tick();
             SolverPanel.update();
         }
     }

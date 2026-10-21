@@ -11,6 +11,7 @@ import com.megacrit.cardcrawl.helpers.ImageMaster;
 import com.megacrit.cardcrawl.helpers.input.InputHelper;
 
 import io.github.youqing.sts1solver.diag.Trace;
+import io.github.youqing.sts1solver.verify.AutoPilot;
 import io.github.youqing.sts1solver.verify.ShadowTracker;
 
 /**
@@ -59,6 +60,7 @@ public final class SolverPanel {
     private static boolean layoutDirty = true;
     private static int lastMatches = -1;
     private static int lastMismatches = -1;
+    private static boolean lastAuto;
 
     private SolverPanel() {
     }
@@ -67,9 +69,11 @@ public final class SolverPanel {
     private static void refreshDynamicState() {
         int m = ShadowTracker.matches();
         int bad = ShadowTracker.mismatches();
-        if (m != lastMatches || bad != lastMismatches) {
+        boolean auto = AutoPilot.enabled();
+        if (m != lastMatches || bad != lastMismatches || auto != lastAuto) {
             lastMatches = m;
             lastMismatches = bad;
+            lastAuto = auto;
             layoutDirty = true;
         }
     }
@@ -113,9 +117,10 @@ public final class SolverPanel {
         int bad = ShadowTracker.mismatches();
         return new String[]{
                 "STS1 Combat Solver",
-                "v0.0.1  M0 skeleton   |   ping " + pingCount + "   |   diff " + m + "/" + (m + bad),
+                "v0.0.1  M1 diff harness   |   diff " + m + "/" + (m + bad)
+                        + "   |   AUTO " + (AutoPilot.enabled() ? "ON" : "OFF"),
                 combatLine,
-                "drag the title bar; click PING"
+                "click AUTO to auto-play mirrored cards"
         };
     }
 
@@ -191,7 +196,7 @@ public final class SolverPanel {
             float by = y + PAD;
             sb.setColor(new Color(0.18f, 0.32f, 0.5f, 0.95f));
             sb.draw(ImageMaster.WHITE_SQUARE_IMG, bx, by, BUTTON_W, BUTTON_H);
-            FontHelper.renderFontCentered(sb, font, "PING",
+            FontHelper.renderFontCentered(sb, font, AutoPilot.enabled() ? "ON" : "AUTO",
                     bx + BUTTON_W / 2f, by + BUTTON_H / 2f + 6f, Color.WHITE);
 
             sb.setColor(Color.WHITE);
@@ -211,9 +216,8 @@ public final class SolverPanel {
             ensureLayout();
             if (InputHelper.justClickedLeft) {
                 if (inButton()) {
-                    pingCount++;
+                    AutoPilot.toggle();
                     layoutDirty = true;
-                    Trace.info("PING " + pingCount);
                 } else if (inTitleBar()) {
                     dragging = true;
                     dragDX = InputHelper.mX - x;
