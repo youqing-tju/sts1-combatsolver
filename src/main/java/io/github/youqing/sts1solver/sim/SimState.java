@@ -43,6 +43,7 @@ public final class SimState {
     /** 玩家回合序号（对应 GameActionManager.turn），意图学习表按它索引。 */
     public int turn = 1;
 
+    public int gold;
     public int hp;
     public int maxHp;
     public int block;
@@ -75,6 +76,7 @@ public final class SimState {
             s.turn = 1;
         }
 
+        s.gold = p.gold;
         s.hp = p.currentHealth;
         s.maxHp = p.maxHealth;
         s.block = p.currentBlock;
@@ -162,6 +164,7 @@ public final class SimState {
         c.floor = floor;
         c.ascension = ascension;
         c.turn = turn;
+        c.gold = gold;
         c.hp = hp;
         c.maxHp = maxHp;
         c.block = block;

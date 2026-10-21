@@ -407,6 +407,88 @@ public final class MirrorRegistry {
         // 地狱之刃：随机一张铁甲战士攻击牌加入手牌，本回合 0 费（升级版给升级牌）
         register("Infernal Blade", Effects.addRandomAttackToHand(false));
         register("Infernal Blade+", Effects.addRandomAttackToHand(true));
+
+        // ---- 第十二批：无色牌（文本取自游戏内 localization/eng/cards.json） --------
+        // 神化：升级所有牌堆里的每一张牌，消耗
+        registerExhaust("Apotheosis", Effects.upgradeAllPiles());
+        registerExhaust("Apotheosis+", Effects.upgradeAllPiles());
+
+        // 测试版：随机把一张欧米茄洗进抽牌堆，消耗
+        registerExhaust("Beta", Effects.insertIntoDrawPileRandom("Omega", 1));
+        registerExhaust("Beta+", Effects.insertIntoDrawPileRandom("Omega", 1));
+
+        // 幽灵形态：获得 1 层无实体，消耗（虚灵未建模）
+        registerExhaust("Ghostly", Effects.powerOnPlayer("Intangible", 1));
+        registerExhaust("Ghostly+", Effects.powerOnPlayer("Intangible", 1));
+
+        // 神迹：回复 1 点能量，消耗
+        registerExhaust("Miracle", Effects.gainEnergy(1));
+
+        // 安全：12/16 格挡，消耗（保留未建模）
+        registerExhaust("Safety", Effects.block(12));
+        registerExhaust("Safety+", Effects.block(16));
+
+        // 以暴制暴：20/30 伤，消耗
+        registerExhaust("ThroughViolence", Effects.damage(20));
+        registerExhaust("ThroughViolence+", Effects.damage(30));
+
+        // 黏液：没有效果，只消耗
+        registerExhaust("Slimed", Effects.nothing());
+
+        // J.A.X.：失去 3 点生命，获得 2/3 力量
+        register("J.A.X.", Arrays.asList(Effects.loseHp(3), Effects.powerOnPlayer(DamageCalc.STRENGTH, 2)));
+        register("J.A.X.+", Arrays.asList(Effects.loseHp(3), Effects.powerOnPlayer(DamageCalc.STRENGTH, 3)));
+
+        // 提前思考：抽 2 后把一张手牌放回牌堆顶，消耗
+        registerExhaust("Thinking Ahead", Effects.drawThenPutChosenOnTop(2));
+        registerExhaust("Thinking Ahead+", Effects.drawThenPutChosenOnTop(2));
+
+        // 预谋：把手牌一张放到底部（费用归零未建模）
+        register("Forethought", Effects.putChosenOnBottom());
+        register("Forethought+", Effects.putChosenOnBottom());
+
+        // 启蒙：手牌费用全部降到 1
+        register("Enlightenment", Effects.reduceHandCostsTo(1));
+        register("Enlightenment+", Effects.reduceHandCostsTo(1));
+
+        // 疯狂：随机一张手牌费用归零，消耗
+        registerExhaust("Madness", Effects.freeRandomHandCard());
+        registerExhaust("Madness+", Effects.freeRandomHandCard());
+
+        // 恐慌按钮：30/40 格挡，接下来 2 回合不能用牌获得格挡，消耗
+        registerExhaust("PanicButton", Arrays.asList(
+                Effects.block(30), Effects.powerOnPlayer("No Block", 2)));
+        registerExhaust("PanicButton+", Arrays.asList(
+                Effects.block(40), Effects.powerOnPlayer("No Block", 2)));
+
+        // 仪式匕首：15 伤，击杀则永久 +3/+5（用卡面伤害，捕获时自动读到），消耗
+        registerExhaust("RitualDagger", Effects.damageEqualToCardBase());
+        registerExhaust("RitualDagger+", Effects.damageEqualToCardBase());
+
+        // 贪婪之手：20/25 伤，击杀获得金币
+        register("HandOfGreed", Effects.damageAndGoldOnKill(20, 20));
+        register("HandOfGreed+", Effects.damageAndGoldOnKill(25, 25));
+
+        // 秘密技巧 / 秘密武器：从抽牌堆取一张技能/攻击，消耗
+        registerExhaust("Secret Technique", Effects.retrieveChosenFromDraw(false));
+        registerExhaust("Secret Technique+", Effects.retrieveChosenFromDraw(false));
+        registerExhaust("Secret Weapon", Effects.retrieveChosenFromDraw(true));
+        registerExhaust("Secret Weapon+", Effects.retrieveChosenFromDraw(true));
+
+        // 暴力：从抽牌堆随机取 3/4 张攻击牌，消耗
+        registerExhaust("Violence", Effects.randomAttacksFromDrawToHand(3));
+        registerExhaust("Violence+", Effects.randomAttacksFromDrawToHand(4));
+
+        // 十八般武艺：随机 1/2 张无色牌进手牌，消耗
+        registerExhaust("Jack Of All Trades", Effects.addRandomColorlessToHand(1, false));
+        registerExhaust("Jack Of All Trades+", Effects.addRandomColorlessToHand(2, false));
+
+        // 转化：X 费，随机 X 张无色牌进手牌，本回合 0 费，消耗
+        registerExhaust("Transmutation", Effects.addRandomColorlessXToHand());
+
+        // 蜕变：洗 3/5 张随机攻击进抽牌堆，本场 0 费，消耗
+        registerExhaust("Metamorphosis", Effects.shuffleRandomAttacksIntoDraw(3));
+        registerExhaust("Metamorphosis+", Effects.shuffleRandomAttacksIntoDraw(5));
     }
 
     private MirrorRegistry() {

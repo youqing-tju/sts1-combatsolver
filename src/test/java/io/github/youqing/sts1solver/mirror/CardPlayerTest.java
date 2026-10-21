@@ -514,6 +514,34 @@ class CardPlayerTest {
                 "one cardRandomRng step is consumed");
     }
 
+    // ---- 第十二批：无色牌 ----
+
+    @Test
+    void apotheosisUpgradesEveryPile() {
+        SimState s = combat("Apotheosis", "Strike_R");
+        s.draw.add(new SimCard("Defend_R", false, 1));
+        s.discard.add(new SimCard("Bash", false, 2));
+
+        CardPlayer.play(s, 0, 0);
+
+        assertTrue(s.hand.get(0).upgraded, "hand upgraded");
+        assertTrue(s.draw.get(0).upgraded, "draw pile upgraded");
+        assertTrue(s.discard.get(0).upgraded, "discard upgraded");
+    }
+
+    @Test
+    void secretWeaponTakesAnAttackFromTheDrawPile() {
+        SimState s = combat("Secret Weapon");
+        s.draw.add(new SimCard("Defend_R", false, 1));
+        s.draw.add(new SimCard("Strike_R", false, 1));
+
+        CardPlayer.play(s, 0, 0, 1);   // 选抽牌堆第 1 张（Strike_R）
+
+        assertEquals(1, s.hand.size());
+        assertEquals("Strike_R", s.hand.get(0).id);
+        assertEquals(1, s.draw.size());
+    }
+
     @Test
     void drawRespectsTheTenCardHandLimit() {
         SimState s = combat("Pommel Strike");

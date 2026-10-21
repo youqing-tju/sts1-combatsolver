@@ -615,6 +615,269 @@ public final class Effects {
         };
     }
 
+    /** 随机加入 count 张无色牌到手牌（Jack Of All Trades / Transmutation），可选本回合 0 费。 */
+    public static Effect addRandomColorlessToHand(final int count, final boolean freeThisTurn) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                int size = ColorlessPool.size();
+                if (size <= 0) {
+                    return;
+                }
+                for (int i = 0; i < count; i++) {
+                    int pick = rng == null ? 0 : rng.random(size - 1);
+                    pick = Math.min(pick, size - 1);
+                    int cost = freeThisTurn ? 0 : ColorlessPool.costAt(pick);
+                    state.hand.add(new SimCard(ColorlessPool.idAt(pick), false, cost,
+                            ColorlessPool.damageAt(pick)));
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "hand+=colorless(" + count + ")";
+            }
+        };
+    }
+
+    /** 把 count 张随机攻击牌洗进抽牌堆，本场 0 费（Metamorphosis）。 */
+    public static Effect shuffleRandomAttacksIntoDraw(final int count) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                int size = AttackPool.size();
+                if (size <= 0) {
+                    return;
+                }
+                for (int i = 0; i < count; i++) {
+                    int pick = rng == null ? 0 : rng.random(size - 1);
+                    pick = Math.min(pick, size - 1);
+                    SimCard c = new SimCard(AttackPool.idAt(pick), false, 0,
+                            AttackPool.damageAt(pick));
+                    int at = state.draw.isEmpty() ? 0 : rng.random(state.draw.size());
+                    state.draw.add(Math.min(at, state.draw.size()), c);
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "draw+=randomAttacks(" + count + ")";
+            }
+        };
+    }
+
+
+    /** X 费：随机 X 张无色牌进手牌，本回合 0 费（转化 Transmutation）。 */
+    public static Effect addRandomColorlessXToHand() {
+        return new XEffect() {
+            @Override
+            public void applyWithX(SimState state, int targetIndex, SimCard played, int x) {
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                int size = ColorlessPool.size();
+                if (size <= 0) {
+                    return;
+                }
+                for (int i = 0; i < x; i++) {
+                    int pick = rng == null ? 0 : rng.random(size - 1);
+                    pick = Math.min(pick, size - 1);
+                    state.hand.add(new SimCard(ColorlessPool.idAt(pick), false, 0,
+                            ColorlessPool.damageAt(pick)));
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "hand+=colorless(X)";
+            }
+        };
+    }
+
+
+    /** 升级所有牌堆里的每一张牌（神化 Apotheosis）。 */
+    public static Effect upgradeAllPiles() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                upgradeAll(state.hand);
+                upgradeAll(state.draw);
+                upgradeAll(state.discard);
+                upgradeAll(state.exhaust);
+            }
+
+            private void upgradeAll(java.util.List<SimCard> pile) {
+                for (int i = 0; i < pile.size(); i++) {
+                    SimCard c = pile.get(i);
+                    if (!c.upgraded) {
+                        pile.set(i, new SimCard(c.id, true, c.cost, c.baseDamage));
+                    }
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "upgrade(all piles)";
+            }
+        };
+    }
+
+    /** 把手牌费用降到不超过 limit（启蒙 Enlightenment：全部降到 1）。 */
+    public static Effect reduceHandCostsTo(final int limit) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                for (int i = 0; i < state.hand.size(); i++) {
+                    SimCard c = state.hand.get(i);
+                    if (c.cost > limit) {
+                        state.hand.set(i, c.withCost(limit));
+                    }
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "handCost<=" + limit;
+            }
+        };
+    }
+
+    /** 随机一张手牌费用归零（疯狂 Madness）。 */
+    public static Effect freeRandomHandCard() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                if (state.hand.isEmpty()) {
+                    return;
+                }
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                int index = rng == null ? 0 : rng.random(state.hand.size() - 1);
+                index = Math.min(index, state.hand.size() - 1);
+                state.hand.set(index, state.hand.get(index).withCost(0));
+            }
+
+            @Override
+            public String toString() {
+                return "randomHandCardCost=0";
+            }
+        };
+    }
+
+    /** 把选中的手牌放到抽牌堆底（预谋 Forethought）。 */
+    public static Effect putChosenOnBottom() {
+        return new ChoiceEffect() {
+            @Override
+            public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
+                if (choiceIndex < 0 || choiceIndex >= state.hand.size()) {
+                    return;
+                }
+                SimCard picked = state.hand.remove(choiceIndex);
+                state.draw.add(0, picked);
+            }
+
+            @Override
+            public String toString() {
+                return "bottom(chosen)";
+            }
+        };
+    }
+
+    /** 从抽牌堆取一张指定类别（attack/skill）的牌加入手牌（秘密武器 / 秘密技巧）。 */
+    public static Effect retrieveChosenFromDraw(final boolean wantAttack) {
+        return new ChoiceEffect() {
+            @Override
+            public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
+                if (choiceIndex < 0 || choiceIndex >= state.draw.size()) {
+                    return;
+                }
+                SimCard c = state.draw.get(choiceIndex);
+                if (isAttackId(c.id) != wantAttack) {
+                    return;
+                }
+                state.hand.add(state.draw.remove(choiceIndex));
+            }
+
+            @Override
+            public String toString() {
+                return "hand+=draw[" + (wantAttack ? "attack" : "skill") + "]";
+            }
+        };
+    }
+
+    /** 从抽牌堆随机取 n 张攻击牌加入手牌（暴力 Violence）。 */
+    public static Effect randomAttacksFromDrawToHand(final int count) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                for (int i = 0; i < count; i++) {
+                    java.util.List<Integer> candidates = new java.util.ArrayList<Integer>();
+                    for (int j = 0; j < state.draw.size(); j++) {
+                        if (isAttackId(state.draw.get(j).id)) {
+                            candidates.add(j);
+                        }
+                    }
+                    if (candidates.isEmpty()) {
+                        return;
+                    }
+                    int pick = rng == null ? 0 : rng.random(candidates.size() - 1);
+                    pick = Math.min(pick, candidates.size() - 1);
+                    state.hand.add(state.draw.remove((int) candidates.get(pick)));
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "hand+=randomAttacks(" + count + ")";
+            }
+        };
+    }
+
+    /** 造成伤害，击杀则获得金币（贪婪之手 Hand of Greed）。 */
+    public static Effect damageAndGoldOnKill(final int base, final int gold) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                boolean alive = target.hp > 0;
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+                if (alive && target.hp <= 0) {
+                    state.gold += gold;
+                }
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+
+            @Override
+            public String toString() {
+                return "damage(" + base + ")+gold(" + gold + " on kill)";
+            }
+        };
+    }
+
+    /** 空效果（史莱姆粘液 Slimed：只有 Exhaust）。 */
+    public static Effect nothing() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+            }
+
+            @Override
+            public String toString() {
+                return "nothing";
+            }
+        };
+    }
+
+
     /** 伤害 = 这张牌当前的卡面伤害（暴走 / 灼烧打击这类会成长的牌）。 */
     public static Effect damageEqualToCardBase() {
         return new Effect() {
