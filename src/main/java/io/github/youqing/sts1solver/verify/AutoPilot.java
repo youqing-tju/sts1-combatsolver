@@ -73,14 +73,18 @@ public final class AutoPilot {
             if (player.hand == null || player.hand.size() == 0) {
                 return;
             }
+            // 玩家正在手动选牌/拖动时让位，避免两边同时入队
+            if (player.hoveredCard != null || player.isDraggingCard) {
+                return;
+            }
 
             AbstractMonster target = firstAliveMonster();
             if (target == null) {
                 return;
             }
             if (!playOneCard(player, target)) {
+                Trace.info("AUTO end turn (nothing playable)  " + describeHand(player));
                 AbstractDungeon.actionManager.endTurn();
-                Trace.info("AUTO end turn (nothing playable)");
                 cooldown = 30;
             }
         } catch (Throwable t) {
@@ -122,7 +126,8 @@ public final class AutoPilot {
             if (mirroredOnly && !MirrorRegistry.supports(key)) {
                 continue;
             }
-            if (card.cost < 0 || card.cost > EnergyPanel.totalCount) {
+            int cost = effectiveCost(card);
+            if (cost < 0 || cost > EnergyPanel.totalCount) {
                 continue;
             }
             if (card.type == AbstractCard.CardType.ATTACK && target == null) {
@@ -131,6 +136,40 @@ public final class AutoPilot {
             return card;
         }
         return null;
+    }
+
+    /**
+     * 真实可打性判定。用 {@code costForTurn} 而不是 {@code cost}：
+     * 后者是本场基础费用，可能被遗物/状态在本回合改写，用它会误判「打不起」。
+     * 约定：-1 = X 费（按当前能量全花），-2 = 不可打出。
+     */
+    private static int effectiveCost(AbstractCard card) {
+        if (card.cost == -2) {
+            return -1;
+        }
+        if (card.cost == -1) {
+            return EnergyPanel.totalCount;
+        }
+        return Math.max(0, card.costForTurn);
+    }
+
+    /** 打不出牌时把手上有什么、能量多少写进日志，避免只能靠猜。 */
+    private static String describeHand(AbstractPlayer player) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("energy=").append(EnergyPanel.totalCount).append(" hand[");
+        ArrayList<AbstractCard> hand = new ArrayList<AbstractCard>(player.hand.group);
+        for (int i = 0; i < hand.size(); i++) {
+            AbstractCard c = hand.get(i);
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(c.cardID).append(c.upgraded ? "+" : "")
+              .append("(cost=").append(c.cost)
+              .append("/turn=").append(c.costForTurn)
+              .append(c.type == AbstractCard.CardType.ATTACK ? ",atk" : "")
+              .append(')');
+        }
+        return sb.append(']').toString();
     }
 
     private static AbstractMonster firstAliveMonster() {

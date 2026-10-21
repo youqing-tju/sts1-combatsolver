@@ -26,6 +26,12 @@ public final class CardPlayPatch {
         public static void Prefix(AbstractPlayer __instance, AbstractCard card,
                                   AbstractMonster target, int energyOnUse) {
             try {
+                String key = card.cardID + (card.upgraded ? "+" : "");
+                if (!io.github.youqing.sts1solver.mirror.MirrorRegistry.supports(key)) {
+                    // 只在未镜像的牌上打一行：若玩家点了牌却没有这行，说明点击根本没到 useCard
+                    // （是游戏侧拒绝，不是我们的钩子出问题）
+                    Trace.info("PLAY unmirrored " + key);
+                }
                 ShadowTracker.onCardPlayed(card, target);
             } catch (Throwable t) {
                 Trace.error("card play hook failed", t);
