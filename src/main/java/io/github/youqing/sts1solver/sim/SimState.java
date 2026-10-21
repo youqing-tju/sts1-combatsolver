@@ -193,8 +193,16 @@ public final class SimState {
                 }
                 cmp(out, p + "hp", a.hp, b.hp);
                 cmp(out, p + "maxHp", a.maxHp, b.maxHp);
-                cmp(out, p + "block", a.block, b.block);
-                diffMap(out, p + "powers", a.powers, b.powers);
+
+                // 怪物身上的「被动能力」（如虱虫的 Curl Up：受伤后蜷缩加格挡）会在我方出牌时
+                // 自行反应，而影子目前只建模玩家侧状态，没建模这些反应。
+                // 直接比较只会产生噪声，所以这类怪物的 block / powers 暂不比，只比血量。
+                // 等我方实现怪物能力（M3）后再打开。
+                boolean monsterReactionsUnmodelled = !a.powers.isEmpty() || !b.powers.isEmpty();
+                if (!monsterReactionsUnmodelled) {
+                    cmp(out, p + "block", a.block, b.block);
+                    diffMap(out, p + "powers", a.powers, b.powers);
+                }
             }
         }
 

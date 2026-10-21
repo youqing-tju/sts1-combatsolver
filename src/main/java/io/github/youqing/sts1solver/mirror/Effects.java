@@ -97,7 +97,8 @@ public final class Effects {
                         }
                         throw new ActionRejected("draw needs a reshuffle (shuffle RNG not mirrored yet)");
                     }
-                    state.hand.add(state.draw.remove(0));
+                    // 抽牌堆的「顶」是列表末尾：CardGroup.getTopCard() 取的是 group.get(size-1)
+                    state.hand.add(state.draw.remove(state.draw.size() - 1));
                 }
             }
 

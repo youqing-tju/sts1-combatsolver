@@ -199,10 +199,12 @@ class CardPlayerTest {
     @Test
     void drawTakesFromTheTopOfTheDrawPile() {
         SimState s = combat("Pommel Strike");
-        s.draw.add(new SimCard("Strike_R", false, 1));
+        s.draw.add(new SimCard("Defend_R", false, 1));   // 堆底
+        s.draw.add(new SimCard("Bash", false, 2));       // 堆顶
         CardPlayer.play(s, 0, 0);
         assertEquals(1, s.hand.size(), "drew one card");
-        assertEquals(0, s.draw.size());
+        assertEquals("Bash", s.hand.get(0).id, "must take the top of the pile (last element)");
+        assertEquals(1, s.draw.size());
     }
 
     // ---- 第三批：新原语 ----
