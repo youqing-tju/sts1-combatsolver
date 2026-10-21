@@ -35,6 +35,14 @@ public final class CombatFlow {
             state.block = 0;
         }
 
+        // 进入下一回合：按「意图学习表」刷新怪物意图（查不到就沿用当前值）
+        state.turn = state.turn + 1;
+        for (SimMonster m : state.monsters) {
+            if (m.hp > 0) {
+                m.intentDmg = IntentLearning.predict(m.type, state.turn, m.intentDmg);
+            }
+        }
+
         // 新回合
         state.energy = energyPerTurn;
         draw(state, handSize);

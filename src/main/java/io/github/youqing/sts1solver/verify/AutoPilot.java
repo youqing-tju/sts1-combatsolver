@@ -58,6 +58,9 @@ public final class AutoPilot {
     private static final int MAX_END_PHASE_FRAMES = 900;
 
     /** 搜索宽度与深度：先给保守值，能用后再调（每帧都要跑，太大会掉帧）。 */
+    private static int searchCount;
+    private static long searchNodesTotal;
+
     private static final int BEAM_WIDTH = 8;
     private static final int SEARCH_DEPTH = 5;
 
@@ -250,6 +253,10 @@ public final class AutoPilot {
     private static AbstractCard chooseBySearch(AbstractPlayer player) {
         try {
             SimState snapshot = SimState.capture();
+            // 每回合把「怪物 + 回合号 + 当前意图」喂给学习表，搜索才能在跨回合时用真实意图
+            for (io.github.youqing.sts1solver.sim.SimMonster m : snapshot.monsters) {
+                io.github.youqing.sts1solver.sim.IntentLearning.observe(m.type, snapshot.turn, m.intentDmg);
+            }
             BeamSolver solver = new BeamSolver(CombatCapture.baseEnergy(),
                     player.gameHandSize, BEAM_WIDTH, SEARCH_DEPTH);
             PlanAction action = solver.bestFirstAction(snapshot);
@@ -258,6 +265,17 @@ public final class AutoPilot {
             }
             if (action.cardIndex < 0 || action.cardIndex >= player.hand.group.size()) {
                 return null;
+            }
+
+            searchCount++;
+            searchNodesTotal += solver.lastNodes;
+            if (solver.lastMillis > 30) {
+                Trace.warn("SEARCH slow: " + solver.lastMillis + " ms, " + solver.lastNodes + " nodes");
+            } else if (searchCount % 50 == 0) {
+                Trace.info("SEARCH #" + searchCount + " avgNodes=" + (searchNodesTotal / searchCount)
+                        + " lastMs=" + solver.lastMillis
+                        + " intentHits=" + io.github.youqing.sts1solver.sim.IntentLearning.hits()
+                        + " misses=" + io.github.youqing.sts1solver.sim.IntentLearning.misses());
             }
 
             AbstractCard best = player.hand.group.get(action.cardIndex);

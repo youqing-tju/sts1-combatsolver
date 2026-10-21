@@ -33,6 +33,10 @@ public final class BeamSolver {
     /** 诊断开关（单测里打开）。 */
     public static boolean DEBUG;
 
+    /** 上一次搜索的规模与耗时（A4 指标：120 秒 ≥ 10 万节点）。 */
+    public int lastNodes;
+    public long lastMillis;
+
     public BeamSolver(int energyPerTurn, int handSize, int beamWidth, int depth) {
         this.energyPerTurn = energyPerTurn;
         this.handSize = handSize;
@@ -54,6 +58,8 @@ public final class BeamSolver {
      * @return 从当前状态出发的最优第一步；无法判定时返回 {@code null}
      */
     public PlanAction bestFirstAction(SimState root) {
+        long startedAt = System.nanoTime();
+        lastNodes = 0;
         List<SearchNode> beam = new ArrayList<SearchNode>();
         beam.add(new SearchNode(root.copy(), null, null, 0, evaluate(root)));
 
@@ -67,6 +73,7 @@ public final class BeamSolver {
                     continue;
                 }
                 expand(node, next);
+                lastNodes++;
             }
             if (next.isEmpty()) {
                 break;
@@ -89,6 +96,7 @@ public final class BeamSolver {
             System.out.println("CHOSEN depth=" + best.depth + " score=" + best.score
                     + " action=" + best.action + " first=" + best.firstAction());
         }
+        lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
         return best == null ? null : best.firstAction();
     }
 

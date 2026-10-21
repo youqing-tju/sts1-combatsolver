@@ -40,6 +40,8 @@ public final class SimState {
     public int act;
     public int floor;
     public int ascension;
+    /** 玩家回合序号（对应 GameActionManager.turn），意图学习表按它索引。 */
+    public int turn = 1;
 
     public int hp;
     public int maxHp;
@@ -65,6 +67,11 @@ public final class SimState {
         s.act = AbstractDungeon.actNum;
         s.floor = AbstractDungeon.floorNum;
         s.ascension = AbstractDungeon.ascensionLevel;
+        try {
+            s.turn = Math.max(1, AbstractDungeon.actionManager.turn);
+        } catch (Throwable ignored) {
+            s.turn = 1;
+        }
 
         s.hp = p.currentHealth;
         s.maxHp = p.maxHealth;
@@ -143,6 +150,7 @@ public final class SimState {
         c.act = act;
         c.floor = floor;
         c.ascension = ascension;
+        c.turn = turn;
         c.hp = hp;
         c.maxHp = maxHp;
         c.block = block;
