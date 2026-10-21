@@ -341,6 +341,35 @@ public final class MirrorRegistry {
         // 咬：7/8 伤 + 治疗 2/3
         register("Bite", Arrays.asList(Effects.damage(7), Effects.heal(2)));
         register("Bite+", Arrays.asList(Effects.damage(8), Effects.heal(3)));
+
+        // 心灵爆震：伤害 = 抽牌堆张数
+        register("Mind Blast", Effects.damageEqualToDrawPile());
+        register("Mind Blast+", Effects.damageEqualToDrawPile());
+
+        // 急躁：手牌无攻击牌时抽 2/3
+        register("Impatience", Effects.drawIfNoAttackInHand(2));
+        register("Impatience+", Effects.drawIfNoAttackInHand(3));
+
+        // 万灵药：获得 1/2 层人工制品，消耗
+        registerExhaust("Panacea", Effects.powerOnPlayer("Artifact", 1));
+        registerExhaust("Panacea+", Effects.powerOnPlayer("Artifact", 2));
+
+        // ---- 第十批：补齐红卡剩余可做的两张 -----------------------------------
+        // 狂战：自身获得 2/1 易伤，每回合额外 1 能量（power 层数固定为 1）
+        register("Berserk", Arrays.asList(
+                Effects.powerOnPlayer(DamageCalc.VULNERABLE, 2),
+                Effects.powerOnPlayer("Berserk", 1)));
+        register("Berserk+", Arrays.asList(
+                Effects.powerOnPlayer(DamageCalc.VULNERABLE, 1),
+                Effects.powerOnPlayer("Berserk", 1)));
+
+        // 真坚毅：7/9 格挡 + 消耗一张手牌（原版随机，升级版自选）
+        register("True Grit", Arrays.asList(Effects.block(7), Effects.exhaustRandomHandCard()));
+        register("True Grit+", Arrays.asList(Effects.block(9), Effects.exhaustChosen()));
+
+        // 洞见：0 费抽 2/3，消耗
+        registerExhaust("Insight", Effects.draw(2));
+        registerExhaust("Insight+", Effects.draw(3));
     }
 
     private MirrorRegistry() {

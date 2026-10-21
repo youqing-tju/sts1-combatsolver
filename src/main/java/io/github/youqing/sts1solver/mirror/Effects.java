@@ -559,6 +559,89 @@ public final class Effects {
         };
     }
 
+    /** 随机消耗一张手牌（真坚毅 True Grit 原版）。 */
+    public static Effect exhaustRandomHandCard() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                if (state.hand.isEmpty()) {
+                    return;
+                }
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                int index = rng == null ? 0 : rng.random(state.hand.size() - 1);
+                state.exhaust.add(state.hand.remove(Math.min(index, state.hand.size() - 1)));
+            }
+
+            @Override
+            public String toString() {
+                return "exhaust(random hand)";
+            }
+        };
+    }
+
+    /** 消耗指定手牌（真坚毅+）。 */
+    public static Effect exhaustChosen() {
+        return new ChoiceEffect() {
+            @Override
+            public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
+                if (choiceIndex >= 0 && choiceIndex < state.hand.size()) {
+                    state.exhaust.add(state.hand.remove(choiceIndex));
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "exhaust(chosen)";
+            }
+        };
+    }
+
+    /** 伤害等于抽牌堆张数（心灵爆震 Mind Blast）。 */
+    public static Effect damageEqualToDrawPile() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                int base = state.draw.size();
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+
+            @Override
+            public String toString() {
+                return "damage(=drawPile)";
+            }
+        };
+    }
+
+    /** 手牌里没有攻击牌时才抽牌（急躁 Impatience）。 */
+    public static Effect drawIfNoAttackInHand(final int count) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                for (SimCard c : state.hand) {
+                    if (isAttackId(c.id)) {
+                        return;
+                    }
+                }
+                if (played != null && isAttackId(played.id)) {
+                    return;
+                }
+                draw(count).applyTo(state, targetIndex, played);
+            }
+
+            @Override
+            public String toString() {
+                return "draw(" + count + " if no attack)";
+            }
+        };
+    }
+
     /** 若击杀目标则提升最大生命（啃食 Feed）。 */
     public static Effect damageAndMaxHpOnKill(final int base, final int maxHpGain) {
         return new Effect() {
