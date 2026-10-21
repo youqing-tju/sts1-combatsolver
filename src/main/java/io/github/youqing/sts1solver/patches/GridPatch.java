@@ -2,27 +2,45 @@ package io.github.youqing.sts1solver.patches;
 
 import com.evacipated.cardcrawl.modthespire.lib.SpirePatch;
 import com.evacipated.cardcrawl.modthespire.lib.SpirePostfixPatch;
-import com.megacrit.cardcrawl.screens.select.GridCardSelectScreen;
+import com.evacipated.cardcrawl.modthespire.lib.SpirePrefixPatch;
+import com.megacrit.cardcrawl.cards.AbstractCard;
+import com.megacrit.cardcrawl.ui.buttons.GridSelectConfirmButton;
 
 import io.github.youqing.sts1solver.exec.GridSelector;
 
 /**
- * 选牌网格的驱动钩子。
- *
- * <p>必须挂在 {@link GridCardSelectScreen#update()} 上，而不是 {@code AbstractDungeon.update()}：
- * 界面打开期间后者不再被调用，挂在那儿等于没挂（实测卡在选牌界面 80 秒，一次都没触发）。
+ * 选牌网格的驱动钩子。两个都很讲究时序，改之前先读 {@link GridSelector} 的注释。
  */
 public final class GridPatch {
 
     private GridPatch() {
     }
 
-    @SpirePatch(clz = GridCardSelectScreen.class, method = "update")
-    public static class AfterGridUpdate {
+    /**
+     * 卡片 update 之后：此时 {@code hb.clicked} 刚被 {@code Hitbox.update()} 重写，
+     * 界面在同一帧的循环里马上会读它 —— 只有这个窗口有效。
+     */
+    @SpirePatch(clz = AbstractCard.class, method = "update")
+    public static class ClickCardInGrid {
 
         @SpirePostfixPatch
-        public static void Postfix(GridCardSelectScreen __instance) {
-            GridSelector.drive(__instance);
+        public static void Postfix(AbstractCard __instance) {
+            GridSelector.markClick(__instance);
+        }
+    }
+
+    /** 确认按钮：update 前伪造鼠标，update 后还原。 */
+    @SpirePatch(clz = GridSelectConfirmButton.class, method = "update")
+    public static class ClickConfirmButton {
+
+        @SpirePrefixPatch
+        public static void Prefix(GridSelectConfirmButton __instance) {
+            GridSelector.prepareConfirm(__instance);
+        }
+
+        @SpirePostfixPatch
+        public static void Postfix(GridSelectConfirmButton __instance) {
+            GridSelector.restoreInput();
         }
     }
 }

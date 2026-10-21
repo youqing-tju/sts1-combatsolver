@@ -30,6 +30,10 @@ public final class AutoPilot {
     private static boolean enabled;
     private static int cooldown;
 
+    /** 防重复入队：同一张牌连续入队却一直没离开手牌，说明这一手游戏不认。 */
+    private static String queuedKey;
+    private static int queuedFrames;
+
     private AutoPilot() {
     }
 
@@ -54,6 +58,19 @@ public final class AutoPilot {
         if (cooldown > 0) {
             cooldown--;
             return;
+        }
+        if (queuedKey != null) {
+            queuedFrames++;
+            if (!handContains(queuedKey)) {
+                queuedKey = null;
+                queuedFrames = 0;
+            } else if (queuedFrames > 120) {
+                // 入队两秒还留在手上 = 这一手游戏压根没执行，别再刷屏，关掉并报告
+                Trace.warn("AUTO stuck on " + queuedKey + " (" + queuedFrames
+                        + " frames, still in hand) -> AUTO off");
+                enabled = false;
+                return;
+            }
         }
         try {
             AbstractPlayer player = AbstractDungeon.player;
@@ -111,12 +128,27 @@ public final class AutoPilot {
         }
 
         String key = chosen.cardID + (chosen.upgraded ? "+" : "");
-        AbstractMonster target = chosen.type == AbstractCard.CardType.ATTACK ? attackTarget : null;
+        AbstractMonster target = needsMonsterTarget(chosen) ? attackTarget : null;
+        if (needsMonsterTarget(chosen) && target == null) {
+            return false;
+        }
         AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
+        queuedKey = key;
+        queuedFrames = 0;
         Trace.info("AUTO play " + key + (target == null ? "" : " -> " + target.name)
                 + (mirrored ? "  (mirrored, diff)" : "  (unmirrored, record)"));
         cooldown = 6;
         return true;
+    }
+
+    /**
+     * 是否需要指定怪物。**不能只看是不是攻击牌**：缴械（Disarm）、威吓这类
+     * 「指定一个敌人」的技能同样需要目标，传 null 会导致游戏根本不执行这一手，
+     * 牌留在手上 → 自动器反复入队同一张（实测刷了 30+ 次）。
+     */
+    private static boolean needsMonsterTarget(AbstractCard card) {
+        return card.target == AbstractCard.CardTarget.ENEMY
+                || card.type == AbstractCard.CardType.ATTACK;
     }
 
     private enum Pref {
@@ -180,8 +212,20 @@ public final class AutoPilot {
         return sb.append(']').toString();
     }
 
-    private static AbstractMonster firstAliveMonster() {
-        if (AbstractDungeon.getMonsters() == null || AbstractDungeon.getMonsters().monsters == null) {
+    private static boolean handContains(String key) {
+        AbstractPlayer player = AbstractDungeon.player;
+        if (player == null || player.hand == null) {
+            return false;
+        }
+        for (AbstractCard c : player.hand.group) {
+            if ((c.cardID + (c.upgraded ? "+" : "")).equals(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static AbstractMonster firstAliveMonster() {        if (AbstractDungeon.getMonsters() == null || AbstractDungeon.getMonsters().monsters == null) {
             return null;
         }
         for (AbstractMonster m : AbstractDungeon.getMonsters().monsters) {
