@@ -31,8 +31,14 @@ public final class AutoPilot {
     private static boolean enabled;
     private static int cooldown;
 
-    /** 防重复入队：同一张牌连续入队却一直没离开手牌，说明这一手游戏不认。 */
-    private static String queuedKey;
+    /**
+     * 防重复入队：记住**刚入队的那个卡牌对象本身**。
+     *
+     * <p>⚠️ 不能用牌名判断。实测：烧牌契约打完后，枯木树枝又会塞回一张同名牌，
+     * 按名字判断会一直以为「它还在手上没打出去」，于是反复误报卡死并关掉 AUTO。
+     * 牌名不唯一，对象才唯一。
+     */
+    private static AbstractCard queuedCard;
     private static int queuedFrames;
 
     /**
@@ -52,6 +58,10 @@ public final class AutoPilot {
     public static void toggle() {
         enabled = !enabled;
         cooldown = 0;
+        // 重新开启时把上一轮的计数清干净，否则会「一开就立刻再触发一次卡死」
+        queuedCard = null;
+        queuedFrames = 0;
+        noProgressEndTurns = 0;
         Trace.info("AUTO " + (enabled ? "ON" : "OFF"));
     }
 
@@ -67,16 +77,21 @@ public final class AutoPilot {
             cooldown--;
             return;
         }
-        if (queuedKey != null) {
+        if (queuedCard != null) {
             queuedFrames++;
-            if (!handContains(queuedKey)) {
-                queuedKey = null;
+            AbstractPlayer player = AbstractDungeon.player;
+            boolean stillInHand = player != null && player.hand != null
+                    && player.hand.group.contains(queuedCard);
+            if (!stillInHand) {
+                queuedCard = null;
                 queuedFrames = 0;
-            } else if (queuedFrames > 120) {
-                // 入队两秒还留在手上 = 这一手游戏压根没执行，别再刷屏，关掉并报告
-                Trace.warn("AUTO stuck on " + queuedKey + " (" + queuedFrames
-                        + " frames, still in hand) -> AUTO off");
+            } else if (queuedFrames > 180 && drained()) {
+                // 入队三秒还留在手上、且动作队列已空 = 这一手游戏压根没执行，别再刷屏
+                Trace.warn("AUTO stuck on " + queuedCard.cardID + " (" + queuedFrames
+                        + " frames, same card object still in hand) -> AUTO off");
                 enabled = false;
+                queuedCard = null;
+                queuedFrames = 0;
                 return;
             }
         }
@@ -166,7 +181,7 @@ public final class AutoPilot {
         String key = chosen.cardID + (chosen.upgraded ? "+" : "");
         AbstractMonster target = resolveTarget(chosen, attackTarget);
         AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
-        queuedKey = key;
+        queuedCard = chosen;
         queuedFrames = 0;
         noProgressEndTurns = 0;   // 本当に進んだので「无进展」计数清零
         Trace.info("AUTO play " + key + (target == null ? "" : " -> " + target.name)
@@ -250,19 +265,6 @@ public final class AutoPilot {
               .append(')');
         }
         return sb.append(']').toString();
-    }
-
-    private static boolean handContains(String key) {
-        AbstractPlayer player = AbstractDungeon.player;
-        if (player == null || player.hand == null) {
-            return false;
-        }
-        for (AbstractCard c : player.hand.group) {
-            if ((c.cardID + (c.upgraded ? "+" : "")).equals(key)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static AbstractMonster firstAliveMonster() {        if (AbstractDungeon.getMonsters() == null || AbstractDungeon.getMonsters().monsters == null) {
