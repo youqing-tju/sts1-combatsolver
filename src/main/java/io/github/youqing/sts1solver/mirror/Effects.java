@@ -559,6 +559,28 @@ public final class Effects {
         };
     }
 
+    /** 全体 X 段伤害（旋风斩：每点能量 5 点伤害）。 */
+    public static Effect damageAllX(final int perEnergy) {
+        return new XEffect() {
+            @Override
+            public void applyWithX(SimState state, int targetIndex, SimCard played, int x) {
+                for (int i = 0; i < x; i++) {
+                    for (SimMonster m : state.monsters) {
+                        if (m.hp > 0) {
+                            DamageCalc.hit(state, m,
+                                    DamageCalc.attackDamage(state, perEnergy, m));
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "damageAll(" + perEnergy + "xX)";
+            }
+        };
+    }
+
     private static boolean isAttackId(String id) {
         // 攻击牌占比在红卡里很高，这里用已注册的镜像判断是否为攻击类
         return ATTACK_IDS.contains(id);

@@ -28,19 +28,29 @@ public final class CardPlayer {
         if (mirror == null) {
             throw new ActionRejected("no mirror for card " + card.key());
         }
+        // cost == -1 是 X 费：出牌时消耗全部能量，效果按 X 结算（旋风斩）
+        int xValue = 0;
         if (card.cost < 0) {
-            throw new ActionRejected("unsupported cost " + card.cost + " on " + card.key());
+            if (card.cost != -1) {
+                throw new ActionRejected("unsupported cost " + card.cost + " on " + card.key());
+            }
+            xValue = state.energy;
+            state.energy = 0;
+        } else {
+            if (card.cost > state.energy) {
+                throw new ActionRejected("not enough energy for " + card.key()
+                        + " (need " + card.cost + ", have " + state.energy + ")");
+            }
+            state.energy -= card.cost;
         }
-        if (card.cost > state.energy) {
-            throw new ActionRejected("not enough energy for " + card.key()
-                    + " (need " + card.cost + ", have " + state.energy + ")");
-        }
-
-        state.energy -= card.cost;
         state.hand.remove(handIndex);
 
         for (Effect effect : mirror.effects) {
-            effect.applyTo(state, targetIndex, card);
+            if (effect instanceof XEffect) {
+                ((XEffect) effect).applyWithX(state, targetIndex, card, xValue);
+            } else {
+                effect.applyTo(state, targetIndex, card);
+            }
         }
 
         state.discard.add(card);

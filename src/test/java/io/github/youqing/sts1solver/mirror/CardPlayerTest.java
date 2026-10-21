@@ -388,6 +388,38 @@ class CardPlayerTest {
         assertEquals(9, lost, "3 hits x 3 damage, target chosen at random");
     }
 
+    // ---- 第六批：X 费 ----
+
+    @Test
+    void whirlwindSpendsAllEnergyAndScalesWithIt() {
+        SimState s = combat("Whirlwind");
+        s.hand.clear();
+        s.hand.add(new SimCard("Whirlwind", false, -1));   // -1 = X 费
+        s.energy = 3;
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("A", 40, 40, 0, Collections.<String, Integer>emptyMap()));
+
+        CardPlayer.play(s, 0, 0);
+
+        assertEquals(0, s.energy, "X spends every point of energy");
+        assertEquals(25, s.monsters.get(0).hp, "3 energy x 5 damage");
+    }
+
+    @Test
+    void whirlwindWithNoEnergyStillResolvesForZero() {
+        SimState s = combat("Whirlwind");
+        s.hand.clear();
+        s.hand.add(new SimCard("Whirlwind", false, -1));
+        s.energy = 0;
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("A", 40, 40, 0, Collections.<String, Integer>emptyMap()));
+
+        CardPlayer.play(s, 0, 0);
+
+        assertEquals(40, s.monsters.get(0).hp);
+        assertEquals(0, s.energy);
+    }
+
     @Test
     void drawRespectsTheTenCardHandLimit() {
         SimState s = combat("Pommel Strike");

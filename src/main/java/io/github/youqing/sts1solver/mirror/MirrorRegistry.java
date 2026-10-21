@@ -261,6 +261,11 @@ public final class MirrorRegistry {
         // 剑刃回旋：3/4 段 3 伤，目标随机
         register("Sword Boomerang", Effects.damageRandomEnemies(3, 3));
         register("Sword Boomerang+", Effects.damageRandomEnemies(4, 3));
+
+        // ---- 第六批：X 费 ---------------------------------------------------
+        // 旋风斩：每点能量全体 5/8 伤；X = 出牌时的全部能量
+        register("Whirlwind", Effects.damageAllX(5));
+        register("Whirlwind+", Effects.damageAllX(8));
     }
 
     private MirrorRegistry() {
