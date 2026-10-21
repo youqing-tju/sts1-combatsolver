@@ -133,8 +133,11 @@ public final class AutoPilot {
                 Trace.info("AUTO end turn (empty hand #" + noProgressEndTurns
                         + ", energy=" + EnergyPanel.totalCount
                         + ", draw=" + player.drawPile.size()
-                        + ", discard=" + player.discardPile.size() + ")");
-                AbstractDungeon.actionManager.endTurn();
+                        + ", discard=" + player.discardPile.size()
+                        + ", handSize=" + player.gameHandSize
+                        + ", noDraw=" + player.hasPower("No Draw")
+                        + ", turn=" + AbstractDungeon.actionManager.turn + ")");
+                requestEndTurn(player);
                 cooldown = 45;
                 return;
             }
@@ -156,7 +159,7 @@ public final class AutoPilot {
                     return;
                 }
                 Trace.info("AUTO end turn (nothing playable)  " + describeHand(player));
-                AbstractDungeon.actionManager.endTurn();
+                requestEndTurn(player);
                 cooldown = 30;
             }
         } catch (Throwable t) {
@@ -265,6 +268,19 @@ public final class AutoPilot {
               .append(')');
         }
         return sb.append(']').toString();
+    }
+
+    /**
+     * 结束回合必须走**游戏自己的路**：{@code EndTurnButton} 点下去就是把
+     * {@code player.endTurnQueued} 置为 true，由游戏主循环执行完整的回合结束流程
+     * （回合末状态结算、手牌弃置、下回合抽牌）。
+     *
+     * <p>🔴 之前直接调 {@code actionManager.endTurn()}，绕过了玩家侧那一段，
+     * 结果「禁止抽牌（No Draw）」这类回合末该消失的状态不会消失 ——
+     * 实测战吼之后连续 40+ 回合一张牌都抽不上来，而牌堆里还有 17 张。
+     */
+    private static void requestEndTurn(AbstractPlayer player) {
+        player.endTurnQueued = true;
     }
 
     private static AbstractMonster firstAliveMonster() {        if (AbstractDungeon.getMonsters() == null || AbstractDungeon.getMonsters().monsters == null) {
