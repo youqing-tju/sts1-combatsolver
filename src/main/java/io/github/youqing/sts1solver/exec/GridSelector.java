@@ -3,6 +3,7 @@ package io.github.youqing.sts1solver.exec;
 import com.megacrit.cardcrawl.cards.AbstractCard;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
 import com.megacrit.cardcrawl.helpers.input.InputHelper;
+import com.megacrit.cardcrawl.rooms.AbstractRoom;
 import com.megacrit.cardcrawl.screens.select.GridCardSelectScreen;
 import com.megacrit.cardcrawl.ui.buttons.GridSelectConfirmButton;
 
@@ -41,6 +42,12 @@ public final class GridSelector {
             return null;
         }
         if (AbstractDungeon.screen != AbstractDungeon.CurrentScreen.GRID) {
+            return null;
+        }
+        // 🔴 只接管战斗内的选牌。火堆升级（forUpgrade）、事件选择也用 GRID 界面，
+        // 自动点确认会把玩家的选择吞掉。
+        AbstractRoom room = AbstractDungeon.getCurrRoom();
+        if (room == null || room.phase != AbstractRoom.RoomPhase.COMBAT) {
             return null;
         }
         return AbstractDungeon.gridSelectScreen;

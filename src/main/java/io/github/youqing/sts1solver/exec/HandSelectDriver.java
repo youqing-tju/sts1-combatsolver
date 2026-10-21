@@ -3,6 +3,7 @@ package io.github.youqing.sts1solver.exec;
 import com.megacrit.cardcrawl.cards.AbstractCard;
 import com.megacrit.cardcrawl.characters.AbstractPlayer;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
+import com.megacrit.cardcrawl.rooms.AbstractRoom;
 import com.megacrit.cardcrawl.screens.select.HandCardSelectScreen;
 
 import io.github.youqing.sts1solver.diag.Trace;
@@ -32,6 +33,12 @@ public final class HandSelectDriver {
         }
         try {
             if (AbstractDungeon.screen != AbstractDungeon.CurrentScreen.HAND_SELECT) {
+                return;
+            }
+            // 🔴 只在战斗里接管。火堆敲牌、事件里的选牌同样是 HAND_SELECT 界面，
+            // 自动点头会把玩家的升级/事件选择吞掉（用户实测：火堆处被自动敲牌）。
+            AbstractRoom room = AbstractDungeon.getCurrRoom();
+            if (room == null || room.phase != AbstractRoom.RoomPhase.COMBAT) {
                 return;
             }
             AbstractPlayer player = AbstractDungeon.player;
