@@ -61,7 +61,16 @@ public final class AutoPilot {
             if (player == null || room == null || room.phase != AbstractRoom.RoomPhase.COMBAT) {
                 return;
             }
+            // 关键：一次只打一张。差分台架还在核对上一张时就出下一张，
+            // 会让 baseline 与实机错位（实测 hand 9 vs 8、energy 2 vs 1 这类连环差异）。
+            if (!ShadowTracker.isIdle()) {
+                return;
+            }
             if (player.isEndingTurn || player.endTurnQueued || !drained()) {
+                return;
+            }
+            // 发牌还没完成时手牌为空，不能据此判定「无牌可出」而结束回合
+            if (player.hand == null || player.hand.size() == 0) {
                 return;
             }
 
@@ -80,23 +89,48 @@ public final class AutoPilot {
         }
     }
 
+    /**
+     * 优先打已镜像的牌（能产生对拍数据），没有就打未镜像的牌（不比对，但让局势推进）。
+     * 早期版本只打已镜像的牌 —— 结果牌组里一旦有未镜像的牌就永远轮不到、还被迫结束回合，
+     * 表现为「新抓的牌打不出去」。
+     */
     private static boolean playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
         ArrayList<AbstractCard> hand = new ArrayList<AbstractCard>(player.hand.group);
+
+        AbstractCard chosen = firstPlayable(hand, attackTarget, true);
+        boolean mirrored = chosen != null;
+        if (chosen == null) {
+            chosen = firstPlayable(hand, attackTarget, false);
+        }
+        if (chosen == null) {
+            return false;
+        }
+
+        String key = chosen.cardID + (chosen.upgraded ? "+" : "");
+        AbstractMonster target = chosen.type == AbstractCard.CardType.ATTACK ? attackTarget : null;
+        AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
+        Trace.info("AUTO play " + key + (target == null ? "" : " -> " + target.name)
+                + (mirrored ? "" : "  (unmirrored, no diff)"));
+        cooldown = 6;
+        return true;
+    }
+
+    private static AbstractCard firstPlayable(ArrayList<AbstractCard> hand, AbstractMonster target,
+                                             boolean mirroredOnly) {
         for (AbstractCard card : hand) {
             String key = card.cardID + (card.upgraded ? "+" : "");
-            if (!MirrorRegistry.supports(key)) {
+            if (mirroredOnly && !MirrorRegistry.supports(key)) {
                 continue;
             }
             if (card.cost < 0 || card.cost > EnergyPanel.totalCount) {
                 continue;
             }
-            AbstractMonster target = card.type == AbstractCard.CardType.ATTACK ? attackTarget : null;
-            AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(card, target, card.cost));
-            Trace.info("AUTO play " + key + (target == null ? "" : " -> " + target.name));
-            cooldown = 6;
-            return true;
+            if (card.type == AbstractCard.CardType.ATTACK && target == null) {
+                continue;
+            }
+            return card;
         }
-        return false;
+        return null;
     }
 
     private static AbstractMonster firstAliveMonster() {

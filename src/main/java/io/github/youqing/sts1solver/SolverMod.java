@@ -17,7 +17,8 @@ public class SolverMod {
 
     public static void initialize() {
         Trace.init();
-        Trace.info("SolverMod " + VERSION + " initializing (jre=" + System.getProperty("java.version") + ")");
+        Trace.info("SolverMod " + VERSION + " build " + BuildStamp.VALUE
+                + " initializing (jre=" + System.getProperty("java.version") + ")");
         Trace.info("log file: " + Trace.path());
         SolverPanel.initialize();
         Trace.info("SolverMod ready");

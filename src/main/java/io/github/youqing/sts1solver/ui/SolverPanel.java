@@ -116,9 +116,8 @@ public final class SolverPanel {
         int m = ShadowTracker.matches();
         int bad = ShadowTracker.mismatches();
         return new String[]{
-                "STS1 Combat Solver",
-                "v0.0.1  M1 diff harness   |   diff " + m + "/" + (m + bad)
-                        + "   |   AUTO " + (AutoPilot.enabled() ? "ON" : "OFF"),
+                "STS1 Combat Solver   build " + io.github.youqing.sts1solver.BuildStamp.VALUE,
+                "diff " + m + "/" + (m + bad) + "   |   AUTO " + (AutoPilot.enabled() ? "ON" : "OFF"),
                 combatLine,
                 "click AUTO to auto-play mirrored cards"
         };

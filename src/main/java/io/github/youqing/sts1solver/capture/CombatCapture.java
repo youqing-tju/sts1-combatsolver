@@ -93,7 +93,8 @@ public final class CombatCapture {
             }
 
             Trace.info("RNG " + RngForkProbe.run());
-            ShadowTracker.resetCounters();
+            // 注意：不在这里清零对拍计数。每场清零会让面板刚进战斗就显示 0/1、1/2，
+            // 看起来像「命中率永远 1」，实际是统计被重置了。累计值更能说明趋势。
             ShadowTracker.setBaseline(state);
             SolverPanel.onCombatStart(state.shortLine());
         } catch (Throwable t) {

@@ -61,6 +61,11 @@ public final class ShadowTracker {
         framesAfterPlay = 0;
     }
 
+    /** True when no comparison is in flight — the auto pilot must wait for this. */
+    public static boolean isIdle() {
+        return !pending;
+    }
+
     /** Seeds the baseline at combat start so the very first card is already comparable. */
     public static void setBaseline(SimState state) {
         baseline = state == null ? null : state.copy();
