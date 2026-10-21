@@ -559,6 +559,76 @@ public final class Effects {
         };
     }
 
+    /** 若击杀目标则提升最大生命（啃食 Feed）。 */
+    public static Effect damageAndMaxHpOnKill(final int base, final int maxHpGain) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                boolean aliveBefore = target.hp > 0;
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+                if (aliveBefore && target.hp <= 0) {
+                    state.maxHp += maxHpGain;
+                    state.hp += maxHpGain;
+                }
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+
+            @Override
+            public String toString() {
+                return "damage(" + base + ")+maxHp(" + maxHpGain + " on kill)";
+            }
+        };
+    }
+
+    /** 目标本回合意图为攻击时获得力量（观察弱点 Spot Weakness）。 */
+    public static Effect strengthIfEnemyAttacks(final int amount) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                if (!target.intentAttack) {
+                    return;
+                }
+                add(state.playerPowers, DamageCalc.STRENGTH, amount);
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+
+            @Override
+            public String toString() {
+                return "strength(+" + amount + " if attacking)";
+            }
+        };
+    }
+
+    /** 先抽牌，再把指定手牌放回抽牌堆顶（战吼 Warcry）。 */
+    public static Effect drawThenPutChosenOnTop(final int drawCount) {
+        return new ChoiceEffect() {
+            @Override
+            public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
+                draw(drawCount).applyTo(state, targetIndex, played);
+                // 抽到的牌追加在手牌末尾，原有顺序不变 —— 所以 choiceIndex 在抽牌前后指向同一张牌
+                if (choiceIndex >= 0 && choiceIndex < state.hand.size()) {
+                    SimCard picked = state.hand.remove(choiceIndex);
+                    state.draw.add(picked);   // 列表末尾 = 牌堆顶
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "draw(" + drawCount + ")+top(chosen)";
+            }
+        };
+    }
+
     /** 升级手牌里指定的一张（军备 Armaments）。 */
     public static Effect upgradeChosen() {
         return new ChoiceEffect() {

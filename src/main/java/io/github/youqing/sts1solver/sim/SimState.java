@@ -104,6 +104,15 @@ public final class SimState {
                 } catch (Throwable ignored) {
                     monster.intentDmg = 0;
                 }
+                try {
+                    com.megacrit.cardcrawl.monsters.AbstractMonster.Intent intent = m.intent;
+                    monster.intentAttack = intent == com.megacrit.cardcrawl.monsters.AbstractMonster.Intent.ATTACK
+                            || intent == com.megacrit.cardcrawl.monsters.AbstractMonster.Intent.ATTACK_BUFF
+                            || intent == com.megacrit.cardcrawl.monsters.AbstractMonster.Intent.ATTACK_DEBUFF
+                            || intent == com.megacrit.cardcrawl.monsters.AbstractMonster.Intent.ATTACK_DEFEND;
+                } catch (Throwable ignored) {
+                    monster.intentAttack = false;
+                }
                 s.monsters.add(monster);
             }
         }

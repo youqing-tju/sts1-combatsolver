@@ -11,6 +11,7 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -441,6 +442,60 @@ class CardPlayerTest {
         assertEquals(1, s.exhaust.size());
         assertEquals("Defend_R", s.exhaust.get(0).id);
         assertEquals(3, s.hand.size(), "Strike_R + 2 drawn");
+    }
+
+    // ---- 第八批：条件 / 收益 ----
+
+    @Test
+    void feedRaisesMaxHpOnlyWhenItGetsTheKill() {
+        SimState s = combat("Feed");
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("A", 5, 5, 0, Collections.<String, Integer>emptyMap()));
+
+        CardPlayer.play(s, 0, 0);
+
+        assertEquals(83, s.maxHp, "max HP +3 on kill");
+        assertEquals(83, s.hp, "current HP rises with it");
+    }
+
+    @Test
+    void feedGivesNothingWhenTheTargetSurvives() {
+        SimState s = combat("Feed");
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("A", 40, 40, 0, Collections.<String, Integer>emptyMap()));
+
+        CardPlayer.play(s, 0, 0);
+
+        assertEquals(80, s.maxHp);
+    }
+
+    @Test
+    void spotWeaknessOnlyPaysOutAgainstAnAttackingEnemy() {
+        SimState attacking = combat("Spot Weakness");
+        attacking.monsters.get(0).intentAttack = true;
+        CardPlayer.play(attacking, 0, 0);
+        assertEquals(3, (int) attacking.playerPowers.get(DamageCalc.STRENGTH));
+
+        SimState idle = combat("Spot Weakness");
+        idle.monsters.get(0).intentAttack = false;
+        CardPlayer.play(idle, 0, 0);
+        assertNull(idle.playerPowers.get(DamageCalc.STRENGTH), "no strength against a non-attacking enemy");
+    }
+
+    @Test
+    void warcryDrawsThenPutsTheChosenCardBackOnTop() {
+        SimState s = combat("Warcry", "Strike_R", "Defend_R");
+        s.hand.clear();
+        s.hand.add(new SimCard("Warcry", false, 1));
+        s.hand.add(new SimCard("Strike_R", false, 1));
+        s.hand.add(new SimCard("Defend_R", false, 1));
+        s.draw.add(new SimCard("Bash", false, 2));
+        s.draw.add(new SimCard("Bash", false, 2));
+
+        CardPlayer.play(s, 0, 0, 1);   // 抽 1 张后，把手牌第 1 张（Defend_R）放回牌堆顶
+
+        assertEquals(2, s.hand.size(), "Strike_R + 1 drawn");
+        assertEquals("Defend_R", s.draw.get(s.draw.size() - 1).id, "top of the draw pile");
     }
 
     @Test

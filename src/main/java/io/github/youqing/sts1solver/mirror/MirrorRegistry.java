@@ -275,6 +275,19 @@ public final class MirrorRegistry {
         // 烧牌契约：消耗一张手牌，然后抽 2/3
         register("Burning Pact", Effects.exhaustChosenThenDraw(2));
         register("Burning Pact+", Effects.exhaustChosenThenDraw(3));
+
+        // 战吼：抽 1/2，然后把一张手牌放回抽牌堆顶
+        register("Warcry", Effects.drawThenPutChosenOnTop(1));
+        register("Warcry+", Effects.drawThenPutChosenOnTop(2));
+
+        // ---- 第八批：条件/收益类 ---------------------------------------------
+        // 啃食：10/12 伤，击杀则最大生命 +3/+4
+        register("Feed", Effects.damageAndMaxHpOnKill(10, 3));
+        register("Feed+", Effects.damageAndMaxHpOnKill(12, 4));
+
+        // 观察弱点：目标本回合意图为攻击时 +3/+4 力量
+        register("Spot Weakness", Effects.strengthIfEnemyAttacks(3));
+        register("Spot Weakness+", Effects.strengthIfEnemyAttacks(4));
     }
 
     private MirrorRegistry() {

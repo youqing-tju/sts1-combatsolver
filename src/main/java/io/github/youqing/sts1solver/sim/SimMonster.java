@@ -21,6 +21,9 @@ public final class SimMonster {
      */
     public int intentDmg;
 
+    /** 本回合意图是否为攻击类（观察弱点需要）。同样不参与对拍比较。 */
+    public boolean intentAttack;
+
     public final TreeMap<String, Integer> powers;
 
     public SimMonster(String type, int hp, int maxHp, int block, Map<String, Integer> powers) {
@@ -34,6 +37,7 @@ public final class SimMonster {
     public SimMonster copy() {
         SimMonster c = new SimMonster(type, hp, maxHp, block, powers);
         c.intentDmg = intentDmg;
+        c.intentAttack = intentAttack;
         return c;
     }
 
