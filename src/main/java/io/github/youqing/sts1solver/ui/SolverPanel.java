@@ -11,6 +11,7 @@ import com.megacrit.cardcrawl.helpers.ImageMaster;
 import com.megacrit.cardcrawl.helpers.input.InputHelper;
 
 import io.github.youqing.sts1solver.diag.Trace;
+import io.github.youqing.sts1solver.verify.ShadowTracker;
 
 /**
  * M0 skeleton panel.
@@ -56,8 +57,21 @@ public final class SolverPanel {
     private static float panelH = 180f;
     private static float rowPitch = 30f;
     private static boolean layoutDirty = true;
+    private static int lastMatches = -1;
+    private static int lastMismatches = -1;
 
     private SolverPanel() {
+    }
+
+    /** Diff counters change while playing; the layout must follow them. */
+    private static void refreshDynamicState() {
+        int m = ShadowTracker.matches();
+        int bad = ShadowTracker.mismatches();
+        if (m != lastMatches || bad != lastMismatches) {
+            lastMatches = m;
+            lastMismatches = bad;
+            layoutDirty = true;
+        }
     }
 
     public static void initialize() {
@@ -95,9 +109,11 @@ public final class SolverPanel {
     }
 
     private static String[] lines() {
+        int m = ShadowTracker.matches();
+        int bad = ShadowTracker.mismatches();
         return new String[]{
                 "STS1 Combat Solver",
-                "v0.0.1  M0 skeleton   |   ping " + pingCount,
+                "v0.0.1  M0 skeleton   |   ping " + pingCount + "   |   diff " + m + "/" + (m + bad),
                 combatLine,
                 "drag the title bar; click PING"
         };
@@ -141,6 +157,7 @@ public final class SolverPanel {
         }
         try {
             ensurePlaced();
+            refreshDynamicState();
             ensureLayout();
 
             BitmapFont font = uiFont();

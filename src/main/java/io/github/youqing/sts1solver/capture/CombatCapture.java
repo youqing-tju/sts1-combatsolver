@@ -11,6 +11,7 @@ import io.github.youqing.sts1solver.mirror.Coverage;
 import io.github.youqing.sts1solver.mirror.MirrorRegistry;
 import io.github.youqing.sts1solver.sim.SimState;
 import io.github.youqing.sts1solver.ui.SolverPanel;
+import io.github.youqing.sts1solver.verify.ShadowTracker;
 
 /**
  * The room-entry hook fires before cards are drawn and before energy is set, so the
@@ -33,6 +34,7 @@ public final class CombatCapture {
         armed = true;
         captured = false;
         framesWaited = 0;
+        ShadowTracker.reset();
         Trace.info("combat entry detected, waiting for deal");
     }
 
@@ -84,6 +86,7 @@ public final class CombatCapture {
                     + (missing.isEmpty() ? "" : " " + missing));
 
             Trace.info("RNG " + RngForkProbe.run());
+            ShadowTracker.resetCounters();
             SolverPanel.onCombatStart(state.shortLine());
         } catch (Throwable t) {
             Trace.error("combat capture failed", t);

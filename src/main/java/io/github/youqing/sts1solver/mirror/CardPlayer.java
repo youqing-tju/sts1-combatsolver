@@ -47,6 +47,21 @@ public final class CardPlayer {
         removeDeadMonsters(state);
     }
 
+    /**
+     * Plays the first card in hand matching {@code cardKey}. The diff harness uses this
+     * instead of an index, because the live game and the shadow may disagree on indices
+     * while still holding the same cards.
+     */
+    public static void playByKey(SimState state, String cardKey, int targetIndex) {
+        for (int i = 0; i < state.hand.size(); i++) {
+            if (state.hand.get(i).key().equals(cardKey)) {
+                play(state, i, targetIndex);
+                return;
+            }
+        }
+        throw new ActionRejected("card not in hand: " + cardKey);
+    }
+
     /** The game removes a monster once its death animation ends; the shadow state removes it at once. */
     private static void removeDeadMonsters(SimState state) {
         for (int i = state.monsters.size() - 1; i >= 0; i--) {
