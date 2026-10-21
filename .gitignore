@@ -34,3 +34,6 @@ __pycache__/
 
 # Gradle wrapper 的 jar 必须入库（上面的 *.jar 会误伤）
 !gradle/wrapper/gradle-wrapper.jar
+
+# 蓝本参考仓库（本地 clone，不纳入版本库）
+reference/

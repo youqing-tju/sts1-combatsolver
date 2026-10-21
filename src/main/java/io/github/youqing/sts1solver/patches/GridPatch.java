@@ -4,9 +4,11 @@ import com.evacipated.cardcrawl.modthespire.lib.SpirePatch;
 import com.evacipated.cardcrawl.modthespire.lib.SpirePostfixPatch;
 import com.evacipated.cardcrawl.modthespire.lib.SpirePrefixPatch;
 import com.megacrit.cardcrawl.cards.AbstractCard;
+import com.megacrit.cardcrawl.screens.select.HandCardSelectScreen;
 import com.megacrit.cardcrawl.ui.buttons.GridSelectConfirmButton;
 
 import io.github.youqing.sts1solver.exec.GridSelector;
+import io.github.youqing.sts1solver.exec.HandSelectDriver;
 
 /**
  * 选牌网格的驱动钩子。两个都很讲究时序，改之前先读 {@link GridSelector} 的注释。
@@ -41,6 +43,18 @@ public final class GridPatch {
         @SpirePostfixPatch
         public static void Postfix(GridSelectConfirmButton __instance) {
             GridSelector.restoreInput();
+        }
+    }
+
+    /**
+     * 手牌选择界面（双持、军备、战吼…）。这是**另一套**界面，之前一直漏了它。
+     */
+    @SpirePatch(clz = HandCardSelectScreen.class, method = "update")
+    public static class DriveHandSelect {
+
+        @SpirePostfixPatch
+        public static void Postfix(HandCardSelectScreen __instance) {
+            HandSelectDriver.drive(__instance);
         }
     }
 }
