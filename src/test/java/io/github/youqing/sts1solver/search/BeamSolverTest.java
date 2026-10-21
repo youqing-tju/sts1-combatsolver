@@ -50,6 +50,27 @@ class BeamSolverTest {
     }
 
     @Test
+    void picksTheTargetItCanActuallyKill() {
+        // 两个怪：[2 血, 40 血]；先杀残血的，场上敌人少一个
+        SimState s = state(40, 5, "Strike_R");
+        s.monsters.clear();
+        SimMonster weak = new SimMonster("Weak", 2, 2, 0,
+                Collections.<String, Integer>emptyMap());
+        weak.intentDmg = 5;
+        SimMonster tank = new SimMonster("Tank", 40, 40, 0,
+                Collections.<String, Integer>emptyMap());
+        tank.intentDmg = 5;
+        s.monsters.add(weak);
+        s.monsters.add(tank);
+
+        PlanAction action = new BeamSolver(3, 5, 8, 5).bestFirstAction(s);
+
+        assertNotNull(action);
+        assertEquals(PlanAction.Kind.PLAY_CARD, action.kind);
+        assertEquals(0, action.targetIndex, "should finish the 2 HP monster first");
+    }
+
+    @Test
     void killsInsteadOfBlockingWhenLethalIsAvailable() {
         // 怪只剩 5 血，Strike 6 伤可直接击杀
         SimState s = state(5, 20, "Strike_R", "Defend_R");

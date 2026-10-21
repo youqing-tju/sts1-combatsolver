@@ -9,10 +9,20 @@ public final class CardMirror {
 
     public final String key;
     public final List<Effect> effects;
+    /** 这张牌是否需要指定某个怪物（单目标攻击/减益）。搜索据此决定展开多少个目标。 */
+    public final boolean targeted;
 
     public CardMirror(String key, List<Effect> effects) {
         this.key = key;
         this.effects = Collections.unmodifiableList(new ArrayList<Effect>(effects));
+        boolean needsTarget = false;
+        for (Effect e : effects) {
+            if (e.needsMonsterTarget()) {
+                needsTarget = true;
+                break;
+            }
+        }
+        this.targeted = needsTarget;
     }
 
     @Override

@@ -25,6 +25,11 @@ public final class Effects {
             }
 
             @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+
+            @Override
             public String toString() {
                 return "damage(" + base + ")";
             }
@@ -40,6 +45,11 @@ public final class Effects {
                 for (int i = 0; i < times; i++) {
                     DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
                 }
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
             }
 
             @Override
@@ -134,6 +144,11 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
                 add(target.powers, id, amount);
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
             }
 
             @Override
@@ -264,6 +279,11 @@ public final class Effects {
             }
 
             @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+
+            @Override
             public String toString() {
                 return "damage=block";
             }
@@ -296,6 +316,11 @@ public final class Effects {
                 SimMonster target = requireTarget(state, targetIndex);
                 DamageCalc.hit(state, target,
                         DamageCalc.attackDamageWithStrengthMult(state, base, mult, target));
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
             }
 
             @Override

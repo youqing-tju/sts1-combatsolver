@@ -18,4 +18,12 @@ public interface Effect {
      * @param played      the card being resolved (needed by cards that copy themselves)
      */
     void applyTo(SimState state, int targetIndex, SimCard played);
+
+    /**
+     * 这个效果是否需要指定某个怪物。
+     * 搜索用它决定要不要针对每个敌人分别展开——群伤牌展开 N 次纯属浪费 beam 宽度。
+     */
+    default boolean needsMonsterTarget() {
+        return false;
+    }
 }

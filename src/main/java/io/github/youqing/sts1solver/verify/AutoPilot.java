@@ -58,6 +58,9 @@ public final class AutoPilot {
     private static final int MAX_END_PHASE_FRAMES = 900;
 
     /** 搜索宽度与深度：先给保守值，能用后再调（每帧都要跑，太大会掉帧）。 */
+    /** 搜索给出的目标怪物下标；-1 表示沿用第一个存活怪物。 */
+    private static int chosenTargetIndex = -1;
+
     private static int searchCount;
     private static long searchNodesTotal;
 
@@ -226,7 +229,7 @@ public final class AutoPilot {
         }
 
         String key = key(chosen);
-        AbstractMonster target = resolveTarget(chosen, attackTarget);
+        AbstractMonster target = resolveTarget(chosen, pickTarget(attackTarget));
         AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
         queuedCard = chosen;
         queuedFrames = 0;
@@ -235,6 +238,26 @@ public final class AutoPilot {
                 + (mirrored ? "  (mirrored, diff)" : "  (unmirrored, record)"));
         cooldown = 6;
         return true;
+    }
+
+    /** 把搜索返回的目标下标（对应 SimState.monsters 顺序）映射回真机怪物。 */
+    private static AbstractMonster pickTarget(AbstractMonster fallback) {
+        if (chosenTargetIndex < 0) {
+            return fallback;
+        }
+        try {
+            java.util.ArrayList<AbstractMonster> monsters =
+                    AbstractDungeon.getMonsters().monsters;
+            if (chosenTargetIndex < monsters.size()) {
+                AbstractMonster picked = monsters.get(chosenTargetIndex);
+                if (picked != null && picked.currentHealth > 0) {
+                    return picked;
+                }
+            }
+        } catch (Throwable ignored) {
+            // 结构异常就退回默认目标
+        }
+        return fallback;
     }
 
     private static String key(AbstractCard card) {
@@ -261,8 +284,10 @@ public final class AutoPilot {
                     player.gameHandSize, BEAM_WIDTH, SEARCH_DEPTH);
             PlanAction action = solver.bestFirstAction(snapshot);
             if (action == null || action.kind == PlanAction.Kind.END_TURN) {
+                chosenTargetIndex = -1;
                 return null;
             }
+            chosenTargetIndex = action.targetIndex;
             if (action.cardIndex < 0 || action.cardIndex >= player.hand.group.size()) {
                 return null;
             }
@@ -311,6 +336,7 @@ public final class AutoPilot {
             return best;
         } catch (Throwable t) {
             Trace.warn("search failed, falling back: " + t);
+            chosenTargetIndex = -1;
             return null;
         }
     }
