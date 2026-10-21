@@ -48,6 +48,11 @@ public final class AutoPilot {
     private static int noProgressEndTurns;
     private static final int NO_PROGRESS_LIMIT = 12;
 
+    /** 回合切换的两段式等待：1=等敌方阶段开始，2=等它结束并回到玩家回合。 */
+    private static int endPhase;
+    private static int endPhaseFrames;
+    private static final int MAX_END_PHASE_FRAMES = 900;
+
     private AutoPilot() {
     }
 
@@ -75,6 +80,11 @@ public final class AutoPilot {
         }
         if (cooldown > 0) {
             cooldown--;
+            return;
+        }
+        // 已经请求过结束回合：等到回合号翻页，期间什么都不做，
+        // 否则会在敌方行动还没走完时再点一次结束，怪物一回合动两次。
+        if (waitingForNextTurn()) {
             return;
         }
         if (queuedCard != null) {
@@ -272,15 +282,54 @@ public final class AutoPilot {
 
     /**
      * 结束回合必须走**游戏自己的路**：{@code EndTurnButton} 点下去就是把
-     * {@code player.endTurnQueued} 置为 true，由游戏主循环执行完整的回合结束流程
-     * （回合末状态结算、手牌弃置、下回合抽牌）。
+     * {@code player.endTurnQueued} 置为 true，由游戏主循环执行完整流程
+     * （回合末结算、手牌弃置、下回合抽牌、敌方行动）。
      *
-     * <p>🔴 之前直接调 {@code actionManager.endTurn()}，绕过了玩家侧那一段，
-     * 结果「禁止抽牌（No Draw）」这类回合末该消失的状态不会消失 ——
-     * 实测战吼之后连续 40+ 回合一张牌都抽不上来，而牌堆里还有 17 张。
+     * <p>🔴 直接调 {@code actionManager.endTurn()} 会跳过玩家侧那一段，
+     * 实测后果：战斗专注的「禁止抽牌」永不消失、**怪物完全不行动**。
+     *
+     * <p>但只置 flag 又会出现反向问题：flag 很快被游戏清掉，而收尾动作还在跑，
+     * 下一帧我们会再置一次 —— 实测**怪物一回合行动两次**，玩家直接被打死。
+     *
+     * <p>所以这里用两段式等待：先等敌方阶段开始（turnHasEnded=true），
+     * 再等它结束（turnHasEnded=false 且玩家回合恢复）。整个期间不做任何事。
      */
     private static void requestEndTurn(AbstractPlayer player) {
         player.endTurnQueued = true;
+        endPhase = 1;
+        endPhaseFrames = 0;
+    }
+
+    /** @return true 表示还在回合切换过程中，本次 tick 不要做任何事 */
+    private static boolean waitingForNextTurn() {
+        if (endPhase == 0) {
+            return false;
+        }
+        endPhaseFrames++;
+        boolean turnEnded = AbstractDungeon.actionManager.turnHasEnded;
+
+        if (endPhase == 1) {
+            // 等敌方阶段真的开始；某些情况下标志不会及时置位，超时就跳过这段
+            if (turnEnded || endPhaseFrames > 180) {
+                endPhase = 2;
+                endPhaseFrames = 0;
+            }
+            return true;
+        }
+
+        AbstractPlayer player = AbstractDungeon.player;
+        boolean backToPlayer = !turnEnded
+                && (player == null || (!player.endTurnQueued && !player.isEndingTurn));
+        if (backToPlayer) {
+            endPhase = 0;
+            return false;
+        }
+        if (endPhaseFrames > MAX_END_PHASE_FRAMES) {
+            Trace.warn("turn transition took too long (" + endPhaseFrames
+                    + " frames) -> resuming control");
+            endPhase = 0;
+        }
+        return true;
     }
 
     private static AbstractMonster firstAliveMonster() {        if (AbstractDungeon.getMonsters() == null || AbstractDungeon.getMonsters().monsters == null) {
