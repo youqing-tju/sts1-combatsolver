@@ -352,6 +352,175 @@ public final class Effects {
         };
     }
 
+
+    // ---- 第四批需要的原语 ------------------------------------------------
+
+    /** 把状态牌塞进弃牌堆（献祭 Immolate：1 张灼伤）。插入位置确定，无需随机。 */
+    public static Effect addStatusToDiscard(final String id, final int count) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                for (int i = 0; i < count; i++) {
+                    state.discard.add(new SimCard(id, false, -2));
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "discard+=" + id + "x" + count;
+            }
+        };
+    }
+
+    /** 消耗手牌里所有非攻击牌，每张获得 blockPer 格挡（再生 Second Wind）。 */
+    public static Effect exhaustNonAttacksForBlock(final int blockPer) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                int count = 0;
+                java.util.Iterator<SimCard> it = state.hand.iterator();
+                while (it.hasNext()) {
+                    SimCard c = it.next();
+                    if (isAttackId(c.id)) {
+                        continue;      // 攻击牌保留，非攻击牌才消耗
+                    }
+                    it.remove();
+                    state.exhaust.add(c);
+                    count++;
+                }
+                state.block += DamageCalc.blockAmount(state, blockPer * count);
+            }
+
+            @Override
+            public String toString() {
+                return "exhaustNonAttacks(+" + blockPer + " each)";
+            }
+        };
+    }
+
+    /** 消耗手牌所有非攻击牌，不给格挡（断魂斩 Sever Soul）。 */
+    public static Effect exhaustNonAttacks() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                java.util.Iterator<SimCard> it = state.hand.iterator();
+                while (it.hasNext()) {
+                    SimCard c = it.next();
+                    if (isAttackId(c.id)) {
+                        continue;      // 攻击牌保留，非攻击牌才消耗
+                    }
+                    it.remove();
+                    state.exhaust.add(c);
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "exhaustNonAttacks";
+            }
+        };
+    }
+
+    /** 消耗**整手牌**，每张造成 damagePer 点伤害（恶魔之火 Fiend Fire）。 */
+    public static Effect exhaustHandForDamage(final int damagePer) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                int count = state.hand.size();
+                state.exhaust.addAll(state.hand);
+                state.hand.clear();
+                for (int i = 0; i < count; i++) {
+                    DamageCalc.hit(state, target, DamageCalc.attackDamage(state, damagePer, target));
+                }
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+
+            @Override
+            public String toString() {
+                return "exhaustHand(+" + damagePer + " each)";
+            }
+        };
+    }
+
+    /** 目标处于易伤时追加效果（回旋踢 Dropkick）。 */
+    public static Effect ifTargetVulnerable(final Effect... extra) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                Integer vulnerable = target.powers.get(DamageCalc.VULNERABLE);
+                if (vulnerable == null || vulnerable <= 0) {
+                    return;
+                }
+                for (Effect e : extra) {
+                    e.applyTo(state, targetIndex, played);
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "ifTargetVulnerable" + java.util.Arrays.toString(extra);
+            }
+        };
+    }
+
+    /** 伤害 = base + perStrike × 牌组里名字含 Strike 的牌数（完美打击 Perfected Strike）。 */
+    public static Effect damagePlusPerStrike(final int base, final int perStrike) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                int strikes = 0;
+                strikes += countStrikes(state.hand);
+                strikes += countStrikes(state.draw);
+                strikes += countStrikes(state.discard);
+                int dmg = base + perStrike * strikes;
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, dmg, target));
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+
+            @Override
+            public String toString() {
+                return "damage(" + base + "+" + perStrike + "/strike)";
+            }
+        };
+    }
+
+    private static boolean isAttackId(String id) {
+        // 攻击牌占比在红卡里很高，这里用已注册的镜像判断是否为攻击类
+        return ATTACK_IDS.contains(id);
+    }
+
+    /** 已知的攻击牌（与新注册同步维护；未列出的按非攻击处理并被消耗，风险由对拍暴露）。 */
+    private static final java.util.Set<String> ATTACK_IDS =
+            new java.util.HashSet<String>(java.util.Arrays.asList(
+                    "Strike_R", "Bash", "Anger", "Cleave", "Clothesline", "Twin Strike",
+                    "Pommel Strike", "Iron Wave", "Clash", "Bludgeon", "Carnage", "Pummel",
+                    "Searing Blow", "Uppercut", "Heavy Blade", "Body Slam", "Hemokinesis",
+                    "Reaper", "Thunderclap", "Wild Strike", "Reckless Charge", "Immolate",
+                    "Sever Soul", "Fiend Fire", "Perfected Strike", "Dropkick", "Feed",
+                    "Sword Boomerang", "Whirlwind", "Rampage", "Headbutt"
+            ));
+
+    private static int countStrikes(java.util.List<SimCard> pile) {
+        int n = 0;
+        for (SimCard c : pile) {
+            if (c.id.contains("Strike") || c.id.equals("Strike_R")) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     private static SimMonster requireTarget(SimState state, int targetIndex) {        if (targetIndex < 0 || targetIndex >= state.monsters.size()) {
             throw new ActionRejected("effect needs a valid monster target, got index " + targetIndex);
         }

@@ -211,6 +211,39 @@ public final class MirrorRegistry {
         register("Double Tap+", Effects.powerOnPlayer("Double Tap", 2));
         register("Rage", Effects.powerOnPlayer("Rage", 3));
         register("Rage+", Effects.powerOnPlayer("Rage", 5));
+
+        // ---- 第四批：消耗/条件/成长类 -----------------------------------------
+        // 献祭：全体 21 伤 + 1 张灼伤进弃牌堆（插入位置确定，不需要随机数）
+        register("Immolate", Arrays.asList(
+                Effects.damageAll(21), Effects.addStatusToDiscard("Burn", 1)));
+        register("Immolate+", Arrays.asList(
+                Effects.damageAll(28), Effects.addStatusToDiscard("Burn", 1)));
+
+        // 再生：消耗所有非攻击牌，每张 5 格挡
+        register("Second Wind", Effects.exhaustNonAttacksForBlock(5));
+        register("Second Wind+", Effects.exhaustNonAttacksForBlock(7));
+
+        // 断魂斩：16 伤 + 消耗所有非攻击牌
+        register("Sever Soul", Arrays.asList(
+                Effects.damage(16), Effects.exhaustNonAttacks()));
+        register("Sever Soul+", Arrays.asList(
+                Effects.damage(22), Effects.exhaustNonAttacks()));
+
+        // 恶魔之火：消耗整手牌，每张 7 点伤害
+        register("Fiend Fire", Effects.exhaustHandForDamage(7));
+        register("Fiend Fire+", Effects.exhaustHandForDamage(10));
+
+        // 回旋踢：5 伤 + 抽 1；若目标易伤则 +2 能量 +1 抽牌
+        register("Dropkick", Arrays.asList(
+                Effects.damage(5), Effects.draw(1),
+                Effects.ifTargetVulnerable(Effects.gainEnergy(2), Effects.draw(1))));
+        register("Dropkick+", Arrays.asList(
+                Effects.damage(8), Effects.draw(1),
+                Effects.ifTargetVulnerable(Effects.gainEnergy(2), Effects.draw(1))));
+
+        // 完美打击：6 伤 + 每张 Strike 牌 +2
+        register("Perfected Strike", Effects.damagePlusPerStrike(6, 2));
+        register("Perfected Strike+", Effects.damagePlusPerStrike(6, 3));
     }
 
     private MirrorRegistry() {

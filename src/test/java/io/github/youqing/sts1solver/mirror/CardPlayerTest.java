@@ -288,6 +288,69 @@ class CardPlayerTest {
         assertEquals(-1, (int) s.playerPowers.get("No Draw"));
     }
 
+    // ---- 第四批：消耗 / 条件 / 成长 ----
+
+    @Test
+    void secondWindExhaustsOnlyNonAttacksAndBlocksPerCard() {
+        SimState s = combat("Second Wind", "Defend_R", "Strike_R");
+        CardPlayer.play(s, 0, 0);
+        assertEquals(1, s.exhaust.size(), "only the skill gets exhausted");
+        assertEquals("Defend_R", s.exhaust.get(0).id);
+        assertEquals(1, s.hand.size(), "only Strike_R is left in hand");
+        assertEquals(5, s.block, "5 block per exhausted card");
+    }
+
+    @Test
+    void fiendFireExhaustsTheWholeHandAndScalesWithItsSize() {
+        SimState s = combat("Fiend Fire", "Strike_R", "Defend_R");
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("AcidSlime_S", 40, 40, 0,
+                Collections.<String, Integer>emptyMap()));
+        CardPlayer.play(s, 0, 0);
+        assertEquals(0, s.hand.size());
+        assertEquals(2, s.exhaust.size());
+        assertEquals(26, s.monsters.get(0).hp, "7 damage x 2 cards");
+    }
+
+    @Test
+    void immolateAddsABurnToTheDiscardPile() {
+        SimState s = combat("Immolate");
+        CardPlayer.play(s, 0, 0);
+        assertEquals(8 - 21 < 0 ? 0 : 8 - 21, s.monsters.get(0).hp);
+        assertTrue(s.discard.size() >= 1);
+        boolean hasBurn = false;
+        for (SimCard c : s.discard) {
+            if ("Burn".equals(c.id)) {
+                hasBurn = true;
+            }
+        }
+        assertTrue(hasBurn, "Immolate must shuffle a Burn into the discard pile");
+    }
+
+    @Test
+    void dropkickPaysExtraWhenTheTargetIsVulnerable() {
+        SimState s = combat("Dropkick");
+        s.monsters.get(0).powers.put(DamageCalc.VULNERABLE, 1);
+        s.draw.add(new SimCard("Defend_R", false, 1));
+        s.draw.add(new SimCard("Defend_R", false, 1));
+        CardPlayer.play(s, 0, 0);
+        assertEquals(5, s.energy, "4 - 1 cost + 2 refund = 5");
+        assertEquals(2, s.hand.size(), "one draw + one extra draw");
+    }
+
+    @Test
+    void perfectedStrikeCountsStrikeCardsInTheDeck() {
+        SimState s = combat("Perfected Strike");
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("AcidSlime_S", 40, 40, 0,
+                Collections.<String, Integer>emptyMap()));
+        s.draw.add(new SimCard("Strike_R", false, 1));
+        s.draw.add(new SimCard("Strike_R", false, 1));
+        CardPlayer.play(s, 0, 0);
+        // 6 + 2 x 2 张 Strike（手牌里的 Perfected Strike 本身不算）
+        assertEquals(30, s.monsters.get(0).hp);
+    }
+
     @Test
     void drawRespectsTheTenCardHandLimit() {
         SimState s = combat("Pommel Strike");
