@@ -97,18 +97,14 @@ public final class AutoPilot {
         }
     }
 
-    /**
-     * 优先打已镜像的牌（能产生对拍数据），没有就打未镜像的牌（不比对，但让局势推进）。
-     * 早期版本只打已镜像的牌 —— 结果牌组里一旦有未镜像的牌就永远轮不到、还被迫结束回合，
-     * 表现为「新抓的牌打不出去」。
-     */
+    /** 先打未镜像的牌（探索盲区），没有可探索的再打已镜像的（产出对拍）。 */
     private static boolean playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
         ArrayList<AbstractCard> hand = new ArrayList<AbstractCard>(player.hand.group);
 
-        AbstractCard chosen = firstPlayable(hand, attackTarget, true);
-        boolean mirrored = chosen != null;
+        AbstractCard chosen = firstPlayable(hand, attackTarget, Pref.UNMIRRORED);
+        boolean mirrored = chosen == null;
         if (chosen == null) {
-            chosen = firstPlayable(hand, attackTarget, false);
+            chosen = firstPlayable(hand, attackTarget, Pref.MIRRORED);
         }
         if (chosen == null) {
             return false;
@@ -118,30 +114,24 @@ public final class AutoPilot {
         AbstractMonster target = chosen.type == AbstractCard.CardType.ATTACK ? attackTarget : null;
         AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
         Trace.info("AUTO play " + key + (target == null ? "" : " -> " + target.name)
-                + (mirrored ? "" : "  (unmirrored, no diff)"));
+                + (mirrored ? "  (mirrored, diff)" : "  (unmirrored, record)"));
         cooldown = 6;
         return true;
     }
 
-    /**
-     * 打出后会弹出「选一张牌」网格的牌。自动器没法替玩家做这个选择，
-     * 强行打会把回合卡住（实测：双持 Dual Wield 之后必须手动点选）。
-     * 这些牌由玩家自己决定何时用；AUTO 直接跳过。
-     */
-    private static final java.util.Set<String> NEEDS_SELECTION =
-            new java.util.HashSet<String>(java.util.Arrays.asList(
-                    "Dual Wield", "Armaments", "Warcry", "Headbutt",
-                    "Exhume", "Burning Pact", "True Grit", "Nightmare", "Setup"
-            ));
+    private enum Pref {
+        UNMIRRORED, MIRRORED
+    }
 
     private static AbstractCard firstPlayable(ArrayList<AbstractCard> hand, AbstractMonster target,
-                                             boolean mirroredOnly) {
+                                             Pref pref) {
         for (AbstractCard card : hand) {
             String key = card.cardID + (card.upgraded ? "+" : "");
-            if (mirroredOnly && !MirrorRegistry.supports(key)) {
+            boolean mirrored = MirrorRegistry.supports(key);
+            if (pref == Pref.UNMIRRORED && mirrored) {
                 continue;
             }
-            if (NEEDS_SELECTION.contains(card.cardID)) {
+            if (pref == Pref.MIRRORED && !mirrored) {
                 continue;
             }
             int cost = effectiveCost(card);

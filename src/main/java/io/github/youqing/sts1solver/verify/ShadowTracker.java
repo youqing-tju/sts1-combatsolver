@@ -126,16 +126,14 @@ public final class ShadowTracker {
 
     private static void resolve(boolean forced) {
         pending = false;
-        SimState sim = pre.copy();
+        SimState before = pre;
+        SimState sim = before.copy();
         pre = null;
 
         try {
             CardPlayer.playByKey(sim, pendingKey, pendingTarget);
         } catch (ActionRejected e) {
-            Trace.info("DIFF " + pendingKey + " SKIP (" + e.getMessage() + ")");
-            // 这张牌没镜像，但实机已经走完了 —— 直接把 baseline 拉回真值。
-            // 早期这里置 null，导致紧跟着的下一张牌被判成 no baseline / card not in hand。
-            baseline = SimState.capture();
+            record(before, e);
             return;
         }
 
@@ -160,8 +158,53 @@ public final class ShadowTracker {
         baseline = live;
     }
 
-    private static int liveLimboSize() {
-        return AbstractDungeon.player == null || AbstractDungeon.player.limbo == null
+    /**
+     * 未镜像的牌不再"跳过就算"——把实机打这张牌前后发生的**全部字段变化**记下来。
+     *
+     * <p>这就是"补信息集"：每打一张新牌，我们都得到一个真实的 (前状态 → 后状态) 样本，
+     * 以后写镜像时有现成的期望值可对照，而不是凭卡面文字猜。
+     */
+    private static void record(SimState before, ActionRejected e) {
+        SimState live = SimState.capture();
+        java.util.List<String> delta = before.copy().dropDeadMonsters()
+                .diff(live.copy().dropDeadMonsters());
+        Trace.info("RECORD " + pendingKey + " [" + e.getMessage() + "] "
+                + delta.size() + " change(s): " + head(delta));
+        appendRecord(pendingKey, delta);
+        baseline = live;
+    }
+
+    private static void appendRecord(String card, java.util.List<String> delta) {
+        try {
+            String dirPath = System.getProperty("sts1solver.dataDir", "solver-data");
+            java.io.File dir = new java.io.File(dirPath);
+            if (!dir.exists() && !dir.mkdirs()) {
+                return;
+            }
+            java.io.File file = new java.io.File(dir, "observed.jsonl");
+            java.io.OutputStreamWriter w = new java.io.OutputStreamWriter(
+                    new java.io.FileOutputStream(file, true), "UTF-8");
+            try {
+                StringBuilder sb = new StringBuilder(256);
+                sb.append("{\"card\":\"").append(card).append("\",\"delta\":[");
+                for (int i = 0; i < delta.size(); i++) {
+                    if (i > 0) {
+                        sb.append(',');
+                    }
+                    sb.append('"').append(delta.get(i).replace("\"", "'").replace("\\", "/"))
+                      .append('"');
+                }
+                sb.append("]}\n");
+                w.write(sb.toString());
+            } finally {
+                w.close();
+            }
+        } catch (Throwable t) {
+            Trace.warn("record append failed: " + t);
+        }
+    }
+
+    private static int liveLimboSize() {        return AbstractDungeon.player == null || AbstractDungeon.player.limbo == null
                 ? -1 : AbstractDungeon.player.limbo.size();
     }
 
