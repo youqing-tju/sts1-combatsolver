@@ -5,7 +5,6 @@ import com.evacipated.cardcrawl.modthespire.lib.SpirePostfixPatch;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
 
 import io.github.youqing.sts1solver.capture.CombatCapture;
-import io.github.youqing.sts1solver.exec.GridSelector;
 import io.github.youqing.sts1solver.ui.SolverPanel;
 import io.github.youqing.sts1solver.verify.AutoPilot;
 import io.github.youqing.sts1solver.verify.ShadowTracker;
@@ -27,7 +26,6 @@ public final class UpdatePatch {
             CombatCapture.tick();
             ShadowTracker.tick();
             AutoPilot.tick();
-            GridSelector.tick();
             SolverPanel.update();
         }
     }

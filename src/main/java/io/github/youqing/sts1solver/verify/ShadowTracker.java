@@ -83,6 +83,12 @@ public final class ShadowTracker {
             Trace.info("DIFF " + card.cardID + " skipped (no baseline yet)");
             return;
         }
+        if (pending) {
+            // 上一张还没结算完就又出牌（例如 Havoc 的自动出牌、或选牌卡拖了很久）。
+            // 这时覆盖 pending 会让两张牌的状态互相污染，直接放弃这张的比对更诚实。
+            Trace.warn("DIFF " + card.cardID + " skipped (previous " + pendingKey + " still pending)");
+            return;
+        }
         pre = baseline.copy();
         pendingKey = card.cardID + (card.upgraded ? "+" : "");
         pendingTarget = indexOf(target);
