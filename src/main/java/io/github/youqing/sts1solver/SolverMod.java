@@ -3,6 +3,7 @@ package io.github.youqing.sts1solver;
 import com.evacipated.cardcrawl.modthespire.lib.SpireInitializer;
 
 import io.github.youqing.sts1solver.diag.Trace;
+import io.github.youqing.sts1solver.patches.PatchManifest;
 import io.github.youqing.sts1solver.ui.SolverPanel;
 
 /**
@@ -21,6 +22,7 @@ public class SolverMod {
                 + " initializing (jre=" + System.getProperty("java.version") + ")");
         Trace.info("log file: " + Trace.path());
         SolverPanel.initialize();
+        PatchManifest.report();
         Trace.info("SolverMod ready");
     }
 }
