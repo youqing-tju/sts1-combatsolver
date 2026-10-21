@@ -4,6 +4,10 @@
 sts.home=C:/Users/22757/steam/steamapps/common/SlayTheSpire
 mts.jar=C:/Users/22757/steam/steamapps/workshop/content/646570/1605060445/ModTheSpire.jar
 
+# 构建产物的输出目录（默认 ~/.sts1-combatsolver/build）
+# 放在工作区外是为了避开本机索引进程对测试报告的锁定
+# build.dir=C:/Users/22757/.sts1-combatsolver/build
+
 # 构建产物的 modid / 显示名
 mod.id=sts1combatsolver
 mod.name=STS1 Combat Solver

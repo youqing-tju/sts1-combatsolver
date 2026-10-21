@@ -1,7 +1,8 @@
 package io.github.youqing.sts1solver.diag;
 
 import java.io.File;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.SimpleDateFormat;
@@ -35,7 +36,7 @@ public final class Trace {
                 throw new IllegalStateException("cannot create " + dir.getAbsolutePath());
             }
             File file = new File(dir, "sts1-combatsolver-" + DAY.format(new Date()) + ".log");
-            writer = new PrintWriter(new FileWriter(file, true), true);
+            writer = new PrintWriter(new OutputStreamWriter(new FileOutputStream(file, true), "UTF-8"), true);
             filePath = file.getAbsolutePath();
         } catch (Throwable t) {
             System.err.println("[sts1-combatsolver] cannot open log file: " + t);

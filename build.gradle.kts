@@ -1,9 +1,24 @@
+import java.util.Properties
+
 plugins {
     java
 }
 
 group = "io.github.youqing"
 version = "0.0.1"
+
+// 构建输出默认放在工作区之外：本机有外部索引进程会锁住工作区里的测试报告文件，
+// 导致 Gradle 无法覆盖旧报告而构建失败（详见 docs/dev-notes.md）。
+// 可用 local.properties 的 build.dir 覆盖。
+val localProps = Properties().apply {
+    val f = file("local.properties")
+    if (f.exists()) {
+        f.inputStream().use { load(it) }
+    }
+}
+val externalBuildDir = localProps.getProperty("build.dir")
+    ?: (System.getProperty("user.home") + "/.sts1-combatsolver/build")
+layout.buildDirectory.set(file(externalBuildDir))
 
 repositories {
     mavenCentral()

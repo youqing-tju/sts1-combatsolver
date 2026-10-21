@@ -29,7 +29,8 @@ public final class SolverPanel {
     private static final float TITLE_BAR = 28f;
 
     private static float x = 40f;
-    private static float y = Settings.HEIGHT - 200f;
+    private static float y = Float.NaN;
+    private static boolean placed;
 
     private static boolean dragging;
     private static float dragDX;
@@ -42,7 +43,24 @@ public final class SolverPanel {
     }
 
     public static void initialize() {
-        Trace.info("panel initialized at " + x + "," + y);
+        // 注意：此刻 Settings.HEIGHT 仍是 0（游戏还没建窗口），不能在这里算坐标。
+        Trace.info("panel registered (placement deferred until first frame)");
+    }
+
+    /**
+     * Settings.WIDTH/HEIGHT are only valid once the game viewport exists, so the panel
+     * position has to be resolved on the first rendered frame, not in initialize().
+     */
+    private static void ensurePlaced() {
+        if (placed) {
+            return;
+        }
+        float vw = Settings.WIDTH > 0 ? Settings.WIDTH : 1920f;
+        float vh = Settings.HEIGHT > 0 ? Settings.HEIGHT : 1080f;
+        x = 40f;
+        y = vh - 320f;
+        placed = true;
+        Trace.info("panel placed at " + x + "," + y + " (viewport " + vw + "x" + vh + ")");
     }
 
     public static void onCombatStart(String summary) {
@@ -57,6 +75,7 @@ public final class SolverPanel {
             return;
         }
         try {
+            ensurePlaced();
             sb.setColor(new Color(0f, 0f, 0f, 0.78f));
             sb.draw(ImageMaster.WHITE_SQUARE_IMG, x, y, WIDTH, HEIGHT);
 
@@ -97,6 +116,7 @@ public final class SolverPanel {
             return;
         }
         try {
+            ensurePlaced();
             if (InputHelper.justClickedLeft) {
                 if (inButton()) {
                     pingCount++;

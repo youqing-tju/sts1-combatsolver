@@ -4,13 +4,13 @@ import com.evacipated.cardcrawl.modthespire.lib.SpirePatch;
 import com.evacipated.cardcrawl.modthespire.lib.SpirePostfixPatch;
 import com.megacrit.cardcrawl.rooms.MonsterRoom;
 
-import io.github.youqing.sts1solver.capture.RootSummary;
+import io.github.youqing.sts1solver.capture.CombatCapture;
 import io.github.youqing.sts1solver.diag.Trace;
-import io.github.youqing.sts1solver.ui.SolverPanel;
 
 /**
- * Fires once when the player enters any combat room (normal, elite and boss all
- * extend MonsterRoom). M0 only reads and logs; M1 will capture a full root snapshot here.
+ * Fires when the player enters any combat room (normal, elite and boss all extend
+ * MonsterRoom). The hand is not dealt yet at this point, so we only arm the capture and
+ * let {@link CombatCapture#tick()} take the real snapshot a few frames later.
  */
 public final class CombatStartPatch {
 
@@ -22,15 +22,11 @@ public final class CombatStartPatch {
 
         @SpirePostfixPatch
         public static void Postfix(MonsterRoom __instance) {
-            String summary;
             try {
-                summary = RootSummary.describe();
+                CombatCapture.arm();
             } catch (Throwable t) {
-                Trace.error("root summary failed", t);
-                return;
+                Trace.error("arm failed", t);
             }
-            Trace.info("ROOT " + summary);
-            SolverPanel.onCombatStart(summary);
         }
     }
 }

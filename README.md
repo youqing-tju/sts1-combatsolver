@@ -32,8 +32,8 @@ powershell -File tools/sync-libs.ps1
 .\gradlew.bat build
 #    本机已隔离安装 Gradle 时也可：powershell -File tools/gradle.ps1 build
 
-# 3) 产物
-#    build/libs/STS1CombatSolver.jar
+# 3) 产物（构建目录在工作区外，避免本机索引进程锁住测试报告）
+#    ~/.sts1-combatsolver/build/libs/STS1CombatSolver.jar
 
 # 4) 安装到游戏 mods/ 并启动
 powershell -File tools/install.ps1

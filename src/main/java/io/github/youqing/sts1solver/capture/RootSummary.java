@@ -64,6 +64,28 @@ public final class RootSummary {
         return group == null ? -1 : group.size();
     }
 
+    /** One-line form for the overlay panel (the full form goes to the log). */
+    public static String describeShort() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            sb.append("A").append(AbstractDungeon.actNum)
+              .append(" F").append(AbstractDungeon.floorNum);
+            if (AbstractDungeon.player != null) {
+                sb.append("  hp ").append(AbstractDungeon.player.currentHealth)
+                  .append('/').append(AbstractDungeon.player.maxHealth)
+                  .append("  e").append(EnergyPanel.totalCount)
+                  .append("  hand ").append(size(AbstractDungeon.player.hand));
+            }
+            MonsterGroup group = AbstractDungeon.getMonsters();
+            if (group != null && group.monsters != null) {
+                sb.append("  foes ").append(group.monsters.size());
+            }
+        } catch (Throwable t) {
+            sb.append("summary failed");
+        }
+        return sb.toString();
+    }
+
     private static int counter(com.megacrit.cardcrawl.random.Random rng) {
         return rng == null ? -1 : rng.counter;
     }

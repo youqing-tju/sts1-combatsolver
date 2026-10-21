@@ -7,7 +7,10 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$jar  = Join-Path $root 'build/libs/STS1CombatSolver.jar'
+
+# Gradle 的构建目录默认在工作区之外（见 docs/dev-notes.md）
+$buildRoot = Join-Path $env:USERPROFILE '.sts1-combatsolver/build'
+$jar  = Join-Path $buildRoot 'libs/STS1CombatSolver.jar'
 
 $stsHome = 'C:/Users/22757/steam/steamapps/common/SlayTheSpire'
 $localProps = Join-Path $root 'local.properties'
