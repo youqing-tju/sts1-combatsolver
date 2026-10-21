@@ -20,6 +20,10 @@ public final class CardPlayer {
     }
 
     public static void play(SimState state, int handIndex, int targetIndex) {
+        play(state, handIndex, targetIndex, -1);
+    }
+
+    public static void play(SimState state, int handIndex, int targetIndex, int choiceIndex) {
         if (handIndex < 0 || handIndex >= state.hand.size()) {
             throw new ActionRejected("hand index out of range: " + handIndex);
         }
@@ -48,6 +52,8 @@ public final class CardPlayer {
         for (Effect effect : mirror.effects) {
             if (effect instanceof XEffect) {
                 ((XEffect) effect).applyWithX(state, targetIndex, card, xValue);
+            } else if (effect instanceof ChoiceEffect) {
+                ((ChoiceEffect) effect).applyWithChoice(state, targetIndex, card, choiceIndex);
             } else {
                 effect.applyTo(state, targetIndex, card);
             }

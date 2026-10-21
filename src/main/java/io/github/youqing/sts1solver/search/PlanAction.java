@@ -17,22 +17,37 @@ public final class PlanAction {
     /** 目标怪物下标，-1 表示不指定。 */
     public final int targetIndex;
 
-    private PlanAction(Kind kind, int cardIndex, int targetIndex) {
+    /**
+     * 需要选牌的手牌下标（打出本牌**之后**的手牌列表），-1 表示这张牌不需要选。
+     * 对应蓝本的 {@code PlanAction.Choice}（{@code src/Search/CombatPlan.cs:132}）。
+     */
+    public final int choiceIndex;
+
+    private PlanAction(Kind kind, int cardIndex, int targetIndex, int choiceIndex) {
         this.kind = kind;
         this.cardIndex = cardIndex;
         this.targetIndex = targetIndex;
+        this.choiceIndex = choiceIndex;
     }
 
     public static PlanAction play(int cardIndex, int targetIndex) {
-        return new PlanAction(Kind.PLAY_CARD, cardIndex, targetIndex);
+        return new PlanAction(Kind.PLAY_CARD, cardIndex, targetIndex, -1);
+    }
+
+    public static PlanAction play(int cardIndex, int targetIndex, int choiceIndex) {
+        return new PlanAction(Kind.PLAY_CARD, cardIndex, targetIndex, choiceIndex);
     }
 
     public static PlanAction endTurn() {
-        return new PlanAction(Kind.END_TURN, -1, -1);
+        return new PlanAction(Kind.END_TURN, -1, -1, -1);
     }
 
     @Override
     public String toString() {
-        return kind == Kind.END_TURN ? "END_TURN" : "PLAY[" + cardIndex + "]->" + targetIndex;
+        if (kind == Kind.END_TURN) {
+            return "END_TURN";
+        }
+        return "PLAY[" + cardIndex + "]->" + targetIndex
+                + (choiceIndex >= 0 ? " pick[" + choiceIndex + "]" : "");
     }
 }

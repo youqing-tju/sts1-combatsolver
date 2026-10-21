@@ -266,6 +266,15 @@ public final class MirrorRegistry {
         // 旋风斩：每点能量全体 5/8 伤；X = 出牌时的全部能量
         register("Whirlwind", Effects.damageAllX(5));
         register("Whirlwind+", Effects.damageAllX(8));
+
+        // ---- 第七批：选牌类 ---------------------------------------------------
+        // 军备：5 格挡 + 升级一张手牌；升级版升级全部
+        register("Armaments", Arrays.asList(Effects.block(5), Effects.upgradeChosen()));
+        register("Armaments+", Arrays.asList(Effects.block(5), Effects.upgradeAllHand()));
+
+        // 烧牌契约：消耗一张手牌，然后抽 2/3
+        register("Burning Pact", Effects.exhaustChosenThenDraw(2));
+        register("Burning Pact+", Effects.exhaustChosenThenDraw(3));
     }
 
     private MirrorRegistry() {

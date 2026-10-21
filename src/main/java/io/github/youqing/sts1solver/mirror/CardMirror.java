@@ -11,6 +11,8 @@ public final class CardMirror {
     public final List<Effect> effects;
     /** 这张牌是否需要指定某个怪物（单目标攻击/减益）。搜索据此决定展开多少个目标。 */
     public final boolean targeted;
+    /** 是否需要从手牌里挑一张（军备/战吼/烧牌契约）。 */
+    public final boolean needsChoice;
 
     public CardMirror(String key, List<Effect> effects) {
         this.key = key;
@@ -23,6 +25,15 @@ public final class CardMirror {
             }
         }
         this.targeted = needsTarget;
+
+        boolean needsPick = false;
+        for (Effect e : effects) {
+            if (e instanceof ChoiceEffect) {
+                needsPick = true;
+                break;
+            }
+        }
+        this.needsChoice = needsPick;
     }
 
     @Override

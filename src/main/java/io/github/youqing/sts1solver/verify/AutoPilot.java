@@ -61,6 +61,9 @@ public final class AutoPilot {
     /** 搜索给出的目标怪物下标；-1 表示沿用第一个存活怪物。 */
     private static int chosenTargetIndex = -1;
 
+    /** 搜索为「需要选牌」的卡挑定的手牌下标（打出后手牌列表），-1 表示没有。 */
+    private static int pendingChoiceIndex = -1;
+
     private static int searchCount;
     private static long searchNodesTotal;
 
@@ -240,6 +243,16 @@ public final class AutoPilot {
         return true;
     }
 
+    /** 搜索为选牌类卡牌挑定的手牌下标；-1 表示没有。 */
+    public static int pendingChoiceIndex() {
+        return pendingChoiceIndex;
+    }
+
+    /** 选牌界面消费完就清掉，避免影响下一次。 */
+    public static void clearPendingChoice() {
+        pendingChoiceIndex = -1;
+    }
+
     /** 把搜索返回的目标下标（对应 SimState.monsters 顺序）映射回真机怪物。 */
     private static AbstractMonster pickTarget(AbstractMonster fallback) {
         if (chosenTargetIndex < 0) {
@@ -285,9 +298,11 @@ public final class AutoPilot {
             PlanAction action = solver.bestFirstAction(snapshot);
             if (action == null || action.kind == PlanAction.Kind.END_TURN) {
                 chosenTargetIndex = -1;
+                pendingChoiceIndex = -1;
                 return null;
             }
             chosenTargetIndex = action.targetIndex;
+            pendingChoiceIndex = action.choiceIndex;
             if (action.cardIndex < 0 || action.cardIndex >= player.hand.group.size()) {
                 return null;
             }

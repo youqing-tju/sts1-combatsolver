@@ -559,6 +559,66 @@ public final class Effects {
         };
     }
 
+    /** 升级手牌里指定的一张（军备 Armaments）。 */
+    public static Effect upgradeChosen() {
+        return new ChoiceEffect() {
+            @Override
+            public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
+                if (choiceIndex < 0 || choiceIndex >= state.hand.size()) {
+                    return;
+                }
+                SimCard c = state.hand.get(choiceIndex);
+                if (c.upgraded) {
+                    return;
+                }
+                state.hand.set(choiceIndex, new SimCard(c.id, true, c.cost));
+            }
+
+            @Override
+            public String toString() {
+                return "upgrade(chosen)";
+            }
+        };
+    }
+
+    /** 升级**全部**手牌（军备+）。 */
+    public static Effect upgradeAllHand() {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                for (int i = 0; i < state.hand.size(); i++) {
+                    SimCard c = state.hand.get(i);
+                    if (!c.upgraded) {
+                        state.hand.set(i, new SimCard(c.id, true, c.cost));
+                    }
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "upgrade(allHand)";
+            }
+        };
+    }
+
+    /** 消耗指定手牌，然后抽牌（烧牌契约 Burning Pact）。 */
+    public static Effect exhaustChosenThenDraw(final int drawCount) {
+        return new ChoiceEffect() {
+            @Override
+            public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
+                if (choiceIndex >= 0 && choiceIndex < state.hand.size()) {
+                    state.exhaust.add(state.hand.remove(choiceIndex));
+                }
+                draw(drawCount).applyTo(state, targetIndex, played);
+            }
+
+            @Override
+            public String toString() {
+                return "exhaust(chosen)+draw(" + drawCount + ")";
+            }
+        };
+    }
+
     /** 全体 X 段伤害（旋风斩：每点能量 5 点伤害）。 */
     public static Effect damageAllX(final int perEnergy) {
         return new XEffect() {

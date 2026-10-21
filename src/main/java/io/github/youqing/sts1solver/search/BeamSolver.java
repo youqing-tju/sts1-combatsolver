@@ -153,17 +153,17 @@ public final class BeamSolver {
         return best == null ? null : best.firstAction();
     }
 
-    private void addPlay(SimState state, int cardIndex, int targetIndex, SearchNode node,
-                         List<SearchNode> out) {
+    private void addPlay(SimState state, int cardIndex, int targetIndex, int choiceIndex,
+                         SearchNode node, List<SearchNode> out) {
         SimState copy = state.copy();
         try {
-            CardPlayer.play(copy, cardIndex, targetIndex);
+            CardPlayer.play(copy, cardIndex, targetIndex, choiceIndex);
         } catch (ActionRejected rejected) {
             return;   // 这张牌没镜像/打不出，跳过而不是猜
         } catch (Throwable t) {
             return;
         }
-        out.add(new SearchNode(copy, PlanAction.play(cardIndex, targetIndex), node,
+        out.add(new SearchNode(copy, PlanAction.play(cardIndex, targetIndex, choiceIndex), node,
                 node.depth + 1, evaluate(copy)));
     }
 
@@ -238,17 +238,23 @@ public final class BeamSolver {
                     io.github.youqing.sts1solver.mirror.MirrorRegistry.lookup(
                             card.id + (card.upgraded ? "+" : ""));
 
-            if (mirror != null && mirror.targeted) {
+            if (mirror != null && mirror.needsChoice) {
+                // 选牌也是动作的一部分：打出后手牌少一张，对剩下的每个位置各展开一条
+                int choices = Math.max(0, state.hand.size() - 1);
+                for (int c = 0; c < choices; c++) {
+                    addPlay(state, i, -1, c, node, out);
+                }
+            } else if (mirror != null && mirror.targeted) {
                 // 单目标牌：对每个存活敌人各展开一条（M2-1 多目标）
                 for (int t = 0; t < state.monsters.size(); t++) {
                     if (state.monsters.get(t).hp <= 0) {
                         continue;
                     }
-                    addPlay(state, i, t, node, out);
+                    addPlay(state, i, t, -1, node, out);
                 }
             } else {
                 // 群伤/自我指向：只需展开一次，否则白白吃掉 beam 宽度
-                addPlay(state, i, -1, node, out);
+                addPlay(state, i, -1, -1, node, out);
             }
         }
 

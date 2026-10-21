@@ -420,6 +420,29 @@ class CardPlayerTest {
         assertEquals(0, s.energy);
     }
 
+    // ---- 第七批：选牌类 ----
+
+    @Test
+    void armamentsUpgradesTheChosenCard() {
+        SimState s = combat("Armaments", "Strike_R");
+        CardPlayer.play(s, 0, 0, 0);   // 打出后手牌只剩 Strike_R，选第 0 张
+        assertEquals(5, s.block);
+        assertTrue(s.hand.get(0).upgraded, "the chosen card must be upgraded");
+    }
+
+    @Test
+    void burningPactExhaustsTheChosenCardThenDraws() {
+        SimState s = combat("Burning Pact", "Strike_R", "Defend_R");
+        s.draw.add(new SimCard("Bash", false, 2));
+        s.draw.add(new SimCard("Bash", false, 2));
+
+        CardPlayer.play(s, 0, 0, 1);   // 打出后手牌 [Strike_R, Defend_R]，选第 1 张
+
+        assertEquals(1, s.exhaust.size());
+        assertEquals("Defend_R", s.exhaust.get(0).id);
+        assertEquals(3, s.hand.size(), "Strike_R + 2 drawn");
+    }
+
     @Test
     void drawRespectsTheTenCardHandLimit() {
         SimState s = combat("Pommel Strike");

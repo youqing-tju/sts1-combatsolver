@@ -58,7 +58,10 @@ public final class HandSelectDriver {
             }
 
             while (screen.selectedCards.size() < need) {
-                AbstractCard pick = firstEligible(player, screen);
+                AbstractCard pick = pickBySearchIndex(player, screen);
+                if (pick == null) {
+                    pick = firstEligible(player, screen);
+                }
                 if (pick == null) {
                     break;
                 }
@@ -68,12 +71,29 @@ public final class HandSelectDriver {
             }
 
             if (screen.selectedCards.size() >= need && screen.selectedCards.size() > 0) {
+                AutoPilot.clearPendingChoice();
                 AbstractDungeon.closeCurrentScreen();
                 Trace.info("HAND confirm " + screen.selectedCards.size() + " card(s)");
             }
         } catch (Throwable t) {
             Trace.error("hand select driver failed", t);
         }
+    }
+
+    /**
+     * 搜索已经决定了选哪张（{@code PlanAction.choiceIndex}）——按它的下标取，
+     * 这样模拟和实机做的选择是同一个，diff 才不会因为「选错牌」而炸。
+     */
+    private static AbstractCard pickBySearchIndex(AbstractPlayer player, HandCardSelectScreen screen) {
+        int index = AutoPilot.pendingChoiceIndex();
+        if (index < 0 || index >= player.hand.group.size()) {
+            return null;
+        }
+        AbstractCard card = player.hand.group.get(index);
+        if (screen.selectedCards.contains(card)) {
+            return null;
+        }
+        return card;
     }
 
     /**
