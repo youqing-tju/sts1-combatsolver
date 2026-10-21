@@ -37,3 +37,4 @@ __pycache__/
 
 # 蓝本参考仓库（本地 clone，不纳入版本库）
 reference/
+.tmp-loc/
