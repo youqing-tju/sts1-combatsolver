@@ -33,8 +33,19 @@ Execution failed for task ':test'
 
 该钩子触发时 `hand=0 draw=0 energy=0`，不能当作"战斗根状态"。
 
-**解法**：钩子只负责"武装"（arm），真正的捕获放在主线程 tick 里，等到
-`room.phase == COMBAT && player.hand.size() > 0` 才抓（`CombatCapture`）。
+**解法**：钩子只负责"武装"（arm），真正的捕获放在主线程 tick 里，等
+`room.phase == COMBAT && hand.size() >= player.gameHandSize && energy > 0` 才抓。
+
+⚠️ **发牌是一张一张来的**：只判 `hand.size() > 0` 会在 `hand=1` 时就抓（实测踩过）。
+用 `gameHandSize` 作为期望手牌数（Snecko Eye 等会改它），并留 180 帧兜底 + 告警。
+
+## 4.1 界面字号与行距必须按字体现算
+
+固定像素间距会翻车：`FontHelper.charDescFont` 的行高远大于 24px，
+四行文字会叠在一起；固定 440px 的面板宽度装不下长文本。
+
+**解法**：用 `GlyphLayout` 量最宽行算面板宽、用 `font.getLineHeight()` 算行距，
+并把结果缓存（只在文本变化时重算，避免每帧分配）。
 
 ## 5. 字节码必须是 52（Java 8）
 
