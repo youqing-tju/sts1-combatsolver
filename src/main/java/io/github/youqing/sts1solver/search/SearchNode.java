@@ -10,13 +10,21 @@ public final class SearchNode {
     public final SearchNode parent;
     public final int depth;
     public final long score;
+    /** 这一步打的牌（{@code id+} 形式）；{@code END_TURN} 时为 null。 */
+    public final String cardKey;
 
     public SearchNode(SimState state, PlanAction action, SearchNode parent, int depth, long score) {
+        this(state, action, parent, depth, score, null);
+    }
+
+    public SearchNode(SimState state, PlanAction action, SearchNode parent, int depth, long score,
+                      String cardKey) {
         this.state = state;
         this.action = action;
         this.parent = parent;
         this.depth = depth;
         this.score = score;
+        this.cardKey = cardKey;
     }
 
     /** 从根到本节点的第一个动作（执行层只有这一步是真的要做的）。 */

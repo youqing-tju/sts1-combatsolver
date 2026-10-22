@@ -75,6 +75,56 @@ class SearchThroughputTest {
                 "固定深度吞吐太低：" + perSecond + " 状态/秒");
     }
 
+    /** 一场能打十几个回合的仗，用来测「整场战斗规划」吃多少量。 */
+    private static SimState longFight() {
+        SimState s = new SimState();
+        s.hp = 80;
+        s.maxHp = 80;
+        s.energy = 3;
+        String[] hand = {"Strike_R", "Strike_R", "Defend_R", "Defend_R", "Bash"};
+        for (String id : hand) {
+            s.hand.add(new SimCard(id, false, 1));
+        }
+        for (int i = 0; i < 15; i++) {
+            s.draw.add(new SimCard(i % 3 == 0 ? "Bash" : (i % 3 == 1 ? "Strike_R" : "Defend_R"),
+                    false, 1));
+        }
+        SimMonster boss = new SimMonster("Boss", 220, 220, 0,
+                Collections.<String, Integer>emptyMap());
+        boss.intentDmg = 10;
+        s.monsters.add(boss);
+        return s;
+    }
+
+    /**
+     * 整场战斗规划：跑到战斗结束为止（蓝本是 5–13 回合、几十万条世界线）。
+     * 这里只测「我们能吃到多深、多少条路线」，不对结论做质量断言。
+     */
+    @Test
+    void fullFightPlan() {
+        BeamSolver solver = new BeamSolver(3, 5, 6, 40);
+        for (int i = 0; i < 3; i++) {
+            solver.bestFirstAction(longFight(), 20);   // 预热
+        }
+
+        solver.bestFirstAction(longFight(), 1500);
+
+        int turns = 0;
+        for (PlanAction a : solver.lastRoute) {
+            if (a.kind == PlanAction.Kind.END_TURN) {
+                turns++;
+            }
+        }
+        System.out.printf(
+                "[full] 1.5s 预算：路线 %d 步 / %d 回合，世界线 %d 条，状态 %d 个，"
+                        + "深度 %d，宽度 %d，耗时 %d ms%n",
+                solver.lastRoute.size(), turns, solver.lastLeaves, solver.lastNodes,
+                solver.lastDepth, solver.lastWidth, solver.lastMillis);
+
+        assertTrue(solver.lastRoute.size() > 0, "至少要产出一条路线");
+        assertTrue(solver.lastLeaves > 0, "至少要有一条世界线走到战斗结束");
+    }
+
     /** AUTO 真正走的路径：给 50 ms 预算，迭代加深看能吃多深。 */
     @Test
     void timeBudgetedDeepening() {

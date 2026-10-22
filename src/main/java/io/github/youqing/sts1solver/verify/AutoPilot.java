@@ -112,6 +112,8 @@ public final class AutoPilot {
         blockedTurn = Integer.MIN_VALUE;
         stuckStreak = 0;
         io.github.youqing.sts1solver.search.AsyncSearch.reset();
+        plan = null;
+        framesWaitingForPlan = 0;
         Trace.info("AUTO state reset (combat boundary)");
     }
 
@@ -271,6 +273,14 @@ public final class AutoPilot {
     private static final int OUTCOME_WAITING = 1;
     private static final int OUTCOME_NOTHING = 2;
     private static final int OUTCOME_END_TURN = 3;
+    /** 计划里的这一步执行不了（手牌对不上/被禁）→ 丢掉计划重算。 */
+    private static final int OUTCOME_REPLAN = 4;
+
+    /** 当前正在执行的整场战斗计划（蓝本的「路线」）。 */
+    private static java.util.ArrayDeque<io.github.youqing.sts1solver.search.RouteStep> plan;
+    /** 等规划结果的帧数；超时就退回逐张兜底，避免整场卡在等搜索上。 */
+    private static int framesWaitingForPlan;
+    private static final int PLAN_WAIT_LIMIT = 1800;   // 30 秒
 
     /**
      * 先打未镜像的牌（探索盲区），没有可探索的再打已镜像的（产出对拍）。
@@ -280,94 +290,158 @@ public final class AutoPilot {
      * 这是为了把「时间预算」真正用起来 —— 蓝本是几百万条世界线，主线程给不了那个时间。
      */
     private static int playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
-        AbstractCard chosen = null;
-        io.github.youqing.sts1solver.search.AsyncSearch.Result result =
-                io.github.youqing.sts1solver.search.AsyncSearch.poll();
-        if (result != null) {
-            String fingerprint = currentFingerprint();
-            if (fingerprint != null && !fingerprint.equals(result.fingerprint)) {
-                // 局面已经变了（玩家手动出牌/怪物死亡），这份结果作废
-                Trace.info("SEARCH result discarded (state moved on)");
-                result = null;
+        // ① 有计划就照计划走（蓝本的「冻结路线 / 执行本回合」）
+        if (plan != null && !plan.isEmpty()) {
+            int outcome = executePlannedStep(player, attackTarget);
+            if (outcome != OUTCOME_REPLAN) {
+                return outcome;
             }
+            plan = null;      // 计划失效（手牌对不上/被拒），丢掉重算
         }
+
+        // ② 没有计划：等后台整场规划的結果，没有就提交一次
+        io.github.youqing.sts1solver.search.AsyncSearch.Result result = pollValidated();
         if (result == null) {
             if (!io.github.youqing.sts1solver.search.AsyncSearch.busy()) {
                 submitSearch(player);
             }
+            framesWaitingForPlan++;
+            if (framesWaitingForPlan > PLAN_WAIT_LIMIT) {
+                // 规划迟迟不出来（搜索挂了 / 预算被设得离谱大）：退回逐张兜底，别整场卡死
+                Trace.warn("PLAN wait timeout (" + framesWaitingForPlan
+                        + " frames) -> falling back to per-card play");
+                framesWaitingForPlan = 0;
+                return fallbackPlay(player, attackTarget);
+            }
             return OUTCOME_WAITING;
         }
+        framesWaitingForPlan = 0;
 
-        if (result.action == null
-                || result.action.kind == PlanAction.Kind.END_TURN) {
-            Trace.info("SEARCH(depth " + result.depth + ", " + result.states + " states, "
-                    + result.millis + "ms) -> end turn");
-            return OUTCOME_END_TURN;
-        }
-        chosenTargetIndex = result.action.targetIndex;
-        pendingChoiceIndex = result.action.choiceIndex;
         searchCount++;
         searchNodesTotal += result.states;
-        if (result.millis > 400) {
-            Trace.warn("SEARCH slow: " + result.millis + " ms, " + result.states + " states, depth "
-                    + result.depth);
-        } else if (searchCount % 10 == 0) {
+        if (result.millis > 5000) {
+            Trace.warn("SEARCH slow: " + result.millis + " ms, " + result.states + " states");
+        } else if (searchCount % 5 == 0) {
             Trace.info("SEARCH #" + searchCount + " avgStates=" + (searchNodesTotal / searchCount)
-                    + " lastDepth=" + result.depth + " lastMs=" + result.millis
-                    + " budget=" + io.github.youqing.sts1solver.config.SolverConfig
-                            .budget().budgetMillis + "ms");
+                    + " depth=" + result.depth + " lines=" + result.lines
+                    + " ms=" + result.millis + " plan=" + result.steps.size() + " steps");
         }
+        if (result.steps == null || result.steps.isEmpty()) {
+            Trace.info("SEARCH -> empty plan, end turn");
+            return OUTCOME_END_TURN;
+        }
+        plan = new java.util.ArrayDeque<io.github.youqing.sts1solver.search.RouteStep>(
+                result.steps);
+        Trace.info("PLAN ready: " + result.steps.size() + " steps, depth " + result.depth
+                + ", " + result.states + " states, " + result.millis + " ms");
+        int outcome = executePlannedStep(player, attackTarget);
+        return outcome == OUTCOME_REPLAN ? OUTCOME_WAITING : outcome;
+    }
 
-        if (result.action.cardIndex >= 0
-                && result.action.cardIndex < player.hand.group.size()) {
-            chosen = player.hand.group.get(result.action.cardIndex);
+    /**
+     * 执行计划里的下一步。
+     *
+     * <p>计划是「牌名 + 目标下标」，不是手牌下标 —— 中间隔了几帧，下标可能已经变了。
+     * 找不到这张牌就返回 {@link #OUTCOME_REPLAN}，让上层重算而不是照着旧下标乱打。
+     */
+    private static int executePlannedStep(AbstractPlayer player, AbstractMonster attackTarget) {
+        io.github.youqing.sts1solver.search.RouteStep step = plan.peek();
+        if (step == null) {
+            return OUTCOME_REPLAN;
         }
-        if (chosen != null && blockedThisTurn.contains(key(chosen))) {
-            Trace.info("SEARCH picked " + key(chosen) + " which is blocked this turn -> fallback");
-            chosen = null;
+        if (step.endTurn) {
+            plan.poll();
+            return OUTCOME_END_TURN;
         }
-        boolean mirrored = chosen != null && MirrorRegistry.supports(key(chosen));
+        AbstractCard chosen = firstByKey(player, step.cardKey);
         if (chosen == null) {
-            // 搜索失败（没镜像/异常）时退回旧策略，保证 AUTO 不会因为搜索挂掉而停摆
-            ArrayList<AbstractCard> hand = playableHand(player);
-            chosen = firstPlayable(player, hand, attackTarget, Pref.UNMIRRORED);
-            mirrored = chosen == null;
-            if (chosen == null) {
-                chosen = firstPlayable(player, hand, attackTarget, Pref.MIRRORED);
-            }
+            Trace.info("PLAN step " + step.cardKey + " is not in hand -> replan");
+            return OUTCOME_REPLAN;
+        }
+        if (blockedThisTurn.contains(step.cardKey)) {
+            Trace.info("PLAN step " + step.cardKey + " is blocked this turn -> replan");
+            return OUTCOME_REPLAN;
+        }
+        AbstractMonster target = monsterAt(step.targetIndex, attackTarget);
+        if (!chosen.canUse(player, target)) {
+            Trace.info("PLAN step " + step.cardKey + " not playable now -> replan");
+            return OUTCOME_REPLAN;
+        }
+        chosenTargetIndex = step.targetIndex;
+        pendingChoiceIndex = step.choiceIndex;
+        enqueue(chosen, target);
+        plan.poll();
+        return OUTCOME_PLAYED;
+    }
+
+    /** 后台结果的取用：指纹对不上就作废（局面已经被别的东西改过）。 */
+    private static io.github.youqing.sts1solver.search.AsyncSearch.Result pollValidated() {
+        io.github.youqing.sts1solver.search.AsyncSearch.Result result =
+                io.github.youqing.sts1solver.search.AsyncSearch.poll();
+        if (result == null) {
+            return null;
+        }
+        String fingerprint = currentFingerprint();
+        if (fingerprint != null && !fingerprint.equals(result.fingerprint)) {
+            Trace.info("PLAN discarded (state moved on since it was computed)");
+            return null;
+        }
+        return result;
+    }
+
+    /** 规划等不到时的兜底：按 prefer 顺序挑一张能打的。 */
+    private static int fallbackPlay(AbstractPlayer player, AbstractMonster attackTarget) {
+        ArrayList<AbstractCard> hand = playableHand(player);
+        AbstractCard chosen = firstPlayable(player, hand, attackTarget, Pref.UNMIRRORED);
+        if (chosen == null) {
+            chosen = firstPlayable(player, hand, attackTarget, Pref.MIRRORED);
         }
         if (chosen == null) {
             return OUTCOME_NOTHING;
         }
-
-        // 🔴 可打出性必须交给游戏判一次。搜索只看镜像语义，不知道「缠身封了攻击牌」
-        // 这类限制，会反复选中一张永远打不出的牌，然后卡在 queuedCard 上直到 AUTO 自杀
-        // （实测：16:10:11 AUTO play Strike_R → 3 秒后 AUTO stuck）。游戏说打不了，
-        // 就退回到下面那条会检查 canUse 的兜底路径。
         AbstractMonster target = resolveTarget(chosen, pickTarget(attackTarget));
-        if (!chosen.canUse(player, target)) {
-            Trace.info("AUTO skip " + key(chosen) + " (game refuses to play it)");
-            ArrayList<AbstractCard> hand = playableHand(player);
-            chosen = firstPlayable(player, hand, attackTarget, Pref.UNMIRRORED);
-            mirrored = chosen == null;
-            if (chosen == null) {
-                chosen = firstPlayable(player, hand, attackTarget, Pref.MIRRORED);
-            }
-            if (chosen == null) {
-                return OUTCOME_NOTHING;
-            }
-            target = resolveTarget(chosen, pickTarget(attackTarget));
-        }
+        enqueue(chosen, target);
+        return OUTCOME_PLAYED;
+    }
 
-        String key = key(chosen);
+    private static AbstractCard firstByKey(AbstractPlayer player, String cardKey) {
+        if (cardKey == null) {
+            return null;
+        }
+        for (AbstractCard card : player.hand.group) {
+            if (card != null && key(card).equals(cardKey)) {
+                return card;
+            }
+        }
+        return null;
+    }
+
+    /** 影子里的怪物下标 → 真机怪物；下标失效就退回默认目标。 */
+    private static AbstractMonster monsterAt(int index, AbstractMonster fallback) {
+        try {
+            java.util.ArrayList<AbstractMonster> monsters =
+                    AbstractDungeon.getMonsters().monsters;
+            if (index >= 0 && index < monsters.size()) {
+                AbstractMonster picked = monsters.get(index);
+                if (picked != null && picked.currentHealth > 0) {
+                    return picked;
+                }
+            }
+        } catch (Throwable ignored) {
+            // 结构异常就退回默认目标
+        }
+        return fallback;
+    }
+
+    private static void enqueue(AbstractCard chosen, AbstractMonster target) {
+        boolean mirrored = MirrorRegistry.supports(key(chosen));
         AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
         queuedCard = chosen;
         queuedFrames = 0;
-        noProgressEndTurns = 0;   // 本当に進んだので「无进展」计数清零
-        Trace.info("AUTO play " + key + (target == null ? "" : " -> " + target.name)
+        noProgressEndTurns = 0;
+        Trace.info("AUTO play " + key(chosen) + (target == null ? "" : " -> " + target.name)
                 + (mirrored ? "  (mirrored, diff)" : "  (unmirrored, record)"));
         cooldown = 6;
-        return OUTCOME_PLAYED;
     }
 
     /** 当前局面指纹；抓不到（还没捕获根状态）时返回 null = 不做有效性校验。 */
@@ -394,9 +468,10 @@ public final class AutoPilot {
             }
             io.github.youqing.sts1solver.config.SolverConfig.Budget budget =
                     io.github.youqing.sts1solver.config.SolverConfig.budget();
+            // 整场战斗规划：深度给到 60 ply（≈15 回合），时间用 planMillis
             io.github.youqing.sts1solver.search.AsyncSearch.submit(snapshot,
                     snapshot.fingerprint(), CombatCapture.baseEnergy(), player.gameHandSize,
-                    budget.beamWidth, budget.depth, budget.budgetMillis);
+                    budget.beamWidth, 60, budget.planMillis);
         } catch (Throwable t) {
             Trace.warn("submit search failed: " + t);
         }

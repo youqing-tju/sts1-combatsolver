@@ -27,13 +27,20 @@ public final class AsyncSearch {
         public final int states;
         public final int depth;
         public final long millis;
+        /** 走到战斗结束的路线条数（蓝本面板的「世界线」）。 */
+        public final int lines;
+        /** 可执行的完整路线（牌名 + 目标），执行层按它一步步走。 */
+        public final java.util.List<RouteStep> steps;
 
-        Result(String fingerprint, PlanAction action, int states, int depth, long millis) {
+        Result(String fingerprint, PlanAction action, int states, int depth, long millis,
+               int lines, java.util.List<RouteStep> steps) {
             this.fingerprint = fingerprint;
             this.action = action;
             this.states = states;
             this.depth = depth;
             this.millis = millis;
+            this.lines = lines;
+            this.steps = steps;
         }
     }
 
@@ -102,10 +109,12 @@ public final class AsyncSearch {
                 BeamSolver solver = new BeamSolver(energy, hand, width, depth);
                 PlanAction action = solver.bestFirstAction(root, budget);
                 result = new Result(fingerprint, action, solver.lastNodes,
-                        solver.lastDepth, solver.lastMillis);
+                        solver.lastDepth, solver.lastMillis, solver.lastLeaves,
+                        solver.lastSteps);
             } catch (Throwable t) {
                 Trace.error("background search failed", t);
-                result = new Result(fingerprint, null, 0, 0, 0);
+                result = new Result(fingerprint, null, 0, 0, 0, 0,
+                        java.util.Collections.<RouteStep>emptyList());
             }
             running = false;
             ready = result;

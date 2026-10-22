@@ -20,9 +20,9 @@ public final class SolverConfig {
 
     /** 搜索预算档位。宽度/深度同时放大，节点数是二者乘积量级。 */
     public enum Budget {
-        FAST("快", 4, 6, 8),
-        NORMAL("标准", 6, 10, 50),
-        DEEP("深", 10, 16, 300);
+        FAST("快", 4, 6, 8, 300),
+        NORMAL("标准", 6, 10, 50, 1500),
+        DEEP("深", 10, 16, 300, 8000);
 
         public final String label;
         public final int beamWidth;
@@ -30,12 +30,18 @@ public final class SolverConfig {
         public final int depth;
         /** 每次决策的时间预算（跑在后台线程，不会卡帧）。 */
         public final long budgetMillis;
+        /**
+         * **整场战斗规划**的预算。蓝本实测是 1.1 s（第一场小怪）到 120 s（最终 boss），
+         * 我们这里给的是起步值，可按需调大到 120000。
+         */
+        public final long planMillis;
 
-        Budget(String label, int beamWidth, int depth, long budgetMillis) {
+        Budget(String label, int beamWidth, int depth, long budgetMillis, long planMillis) {
             this.label = label;
             this.beamWidth = beamWidth;
             this.depth = depth;
             this.budgetMillis = budgetMillis;
+            this.planMillis = planMillis;
         }
     }
 

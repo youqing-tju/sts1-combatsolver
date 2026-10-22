@@ -41,6 +41,15 @@ public final class BeamSolver {
     /** 实际跑完的 beam 宽度（深度爬满后预算还有富余就加宽）。 */
     public int lastWidth;
     /**
+     * 从根到最优叶子的**完整动作序列**（蓝本的「世界线」就是这个：一条打完整场战斗的路线）。
+     * 对 AUTO/面板来说，前面几步就是「本回合怎么打」。
+     */
+    public java.util.List<PlanAction> lastRoute = new java.util.ArrayList<PlanAction>();
+    /** 搜索中真正走到「战斗结束」的路线条数（对拍蓝本面板的「共查阅 N 条世界线」）。 */
+    public int lastLeaves;
+    /** {@link #lastRoute} 的可执行版本（带牌名，能校验）。 */
+    public java.util.List<RouteStep> lastSteps = new java.util.ArrayList<RouteStep>();
+    /**
      * ⚠️ 非蓝本实现，已默认关闭。
      *
      * <p>蓝本没有 rollout：它用 {@code ProjectedPlayerHp + DeathPenalty} 做一阶前瞻
@@ -107,6 +116,9 @@ public final class BeamSolver {
         long startedAt = System.nanoTime();
         lastNodes = 0;
         lastDepth = 0;
+        lastLeaves = 0;
+        lastRoute = new java.util.ArrayList<PlanAction>();
+        lastSteps = new java.util.ArrayList<RouteStep>();
 
         if (budgetMillis == Long.MAX_VALUE) {
             // 无预算（单测/基准）：一次跑到配置深度
@@ -154,6 +166,7 @@ public final class BeamSolver {
             for (SearchNode node : beam) {
                 if (node.terminal()) {
                     finished.add(node);
+                    lastLeaves++;      // 一条完整的「世界线」走到头了
                     continue;
                 }
                 expand(node, next);
@@ -208,7 +221,31 @@ public final class BeamSolver {
             System.out.println("CHOSEN depth=" + best.depth + " score=" + best.score
                     + " action=" + best.action + " first=" + best.firstAction());
         }
+        if (best != null) {
+            lastRoute = routeOf(best);
+            lastSteps = stepsOf(best);
+        }
         return best;
+    }
+
+    /** 回溯出可执行的步骤（带牌名，执行时可校验）。 */
+    private static java.util.List<RouteStep> stepsOf(SearchNode best) {
+        java.util.LinkedList<RouteStep> reversed = new java.util.LinkedList<RouteStep>();
+        for (SearchNode n = best; n != null && n.action != null; n = n.parent) {
+            reversed.addFirst(new RouteStep(
+                    n.action.kind == PlanAction.Kind.END_TURN,
+                    n.cardKey, n.action.targetIndex, n.action.choiceIndex));
+        }
+        return new java.util.ArrayList<RouteStep>(reversed);
+    }
+
+    /** 回溯出「从根到该节点」的动作序列。 */
+    private static java.util.List<PlanAction> routeOf(SearchNode best) {
+        java.util.LinkedList<PlanAction> reversed = new java.util.LinkedList<PlanAction>();
+        for (SearchNode n = best; n != null && n.action != null; n = n.parent) {
+            reversed.addFirst(n.action);
+        }
+        return new java.util.ArrayList<PlanAction>(reversed);
     }
 
     private void addPlay(SimState state, int cardIndex, int targetIndex, int choiceIndex,
@@ -222,7 +259,7 @@ public final class BeamSolver {
             return;
         }
         out.add(new SearchNode(copy, PlanAction.play(cardIndex, targetIndex, choiceIndex), node,
-                node.depth + 1, evaluate(copy)));
+                node.depth + 1, evaluate(copy), state.hand.get(cardIndex).key()));
     }
 
     private static boolean sameAction(SearchNode a, SearchNode b) {
