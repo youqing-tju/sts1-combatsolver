@@ -140,6 +140,12 @@ public final class AutoPilot {
                 queuedFrames = 0;
                 return;
             }
+            // 🔴 这张牌还在手上 = 游戏还没消费掉这次入队请求。
+            // 少了这个 return，下一帧会再入队**同一个卡牌对象**，实机于是打两张、
+            // 影子只记一张，对拍就出现 cards=N/N-1、energy 2 vs 1 那一整片假失配。
+            if (queuedCard != null) {
+                return;
+            }
         }
         try {
             AbstractPlayer player = AbstractDungeon.player;

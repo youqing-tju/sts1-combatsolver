@@ -51,7 +51,24 @@ public final class SimState {
     public int hpLossCount;
     public int energy;
 
-    public final TreeMap<String, Integer> playerPowers = new TreeMap<String, Integer>();
+    /**
+     * 玩家身上的状态，**保持应用顺序**。
+     *
+     * <p>原版 {@code AbstractCreature.applyStartOfTurnPowers()} 是 {@code for (p : powers)}，
+     * 也就是按施加顺序逐个调用钩子。用 TreeMap 会按 ID 字典序派发，把顺序语义悄悄改掉，
+     * 所以这里必须是 LinkedHashMap。
+     */
+    public final Map<String, Integer> playerPowers = new java.util.LinkedHashMap<String, Integer>();
+
+    /**
+     * 层数之外的附属数值：{@code "TheBomb.damage" → 40}、{@code "Panache.damage" → 10}。
+     *
+     * <p>这两个 power 的 {@code amount} 存的是「还剩几回合 / 还能打几张」，
+     * 真正的伤害在私有字段里。影子必须把那个值也捕获进来，否则算不出正确伤害，
+     * 而对拍也应该比它 —— 它确实会随升级变化。
+     */
+    public final TreeMap<String, Integer> powerAux = new TreeMap<String, Integer>();
+
     public final List<SimCard> hand = new ArrayList<SimCard>();
     public final List<SimCard> draw = new ArrayList<SimCard>();
     public final List<SimCard> discard = new ArrayList<SimCard>();
@@ -81,7 +98,7 @@ public final class SimState {
         s.maxHp = p.maxHealth;
         s.block = p.currentBlock;
         s.energy = EnergyPanel.totalCount;
-        s.playerPowers.putAll(powersOf(p.powers));
+        capturePowers(p.powers, s.playerPowers, s.powerAux);
 
         addCards(p.hand, s.hand);
         addCards(p.drawPile, s.draw);
@@ -141,7 +158,52 @@ public final class SimState {
             return;
         }
         for (AbstractCard c : group.group) {
-            into.add(new SimCard(c.cardID, c.upgraded, c.cost, c.baseDamage));
+            into.add(new SimCard(c.cardID, c.upgraded, c.cost, c.baseDamage,
+                    c.type == null ? "" : c.type.name()));
+        }
+    }
+
+    /** 层数之外还需要额外捕获的私有字段（power ID → 字段名）。 */
+    private static final java.util.Map<String, String[]> AUX_FIELDS =
+            new java.util.HashMap<String, String[]>();
+
+    static {
+        // TheBombPower(owner, turns, damage) / PanachePower(owner, damage)
+        AUX_FIELDS.put("TheBomb", new String[]{"damage"});
+        AUX_FIELDS.put("Panache", new String[]{"damage"});
+    }
+
+    private static void capturePowers(java.util.ArrayList<AbstractPower> list,
+                                      Map<String, Integer> into,
+                                      Map<String, Integer> aux) {
+        if (list == null) {
+            return;
+        }
+        for (AbstractPower pw : list) {
+            into.put(pw.ID, pw.amount);
+            String[] fields = AUX_FIELDS.get(pw.ID);
+            if (fields == null) {
+                continue;
+            }
+            for (String field : fields) {
+                Integer v = readIntField(pw, field);
+                if (v != null) {
+                    aux.put(pw.ID + "." + field, v);
+                }
+            }
+        }
+    }
+
+    private static Integer readIntField(Object target, String name) {
+        try {
+            java.lang.reflect.Field f = target.getClass().getDeclaredField(name);
+            f.setAccessible(true);
+            return f.getInt(target);
+        } catch (Throwable t) {
+            io.github.youqing.sts1solver.diag.Trace.warn(
+                    "power aux read failed: " + target.getClass().getSimpleName() + "." + name
+                            + " (" + t + ")");
+            return null;
         }
     }
 
@@ -172,6 +234,7 @@ public final class SimState {
         c.energy = energy;
 
         c.playerPowers.putAll(playerPowers);
+        c.powerAux.putAll(powerAux);
         c.hand.addAll(hand);        // SimCard is immutable, sharing is safe
         c.draw.addAll(draw);
         c.discard.addAll(discard);
@@ -203,6 +266,7 @@ public final class SimState {
         cmp(out, "energy", energy, o.energy);
 
         diffMap(out, "playerPowers", playerPowers, o.playerPowers);
+        diffMap(out, "powerAux", powerAux, o.powerAux);
         // 手牌顺序对策略没有意义（同名牌完全等价），按多重集比较，避免位置噪声淹没真问题
         diffHand(out, "hand", hand, o.hand);
         diffCards(out, "draw", draw, o.draw);
@@ -357,7 +421,9 @@ public final class SimState {
           .append(",\"maxHp\":").append(maxHp)
           .append(",\"block\":").append(block)
           .append(",\"energy\":").append(energy)
-          .append(",\"powers\":").append(mapJson(playerPowers)).append("},\n");
+          .append(",\"powers\":").append(mapJson(playerPowers))
+          .append(",\"powerAux\":").append(mapJson(powerAux))
+          .append("},\n");
         sb.append("  \"hand\":").append(cardsJson(hand)).append(",\n");
         sb.append("  \"draw\":").append(cardsJson(draw)).append(",\n");
         sb.append("  \"discard\":").append(cardsJson(discard)).append(",\n");

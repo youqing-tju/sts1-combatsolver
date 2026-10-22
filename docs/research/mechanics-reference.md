@@ -40,6 +40,40 @@
 表现为「能量每回合 +4，但不抽牌、怪物也不行动」，而且只在特定状态（如战斗专注施加的
 `No Draw`）下才暴露。**镜像实现「结束回合」时，必须复刻完整流程，不能只调用底层 API。**
 
+### 1.2 回合阶段钩子的精确顺序（A｜字节码，2026-10-22 复核）
+
+上面那句"回合末状态结算 → 手牌弃置"是**粗的**。逐方法反编译后，玩家的回合边界是这样：
+
+| # | 调用方（字节码） | 做了什么 |
+|---|---|---|
+| 1 | `GameActionManager.callEndOfTurnActions` → `AbstractRoom.applyEndOfTurnRelics` | 每个遗物 `onPlayerEndTurn()` |
+| 2 | 同上 → `AbstractRoom.applyEndOfTurnPreCardPowers` | 每个 power `atEndOfTurnPreEndTurnCards(true)` —— **金属化在这** |
+| 3 | 同上 → `TriggerEndOfTurnOrbsAction` / 手牌 `triggerOnEndOfTurnForPlayingCard()` / `AbstractStance.onEndOfTurn` | 充能球、手牌里的回合末效果、姿态（铁甲战士无关） |
+| 4 | `DiscardAtEndOfTurnAction` | 手牌进弃牌堆（保留牌走 `RestoreRetainedCardsAction`） |
+| 5 | `AbstractRoom.endTurn()` → `AbstractCreature.applyEndOfTurnTriggers()` | 每个 power `atEndOfTurn(true)` —— **燃烧/炸弹/欧米伽在这** |
+| 6 | 敌方阶段 | 怪物按意图行动 |
+| 7 | 玩家下一回合（`GameActionManager.getNextAction`） | `applyStartOfTurnRelics` → `applyStartOfTurnPreDrawCards` → `applyStartOfTurnCards` → **powers `atStartOfTurn`** → 回能 + `DrawCardAction` → `applyStartOfTurnPostDrawRelics` → **powers `atStartOfTurnPostDraw`** |
+
+两条容易搞反的硬事实：
+
+- `applyEndOfTurnTriggers` 的字节码是 `if (!isPlayer) p.atEndOfTurnPreEndTurnCards(false); p.atEndOfTurn(isPlayer);`
+  —— 对**玩家**只调用 `atEndOfTurn`。所以金属化（pre-end-turn-cards）与燃烧（atEndOfTurn）
+  **不在同一时刻**，前者在手牌弃置之前、后者在之后。
+- `atStartOfTurn` 在**回能与抽牌之前**，`atStartOfTurnPostDraw` 在**抽牌之后**。
+  磁力/乱战/神气归零属于前者，恶魔形态属于后者。
+
+各能力的重写点（`javap -p` 逐类核对）：
+
+| 能力 | 重写的方法 |
+|---|---|
+| Metallicize | `atEndOfTurnPreEndTurnCards` |
+| Combust / TheBomb / Omega（watcher） | `atEndOfTurn` |
+| DemonForm | `atStartOfTurnPostDraw` |
+| Magnetism / Mayhem / Panache（归零） | `atStartOfTurn` |
+| Panache（计数） | `onUseCard` |
+| Sadistic | `onApplyPower` |
+| Juggernaut | `onGainedBlock` |
+
 ---
 
 ## 2. 伤害公式

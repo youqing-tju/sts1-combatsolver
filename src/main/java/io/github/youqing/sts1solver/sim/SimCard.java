@@ -18,15 +18,29 @@ public final class SimCard {
      */
     public final int baseDamage;
 
+    /**
+     * 牌的类型：{@code ATTACK / SKILL / POWER / STATUS / CURSE}，未知时为空串。
+     *
+     * <p>只有「从手牌捕获」的牌保证有值，效果生成的牌可能不带。类型唯一的用途是
+     * 遗物计数（修女/手里剑数攻击、开信刀数技能），而被打出的牌一定来自手牌，
+     * 所以缺省不会影响判定。
+     */
+    public final String type;
+
     public SimCard(String id, boolean upgraded, int cost) {
-        this(id, upgraded, cost, -1);
+        this(id, upgraded, cost, -1, "");
     }
 
     public SimCard(String id, boolean upgraded, int cost, int baseDamage) {
+        this(id, upgraded, cost, baseDamage, "");
+    }
+
+    public SimCard(String id, boolean upgraded, int cost, int baseDamage, String type) {
         this.id = id;
         this.upgraded = upgraded;
         this.cost = cost;
         this.baseDamage = baseDamage;
+        this.type = type == null ? "" : type;
     }
 
     /** Stable key used by fingerprints and the mirror registry: {@code Strike_R+}. */
@@ -34,8 +48,16 @@ public final class SimCard {
         return id + (upgraded ? "+" : "");
     }
 
+    public boolean isAttack() {
+        return "ATTACK".equals(type);
+    }
+
+    public boolean isSkill() {
+        return "SKILL".equals(type);
+    }
+
     public SimCard withCost(int newCost) {
-        return new SimCard(id, upgraded, newCost, baseDamage);
+        return new SimCard(id, upgraded, newCost, baseDamage, type);
     }
 
     @Override

@@ -82,7 +82,8 @@ public final class Effects {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
-                state.block += DamageCalc.blockAmount(state, base);
+                io.github.youqing.sts1solver.mirror.hooks.Hooks.gainBlock(
+                        state, DamageCalc.blockAmount(state, base));
             }
 
             @Override
@@ -144,6 +145,8 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
                 add(target.powers, id, amount);
+                io.github.youqing.sts1solver.mirror.hooks.Hooks.onPowerApplied(
+                        state, id, amount, target);
             }
 
             @Override
@@ -166,6 +169,8 @@ public final class Effects {
                 for (SimMonster m : state.monsters) {
                     if (m.hp > 0) {
                         add(m.powers, id, amount);
+                        io.github.youqing.sts1solver.mirror.hooks.Hooks.onPowerApplied(
+                                state, id, amount, m);
                     }
                 }
             }
@@ -188,6 +193,28 @@ public final class Effects {
             @Override
             public String toString() {
                 return id + "(self," + amount + ")";
+            }
+        };
+    }
+
+    /**
+     * 对玩家施加一个「层数之外还带伤害」的状态（炸弹、神气制胜）。
+     *
+     * <p>原版这两个 power 的 {@code amount} 是倒计时/计数，伤害在私有字段里，
+     * 所以影子得把伤害单独记到 {@link SimState#powerAux}，否则算不出正确数值。
+     */
+    public static Effect powerOnPlayerAux(final String id, final int amount,
+                                          final String auxKey, final int auxValue) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                add(state.playerPowers, id, amount);
+                state.powerAux.put(auxKey, auxValue);
+            }
+
+            @Override
+            public String toString() {
+                return id + "(self," + amount + "," + auxKey + "=" + auxValue + ")";
             }
         };
     }
@@ -389,7 +416,8 @@ public final class Effects {
                     exhaustCard(state, c);
                     count++;
                 }
-                state.block += DamageCalc.blockAmount(state, blockPer * count);
+                io.github.youqing.sts1solver.mirror.hooks.Hooks.gainBlock(
+                        state, DamageCalc.blockAmount(state, blockPer * count));
             }
 
             @Override
@@ -501,9 +529,11 @@ public final class Effects {
     /**
      * 把状态牌插入抽牌堆的**随机位置**（野性打击 / 鲁莽冲锋）。
      *
-     * <p>插入算法复刻自游戏：{@code CardGroup.addToRandomSpot} →
-     * {@code Random.random(size)}（闭区间 0..size），随机源用 {@code cardRandomRng}
-     * （对应影子里的 {@link io.github.youqing.sts1solver.sim.RngKind#CARD}）。
+     * <p>插入算法复刻自游戏（字节码核实）：{@code CardGroup.addToRandomSpot} →
+     * {@code group.add(cardRandomRng.random(size - 1), card)}。**上界是 size-1**，
+     * 也就是永远插在某个已有元素之前，绝不追加到末尾；牌堆为空时**不消耗 RNG**。
+     * 随机源 {@code cardRandomRng} 对应影子里的
+     * {@link io.github.youqing.sts1solver.sim.RngKind#CARD}。
      */
     public static Effect insertIntoDrawPileRandom(final String id, final int count) {
         return new Effect() {
@@ -512,13 +542,12 @@ public final class Effects {
                 io.github.youqing.sts1solver.sim.RngStream rng =
                         state.rng.get(SimState.RngKind.CARD);
                 for (int i = 0; i < count; i++) {
-                    SimCard status = new SimCard(id, false, -2);
-                    if (rng == null) {
+                    SimCard status = new SimCard(id, false, -2, -1, "STATUS");
+                    if (rng == null || state.draw.isEmpty()) {
                         state.draw.add(status);
                         continue;
                     }
-                    int index = rng.random(state.draw.size());
-                    state.draw.add(Math.min(index, state.draw.size()), status);
+                    state.draw.add(rng.random(state.draw.size() - 1), status);
                 }
             }
 
@@ -657,9 +686,12 @@ public final class Effects {
                     int pick = rng == null ? 0 : rng.random(size - 1);
                     pick = Math.min(pick, size - 1);
                     SimCard c = new SimCard(AttackPool.idAt(pick), false, 0,
-                            AttackPool.damageAt(pick));
-                    int at = state.draw.isEmpty() ? 0 : rng.random(state.draw.size());
-                    state.draw.add(Math.min(at, state.draw.size()), c);
+                            AttackPool.damageAt(pick), "ATTACK");
+                    // 同一个 MakeTempCardInDrawPileAction(randomSpot=true) →
+                    // CardGroup.addToRandomSpot → add(random(size-1), card)，空堆不消耗 RNG
+                    int at = (rng == null || state.draw.isEmpty())
+                            ? 0 : rng.random(state.draw.size() - 1);
+                    state.draw.add(at, c);
                 }
             }
 

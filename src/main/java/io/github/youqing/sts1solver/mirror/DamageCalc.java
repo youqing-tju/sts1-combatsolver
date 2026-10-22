@@ -24,6 +24,17 @@ public final class DamageCalc {
 
     /** Damage an attack card deals after attacker and target modifiers. */
     public static int attackDamage(SimState state, int base, SimMonster target) {
+        int dmg = attackDamageWithoutRelics(state, base, target);
+        // 笔尖：计数为 9 时打出的这一击（= 第 10 击）翻倍。原版是 atDamageGive，
+        // 作用在力量/虚弱/易伤之后，所以放在最后一步。
+        Integer penNib = state.relics.get("Pen Nib");
+        if (penNib != null && penNib == 9) {
+            dmg = (int) Math.floor(dmg * 2.0f);
+        }
+        return Math.max(0, dmg);
+    }
+
+    private static int attackDamageWithoutRelics(SimState state, int base, SimMonster target) {
         int dmg = base + power(state, STRENGTH);
         if (power(state, WEAKENED) > 0) {
             dmg = (int) Math.floor(dmg * 0.75f);

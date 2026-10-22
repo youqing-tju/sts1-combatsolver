@@ -489,6 +489,33 @@ public final class MirrorRegistry {
         // 蜕变：洗 3/5 张随机攻击进抽牌堆，本场 0 费，消耗
         registerExhaust("Metamorphosis", Effects.shuffleRandomAttacksIntoDraw(3));
         registerExhaust("Metamorphosis+", Effects.shuffleRandomAttacksIntoDraw(5));
+
+        // ---- 第四批：靠「回合钩子引擎」才能生效的能力/延迟牌 --------------------
+        // 数值全部取自 solver-data/cards.json，power ID 取自 powers 包的 POWER_ID 常量。
+
+        // 欧米伽：回合末对全体造成 50/60（层数就是伤害）
+        register("Omega", Effects.powerOnPlayer("OmegaPower", 50));
+        register("Omega+", Effects.powerOnPlayer("OmegaPower", 60));
+
+        // 炸弹：3 回合后对全体造成 40/50。层数 = 回合数，伤害在私有字段里
+        register("The Bomb", Effects.powerOnPlayerAux("TheBomb", 3, "TheBomb.damage", 40));
+        register("The Bomb+", Effects.powerOnPlayerAux("TheBomb", 3, "TheBomb.damage", 50));
+
+        // 磁力：每回合初把 amount 张随机无色牌塞进手牌
+        register("Magnetism", Effects.powerOnPlayer("Magnetism", 1));
+        register("Magnetism+", Effects.powerOnPlayer("Magnetism", 1));
+
+        // 乱战：每回合初自动打出抽牌堆顶
+        register("Mayhem", Effects.powerOnPlayer("Mayhem", 1));
+        register("Mayhem+", Effects.powerOnPlayer("Mayhem", 1));
+
+        // 神气制胜：每打出 5 张牌对全体造成 10/14。层数 = 剩余张数，伤害在私有字段
+        register("Panache", Effects.powerOnPlayerAux("Panache", 5, "Panache.damage", 10));
+        register("Panache+", Effects.powerOnPlayerAux("Panache", 5, "Panache.damage", 14));
+
+        // 残虐天性：给敌人挂减益时造成 5/7 伤害
+        register("Sadistic Nature", Effects.powerOnPlayer("Sadistic", 5));
+        register("Sadistic Nature+", Effects.powerOnPlayer("Sadistic", 7));
     }
 
     private MirrorRegistry() {

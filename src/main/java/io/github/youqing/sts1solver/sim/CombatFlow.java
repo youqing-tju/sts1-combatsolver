@@ -1,11 +1,25 @@
 package io.github.youqing.sts1solver.sim;
 
+import io.github.youqing.sts1solver.mirror.hooks.HookPhase;
+import io.github.youqing.sts1solver.mirror.hooks.Hooks;
+
 /**
- * 回合切换的最小模型：结束玩家回合 → 敌方按意图造成伤害 → 新回合回能抽牌。
+ * 回合切换模型：结束玩家回合 → 敌方按意图造成伤害 → 新回合回能抽牌。
  *
- * <p>只建模搜索估值需要的那部分。**不知道的一律不假装知道**：
- * 状态牌、易伤/虚弱递减、遗物触发、怪物被动能力都没有模拟，
- * 因此估值只能当作「相对好坏」的参考，不能当作精确血量预测。
+ * <p>顺序**逐条对齐原版字节码**，不是凭感觉排的：
+ *
+ * <ol>
+ *   <li>powers {@code atEndOfTurnPreEndTurnCards}（金属化）——原版在弃手牌之前；
+ *   <li>手牌全部进弃牌堆；
+ *   <li>powers {@code atEndOfTurn}（燃烧 / 炸弹 / 欧米伽）——原版在弃手牌之后；
+ *   <li>敌方按意图结算；
+ *   <li>清空格挡（壁垒除外）；
+ *   <li>新回合：powers {@code atStartOfTurn}（磁力 / 乱战 / 神气归零）→ 回能 → 抽牌
+ *       → powers {@code atStartOfTurnPostDraw}（恶魔形态）。
+ * </ol>
+ *
+ * <p><b>仍然不建模</b>：状态牌（灼伤/眩晕）留在手里时的回合末伤害、遗物触发、
+ * 怪物侧能力。这些没地方假装知道，所以估值只能当作「相对好坏」的参考。
  */
 public final class CombatFlow {
 
@@ -17,10 +31,17 @@ public final class CombatFlow {
 
     /** 结束玩家回合并进入下一回合。 */
     public static void endTurn(SimState state, int energyPerTurn, int handSize) {
-        // 手牌进弃牌堆
+        // ① 弃手牌之前：金属化
+        Hooks.firePhase(state, HookPhase.END_OF_TURN_PRE_CARDS);
+
+        // ② 手牌进弃牌堆
         state.discard.addAll(state.hand);
         state.hand.clear();
 
+        // ③ 弃手牌之后：燃烧 / 炸弹 / 欧米伽
+        Hooks.firePhase(state, HookPhase.END_OF_TURN);
+
+        // ④ 敌方行动
         // 🔴 顺序很重要：**先让格挡吸收敌方伤害，再清空格挡**。
         // 反过来写（先清后打）会让格挡完全失效 —— 搜索于是永远不防御，
         // 这正是 BeamSolverTest 抓到的问题。
@@ -30,12 +51,12 @@ public final class CombatFlow {
             }
         }
 
-        // 敌人打完，剩余格挡清零（壁垒除外）
+        // ⑤ 敌人打完，剩余格挡清零（壁垒除外）
         if (power(state, "Barricade") <= 0) {
             state.block = 0;
         }
 
-        // 进入下一回合：按「意图学习表」刷新怪物意图（查不到就沿用当前值）
+        // ⑥ 进入下一回合：按「意图学习表」刷新怪物意图（查不到就沿用当前值）
         state.turn = state.turn + 1;
         for (SimMonster m : state.monsters) {
             if (m.hp > 0) {
@@ -43,9 +64,11 @@ public final class CombatFlow {
             }
         }
 
-        // 新回合
+        // ⑦ 新回合的钩子 → 回能 → 抽牌 → 抽牌后的钩子
+        Hooks.firePhase(state, HookPhase.START_OF_TURN);
         state.energy = energyPerTurn;
         draw(state, handSize);
+        Hooks.firePhase(state, HookPhase.START_OF_TURN_POST_DRAW);
     }
 
     private static void hitPlayer(SimState state, int damage) {

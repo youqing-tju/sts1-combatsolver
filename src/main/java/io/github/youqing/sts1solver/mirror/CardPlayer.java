@@ -37,6 +37,8 @@ public final class CardPlayer {
                 effect.applyTo(state, targetIndex, card);
             }
         }
+        // 原版 UseCardAction 的末尾：能力与遗物的 onUseCard（神气制胜计数、修女/手里剑…）
+        io.github.youqing.sts1solver.mirror.hooks.Hooks.onCardUsed(state, card, targetIndex);
         if (mirror.exhaustsOnPlay) {
             Effects.exhaustCard(state, card);
         } else {
@@ -89,6 +91,9 @@ public final class CardPlayer {
                 effect.applyTo(state, targetIndex, card);
             }
         }
+
+        // 同样要触发 onUseCard：自动打出的牌也会数进遗物/能力计数
+        io.github.youqing.sts1solver.mirror.hooks.Hooks.onCardUsed(state, card, targetIndex);
 
         if (mirror.exhaustsOnPlay) {
             Effects.exhaustCard(state, card);

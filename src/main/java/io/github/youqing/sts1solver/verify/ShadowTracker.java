@@ -35,11 +35,15 @@ public final class ShadowTracker {
 
     private static SimState baseline;
     private static SimState pre;
+    /** 出牌瞬间就算好的影子结果；null 表示这张牌没有镜像，走 RECORD 路径。 */
+    private static SimState pendingSim;
+    private static ActionRejected pendingRejection;
+    /** 影子算出来的「四堆总张数」。实机达到这个数才算结算完毕。 */
+    private static int expectedTotal;
     private static String pendingKey;
     private static int pendingTarget;
     private static boolean pending;
     private static int framesAfterPlay;
-    private static int expectedDiscardSize;
 
     private static int comparisons;
     private static int matches;
@@ -56,6 +60,9 @@ public final class ShadowTracker {
     public static void reset() {
         baseline = null;
         pre = null;
+        pendingSim = null;
+        pendingRejection = null;
+        expectedTotal = -1;
         pending = false;
         pendingKey = null;
         framesAfterPlay = 0;
@@ -94,9 +101,23 @@ public final class ShadowTracker {
         pendingTarget = indexOf(target);
         pending = true;
         framesAfterPlay = 0;
-        // 这张牌结算完，实机弃牌堆必然 +1。用它当「真的结算完了」的判据，
-        // 比猜固定帧数可靠 —— limbo 空了也不代表牌已经落到弃牌堆。
-        expectedDiscardSize = pre.discard.size() + 1;
+
+        // 在出牌这一刻就把影子算完：后面判定「实机结算好了没有」需要知道
+        // 这次出牌到底该产生几张牌（Anger 的复制、野性打击的状态牌都会变总数）。
+        pendingSim = pre.copy();
+        pendingRejection = null;
+        try {
+            CardPlayer.playByKey(pendingSim, pendingKey, pendingTarget);
+            expectedTotal = pendingSim.totalCards();
+        } catch (ActionRejected e) {
+            pendingSim = null;
+            pendingRejection = e;
+            expectedTotal = -1;
+        } catch (Throwable t) {
+            pendingSim = null;
+            pendingRejection = new ActionRejected("simulation failed: " + t);
+            expectedTotal = -1;
+        }
     }
 
     public static void tick() {
@@ -115,7 +136,7 @@ public final class ShadowTracker {
                 if (framesAfterPlay < SETTLE_FRAMES) {
                     return;
                 }
-                if (actionsDrained() && discardSettled()) {
+                if (actionsDrained() && totalSettled() && cardAnimationsIdle()) {
                     resolve(false);
                 } else if (framesAfterPlay >= MAX_PENDING_FRAMES) {
                     resolve(true);
@@ -133,13 +154,16 @@ public final class ShadowTracker {
     private static void resolve(boolean forced) {
         pending = false;
         SimState before = pre;
-        SimState sim = before.copy();
+        SimState sim = pendingSim;
+        ActionRejected rejection = pendingRejection;
         pre = null;
+        pendingSim = null;
+        pendingRejection = null;
+        expectedTotal = -1;
 
-        try {
-            CardPlayer.playByKey(sim, pendingKey, pendingTarget);
-        } catch (ActionRejected e) {
-            record(before, e);
+        if (sim == null) {
+            record(before, rejection == null
+                    ? new ActionRejected("no mirrored outcome") : rejection);
             return;
         }
 
@@ -218,10 +242,51 @@ public final class ShadowTracker {
         return AbstractDungeon.player == null || AbstractDungeon.player.discardPile == null
                 ? -1 : AbstractDungeon.player.discardPile.size();
     }
+    /** 实机四个牌堆的总张数。 */
+    private static int liveTotalCards() {
+        AbstractPlayer p = AbstractDungeon.player;
+        if (p == null) {
+            return -1;
+        }
+        return p.hand.size() + p.drawPile.size() + p.discardPile.size() + p.exhaustPile.size();
+    }
 
-    /** 打出的牌是否已经真正落进弃牌堆。 */
-    private static boolean discardSettled() {
-        return liveDiscardSize() >= expectedDiscardSize;
+    /**
+     * 实机是否已经产生出影子预期的牌数。
+     *
+     * <p>这是「结算完毕」的硬判据：Anger 的复制牌、野性打击的状态牌都是在
+     * {@code ShowCardAndAddTo*} 动画结束时才落进牌堆的，在那之前实机总张数比影子少，
+     * 提前比对就会得到「弃牌堆少 1 张」这种假失配（实测 21:37:24.300 MISMATCH
+     * → 21:37:24.950 自己变成 MATCH）。
+     */
+    private static boolean totalSettled() {
+        if (expectedTotal < 0) {
+            return true;
+        }
+        int live = liveTotalCards();
+        return live >= 0 && live >= expectedTotal;
+    }
+
+    /**
+     * 牌堆添加动画是否播完。
+     *
+     * <p>{@code ShowCardAndAddTo*} 系列特效播放期间，那张牌不在任何牌堆里
+     * （既不在手牌也不在抽牌/弃牌堆），总张数自然偏少。总张数判据 + 这条一起用，
+     * 才不会在动画中途就先比对。
+     */
+    private static boolean cardAnimationsIdle() {
+        if (AbstractDungeon.effectList == null) {
+            return true;
+        }
+        for (com.megacrit.cardcrawl.vfx.AbstractGameEffect e : AbstractDungeon.effectList) {
+            if (e == null) {
+                continue;
+            }
+            if (e.getClass().getSimpleName().startsWith("ShowCardAndAddTo")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String head(List<String> diffs) {
