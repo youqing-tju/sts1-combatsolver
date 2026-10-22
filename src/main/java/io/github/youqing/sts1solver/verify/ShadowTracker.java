@@ -60,6 +60,8 @@ public final class ShadowTracker {
     private static int comparisons;
     private static int matches;
     private static int mismatches;
+    /** 本场是否已经比过至少一次（决定结束时要不需要打汇总行）。 */
+    private static boolean debugActive;
 
     private static final int SETTLE_FRAMES = 2;
     /** 兜底：某张牌让 limbo 一直不空时，等 1.5 秒也要出结论，并标记 forced。 */
@@ -98,6 +100,25 @@ public final class ShadowTracker {
                 || AbstractDungeon.player.hand == null
                 || AbstractDungeon.player.hand.group == null
                 ? -1 : AbstractDungeon.player.hand.group.indexOf(card));
+    }
+
+    /**
+     * 选中的不是手牌、而是**临时生成的候选**（发现 Discovery 的 3 选 1）。
+     *
+     * <p>这时下标含义是「生成列表里的第几张」，不是手牌下标 —— 直接照抄，
+     * 影子侧按同样顺序生成候选，下标天然对齐。
+     */
+    public static void onGeneratedChoicePicked(int index) {
+        pendingChoiceKeys.add(null);
+        pendingChoiceIndices.add(index);
+    }
+
+    /** 给执行层评估「选哪张更好」用的实机快照（只读副本）。 */
+    public static SimState snapshotForEvaluation() {
+        if (baseline != null) {
+            return baseline.copy();
+        }
+        return pre == null ? null : pre.copy();
     }
 
     /**
@@ -156,6 +177,9 @@ public final class ShadowTracker {
     /** Seeds the baseline at combat start so the very first card is already comparable. */
     public static void setBaseline(SimState state) {
         baseline = state == null ? null : state.copy();
+        if (baseline != null) {
+            debugActive = true;
+        }
     }
 
     public static void resetCounters() {
@@ -215,6 +239,12 @@ public final class ShadowTracker {
 
     public static void tick() {
         if (!inCombat()) {
+            // 战斗结束时留一行汇总：朋友报问题时只看这一行就知道「这局到底对得怎么样」，
+            // 不用翻几万行 DIFF。
+            if (debugActive) {
+                Trace.info("DIFF SUMMARY " + stats());
+                debugActive = false;
+            }
             reset();
             return;
         }
@@ -450,7 +480,8 @@ public final class ShadowTracker {
      */
     private static int choiceIndexOf(SimState sim, String choiceKey, int hint) {
         if (choiceKey == null) {
-            return -1;
+            // 「生成候选」型选择（发现）：下标本来就是生成列表里的位置，直接照抄
+            return hint;
         }
         if (hint >= 0 && hint < sim.hand.size()
                 && sim.hand.get(hint).key().equals(choiceKey)) {

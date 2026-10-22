@@ -231,6 +231,25 @@ return list.get(cardRandomRng.random(list.size() - 1))
 Miracle/Omega/Ghostly/Expunger/ThroughViolence）+ `FlashofSteel`、`MasterofStrategy` 两个 ID 拼错
 （正确是 `Flash of Steel` / `Master of Strategy`）→ 磁力 / Jack Of All Trades / Transmutation 取到的牌必错。
 
+### 6.5 STS1 与 STS2 的随机数差异（A｜字节码 + A｜蓝本源码，2026-10-22）
+
+两者**不是同一套模型**，移植时不能照抄蓝本的 RNG 代码：
+
+| | STS1 | STS2（蓝本 `CombatPredictionRngSet`） |
+|---|---|---|
+| 流数量 | `AbstractDungeon` 上 13 个 `Random`，战斗相关 **5 个**：`cardRandomRng` / `monsterRng` / `aiRng` / `shuffleRng` / `miscRng` | **9 个按用途拆分**：Shuffle / CombatCardGeneration / CombatPotionGeneration / CombatCardSelection / CombatEnergyCosts / CombatTargets / CombatOrbGeneration / MonsterAi / Niche |
+| 取值粒度 | 一个 `miscRng` 兜住所有杂项；没有「费用随机」「目标随机」这种专用流 | 打哪张牌的费用、打谁，各有独立流 |
+| `random(n)` | **闭区间 `[0, n]`**（`counter++; nextInt(n + 1)`） | 蓝本用 `Rng.NextItem(list)` 取元素，语义等于「列表下标」 |
+| 洗牌 | 取 **1 个 long** 当种子交给 `java.util.Random`（见 §6.3） | `StableShuffle(Rng.Shuffle)`，自己实现的稳定洗牌 |
+| 可复现性 | `Random` 自带 `copy()`；`(state0, state1, counter)` 足以完全还原 | 每流独立 fork，`PredictionRngState` 快照 |
+
+**移植结论**：
+1. 照抄蓝本的「按用途分流」会**多消耗随机数** —— STS1 里根本不存在这些流，照抄必然全流错位。
+2. 照抄 `NextItem` 的下标语义到 STS1 要写 `random(size - 1)`，写成 `random(size)` 就越界（这条踩过）。
+3. 洗牌一律走 §6.3 的种子法，**不要**自己写 Fisher-Yates。
+4. `miscRng` 是杂项垃圾桶：拿不准某效果用哪条流时，先在实机对拍看 `rng.*` 的 counter 变化定位，
+   不要猜。
+
 ---
 
 ## 7. 本项目实测踩过的坑（A｜实测，2026-10-21）

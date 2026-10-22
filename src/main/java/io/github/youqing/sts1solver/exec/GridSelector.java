@@ -33,6 +33,9 @@ public final class GridSelector {
     private static int savedX;
     private static int savedY;
     private static boolean savedRelease;
+    /** 当前奖励界面的候选集合（换了一批就重新挑目标）。 */
+    private static java.util.ArrayList<AbstractCard> rewardGroup;
+    private static AbstractCard rewardTarget;
 
     private GridSelector() {
     }
@@ -53,29 +56,116 @@ public final class GridSelector {
         return AbstractDungeon.gridSelectScreen;
     }
 
+    /** 「发现」这类 3 选 1 用的是奖励界面（CARD_REWARD），不是 GRID。 */
+    private static com.megacrit.cardcrawl.screens.CardRewardScreen activeReward() {
+        if (!AutoPilot.enabled() || !AbstractDungeon.isScreenUp) {
+            return null;
+        }
+        if (AbstractDungeon.screen != AbstractDungeon.CurrentScreen.CARD_REWARD) {
+            return null;
+        }
+        AbstractRoom room = AbstractDungeon.getCurrRoom();
+        if (room == null || room.phase != AbstractRoom.RoomPhase.COMBAT) {
+            return null;     // 战斗结束后的选牌奖励不归我们管
+        }
+        com.megacrit.cardcrawl.screens.CardRewardScreen screen = AbstractDungeon.cardRewardScreen;
+        if (screen == null || screen.discoveryCard != null) {
+            return null;     // 已经选过了
+        }
+        if (screen.rewardGroup == null || screen.rewardGroup.isEmpty()) {
+            return null;
+        }
+        return screen;
+    }
+
     /** 卡片 update 之后调用：把「刚点过」标记写进去，供界面同一帧读取。 */
     public static void markClick(AbstractCard card) {
         try {
-            GridCardSelectScreen grid = activeGrid();
-            if (grid == null || card == null || grid.confirmScreenUp) {
+            if (card == null) {
                 return;
             }
-            if (grid.targetGroup == null || grid.targetGroup.group == null) {
+            if (activeGrid() != null) {
+                markGrid(card);
                 return;
             }
-            if (!grid.targetGroup.group.contains(card)) {
-                return;
+            if (activeReward() != null) {
+                markReward(card);
             }
-            if (grid.selectedCards != null && grid.selectedCards.contains(card)) {
-                return;
-            }
-            card.hb.clicked = true;
-            // 记下实机选中的是哪张，对拍重放时要用同一个选择
-            io.github.youqing.sts1solver.verify.ShadowTracker.onChoicePicked(card);
-            Trace.info("GRID pick " + card.cardID + (card.upgraded ? "+" : ""));
         } catch (Throwable t) {
             Trace.error("grid mark failed", t);
         }
+    }
+
+    private static void markGrid(AbstractCard card) {
+        GridCardSelectScreen grid = activeGrid();
+        if (grid == null || grid.confirmScreenUp) {
+            return;
+        }
+        if (grid.targetGroup == null || grid.targetGroup.group == null) {
+            return;
+        }
+        if (!grid.targetGroup.group.contains(card)) {
+            return;
+        }
+        if (grid.selectedCards != null && grid.selectedCards.contains(card)) {
+            return;
+        }
+        card.hb.clicked = true;
+        // 记下实机选中的是哪张，对拍重放时要用同一个选择
+        io.github.youqing.sts1solver.verify.ShadowTracker.onChoicePicked(card);
+        Trace.info("GRID pick " + card.cardID + (card.upgraded ? "+" : ""));
+    }
+
+    /**
+     * 「发现」的三选一：点哪张由影子估值决定，只点选中那张。
+     *
+     * <p>{@code AbstractCard.update()} 的 postfix 对**每张**候选都会调进来，
+     * 所以必须先算出唯一目标再点，否则三张一起点。
+     */
+    private static void markReward(AbstractCard card) {
+        com.megacrit.cardcrawl.screens.CardRewardScreen screen = activeReward();
+        if (screen == null || !screen.rewardGroup.contains(card)) {
+            return;
+        }
+        if (rewardGroup != screen.rewardGroup) {
+            rewardGroup = screen.rewardGroup;
+            rewardTarget = chooseRewardCard(screen.rewardGroup);
+        }
+        if (card != rewardTarget) {
+            return;
+        }
+        int index = screen.rewardGroup.indexOf(card);
+        card.hb.clicked = true;
+        // 这个下标是「生成列表里的第几张」，不是手牌下标
+        io.github.youqing.sts1solver.verify.ShadowTracker.onGeneratedChoicePicked(index);
+        io.github.youqing.sts1solver.verify.ShadowTracker.onChoiceConfirmed();
+        Trace.info("REWARD pick #" + index + " " + card.cardID + (card.upgraded ? "+" : ""));
+        rewardGroup = null;
+        rewardTarget = null;
+    }
+
+    /** 用影子估一下「拿到哪张最好」。没有快照时退回第一张。 */
+    private static AbstractCard chooseRewardCard(
+            java.util.ArrayList<AbstractCard> options) {
+        io.github.youqing.sts1solver.sim.SimState base =
+                io.github.youqing.sts1solver.verify.ShadowTracker.snapshotForEvaluation();
+        if (base == null) {
+            return options.get(0);
+        }
+        AbstractCard best = options.get(0);
+        long bestScore = Long.MIN_VALUE;
+        for (AbstractCard option : options) {
+            io.github.youqing.sts1solver.sim.SimState probe = base.copy();
+            probe.hand.add(new io.github.youqing.sts1solver.sim.SimCard(option.cardID,
+                    option.upgraded, 0, option.baseDamage,
+                    option.type == null ? "" : option.type.name()));
+            long score = io.github.youqing.sts1solver.search.BeamSolver.evaluate(probe);
+            if (score > bestScore) {
+                bestScore = score;
+                best = option;
+            }
+        }
+        return best;
     }
 
     /** 确认按钮 update 之前调用：伪造一次「在这个按钮上松开鼠标」。 */
