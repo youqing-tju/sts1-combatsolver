@@ -400,11 +400,21 @@ public final class Effects {
         };
     }
 
-    /** 消耗手牌里所有非攻击牌，每张获得 blockPer 格挡（再生 Second Wind）。 */
+    /**
+     * 消耗手牌里所有非攻击牌，每张获得 blockPer 格挡（再生 Second Wind）。
+     *
+     * <p>字节码 {@code BlockPerNonAttackAction}：逐张 {@code GainBlockAction(player, player, this.block)}
+     * 再 {@code ExhaustSpecificCardAction}。{@code this.block} 是卡面算好的值
+     * （baseBlock + 敏捷，虚弱再 ×0.75，**只 floor 一次**），所以 N 张的格挡是
+     * {@code N * floor((blockPer + dex) * frail)}，不是 {@code floor((blockPer*N + dex) * frail)}。
+     *
+     * <p>实测差距：日志 {@code block: 13 vs 12} —— 合并算比实机多 1 点。
+     */
     public static Effect exhaustNonAttacksForBlock(final int blockPer) {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
+                int perCard = DamageCalc.blockAmount(state, blockPer);
                 int count = 0;
                 java.util.Iterator<SimCard> it = state.hand.iterator();
                 while (it.hasNext()) {
@@ -416,8 +426,7 @@ public final class Effects {
                     exhaustCard(state, c);
                     count++;
                 }
-                io.github.youqing.sts1solver.mirror.hooks.Hooks.gainBlock(
-                        state, DamageCalc.blockAmount(state, blockPer * count));
+                io.github.youqing.sts1solver.mirror.hooks.Hooks.gainBlock(state, perCard * count);
             }
 
             @Override
@@ -450,19 +459,30 @@ public final class Effects {
         };
     }
 
-    /** 消耗**整手牌**，每张造成 damagePer 点伤害（恶魔之火 Fiend Fire）。 */
+    /**
+     * 消耗**整手牌**，每张造成 damagePer 点伤害（恶魔之火 Fiend Fire）。
+     *
+     * <p>字节码 {@code FiendFireAction}：先按 {@code hand.size()} 排队同样多次 {@code DamageAction}，
+     * 再排队 {@code hand.size()} 次 {@code ExhaustAction(1, isRandom=true)}。
+     * 随机分支用的是 {@code hand.moveToExhaustPile(hand.getRandomCard(cardRandomRng))} ——
+     * 所以**每消耗一张就消耗一次 cardRandomRng**，且消耗顺序是随机的（不是手牌顺序）。
+     */
     public static Effect exhaustHandForDamage(final int damagePer) {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
                 int count = state.hand.size();
-                for (SimCard c : new java.util.ArrayList<SimCard>(state.hand)) {
-                    exhaustCard(state, c);
-                }
-                state.hand.clear();
                 for (int i = 0; i < count; i++) {
                     DamageCalc.hit(state, target, DamageCalc.attackDamage(state, damagePer, target));
+                }
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                for (int i = 0; i < count && !state.hand.isEmpty(); i++) {
+                    int pick = rng == null ? state.hand.size() - 1
+                            : rng.random(state.hand.size() - 1);
+                    pick = Math.max(0, Math.min(pick, state.hand.size() - 1));
+                    exhaustCard(state, state.hand.remove(pick));
                 }
             }
 
@@ -1162,20 +1182,51 @@ public final class Effects {
 
     /** 先抽牌，再把指定手牌放回抽牌堆顶（战吼 Warcry）。 */
     public static Effect drawThenPutChosenOnTop(final int drawCount) {
+        return drawThenPutChosenOnTop(drawCount, 1);
+    }
+
+    /**
+     * 抽若干张，再把 count 张手牌放回抽牌堆顶（战吼 Warcry）。
+     *
+     * <p>对应原版两条动作：{@code DrawCardAction(magicNumber)} + {@code PutOnDeckAction(p, p, 1, false)}。
+     * 注意**放回数量恒为 1**，升级只加抽牌数（字节码里 {@code PutOnDeckAction} 的 amount 是 iconst_1）。
+     *
+     * <p>{@code PutOnDeckAction} 有两个分支：
+     * <ul>
+     *   <li>手牌数 &gt; amount → 开手牌选择窗，玩家决定（不消耗 RNG）</li>
+     *   <li>手牌数 &lt;= amount → 不弹窗，改为循环 {@code hand.moveToDeck(hand.getRandomCard(cardRandomRng))}
+     *       —— **每搬一张消耗一次 {@code cardRandomRng}</b>，且搬走哪张是随机的</li>
+     * </ul>
+     * 第二条实测过：第二次战吼手牌只剩 1 张、没有 HAND pick 日志，RNG 却掉了 1 位。
+     */
+    public static Effect drawThenPutChosenOnTop(final int drawCount, final int putBack) {
         return new ChoiceEffect() {
             @Override
             public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
                 draw(drawCount).applyTo(state, targetIndex, played);
-                // 抽到的牌追加在手牌末尾，原有顺序不变 —— 所以 choiceIndex 在抽牌前后指向同一张牌
-                if (choiceIndex >= 0 && choiceIndex < state.hand.size()) {
-                    SimCard picked = state.hand.remove(choiceIndex);
-                    state.draw.add(picked);   // 列表末尾 = 牌堆顶
+                // if (hand.size() < amount) amount = hand.size();
+                int amount = Math.min(putBack, state.hand.size());
+                if (state.hand.size() > amount) {
+                    // 玩家选牌（choiceIndex 是「出牌后手牌」的下标）
+                    if (choiceIndex >= 0 && choiceIndex < state.hand.size()) {
+                        state.draw.add(state.hand.remove(choiceIndex));
+                    }
+                    return;
+                }
+                // 不够选：原版循环体是 i < hand.size()（size 边搬边缩），照抄这个边界
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                for (int i = 0; i < state.hand.size(); i++) {
+                    int pick = rng == null ? state.hand.size() - 1
+                            : rng.random(state.hand.size() - 1);
+                    pick = Math.max(0, Math.min(pick, state.hand.size() - 1));
+                    state.draw.add(state.hand.remove(pick));
                 }
             }
 
             @Override
             public String toString() {
-                return "draw(" + drawCount + ")+top(chosen)";
+                return "draw(" + drawCount + ")+top(" + putBack + ")";
             }
         };
     }

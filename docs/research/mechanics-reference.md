@@ -156,6 +156,40 @@
 | 打出的牌先进 `limbo` 暂存，动画结束才落进弃牌堆 | **A｜实测**（见 §7） |
 | 死亡怪物在死亡动画期间仍留在怪物列表（0 血） | **A｜实测** |
 
+### 6.1 「随机搬牌 / 随机消耗」都会消耗 `cardRandomRng`（A｜字节码，2026-10-22）
+
+一类容易漏掉的 RNG 消耗点：动作里写 `isRandom` 或「张数不够就随机来」的分支，
+内部都是 `CardGroup.getRandomCard(rng)` = `group.get(rng.random(size - 1))`，**每张消耗一次**。
+
+| 动作 | 触发条件 | RNG 消耗 |
+|---|---|---|
+| `PutOnDeckAction(p,p,amount,isRandom=false)`（战吼 / 未雨绸缪） | 手牌数 **>** amount → 开手牌选择窗 | 0 |
+| 同上 | 手牌数 **≤** amount → 不弹窗，循环 `moveToDeck(getRandomCard(rng))` | **每搬一张 1 次** |
+| `FiendFireAction`（恶魔之火） | 循环 `hand.size()` 次 `ExhaustAction(1, isRandom=true)` | **每消耗一张 1 次**，且消耗顺序是随机的 |
+| `ExhaustAction(amount, isRandom=true, …)` | 随机分支 | 每张 1 次 |
+
+⚠️ 两个连带结论：
+1. **恶魔之火的消耗顺序不是手牌顺序** —— 影子若按手牌顺序消耗，`exhaust[i]` 一定对不上。
+2. `PutOnDeckAction` 的循环边界是 `for (i = 0; i < hand.size(); i++)`，而 `size` 边搬边缩，
+   所以实际搬走的是 ⌈n/2⌉ 张；只有 `n ≤ amount` 时才走到这里（战吼 amount=1 → n∈{0,1}），
+   照抄这个边界即可，别"顺手修正"。
+
+### 6.2 计数类遗物（A｜字节码，2026-10-22）
+
+全部在 `AbstractRelic.onUseCard(card, action)` 里 `counter++`，到阈值归零并触发。
+`state.relics` 存的就是 `AbstractRelic.counter`，可直接对拍。
+
+| 遗物 | 计什么 | 阈值 → 效果 |
+|---|---|---|
+| Nunchaku | 攻击牌 | 10 → 回 1 能量 |
+| Ornamental Fan | 攻击牌 | 3 → 4 格挡（裸加，不吃敏捷） |
+| Shuriken | 攻击牌 | 3 → 力量 +1 |
+| Pen Nib | 攻击牌 | 10 → 归零；计数 9 时（第 10 击）伤害翻倍 |
+| Letter Opener | 技能牌 | 3 → 全体 5 点 THORNS 伤害 |
+| **InkBottle** | **所有牌**（不分牌型） | 10 → 归零 + **抽 1 张** |
+
+⚠️ 墨水瓶是最容易漏的：它不像修女只数攻击牌，`onUseCard` 里没有任何牌型判断。
+
 ---
 
 ## 7. 本项目实测踩过的坑（A｜实测，2026-10-21）

@@ -42,6 +42,14 @@ public final class ShadowTracker {
     private static boolean pendingDeferred;
     /** 选牌界面实际选中的牌（id+升级态）。 */
     private static String pendingChoiceKey;
+    /**
+     * 选牌界面选中时，这张牌在**实机当前手牌**里的下标。
+     *
+     * <p>选牌窗口打开时打出的那张牌已经离开手牌，所以这个下标正好是
+     * {@code ChoiceEffect} 要的「出牌后手牌下标」。以前用「出牌前」的下标去查，
+     * 只要被选的牌排在打出的牌后面就会整体左移 1 —— 实测战吼：游戏选 Strike_R，影子搬走 Bash。
+     */
+    private static int pendingChoiceIndex = -1;
     /** 影子算出来的「四堆总张数」。实机达到这个数才算结算完毕。 */
     private static int expectedTotal;
     private static String pendingKey;
@@ -68,6 +76,7 @@ public final class ShadowTracker {
         pendingRejection = null;
         pendingDeferred = false;
         pendingChoiceKey = null;
+        pendingChoiceIndex = -1;
         expectedTotal = -1;
         pending = false;
         pendingKey = null;
@@ -85,6 +94,39 @@ public final class ShadowTracker {
             return;
         }
         pendingChoiceKey = card.cardID + (card.upgraded ? "+" : "");
+        pendingChoiceIndex = AbstractDungeon.player == null
+                || AbstractDungeon.player.hand == null
+                || AbstractDungeon.player.hand.group == null
+                ? -1 : AbstractDungeon.player.hand.group.indexOf(card);
+        // 选牌一刻就把影子补算掉：这样 expectedTotal 立刻可知，
+        // 结算判据不必退化成「动作队列空」，也就不会比实机早半秒开比
+        // （实测战吼 cards=12/11：实机的消耗动画还没落位）。
+        computeDeferredChoice();
+    }
+
+    /** 需要选牌的牌：拿到选择之后再算影子。 */
+    private static void computeDeferredChoice() {
+        if (!pendingDeferred || pre == null) {
+            return;
+        }
+        SimState sim = pre.copy();
+        int choice = choiceIndexOf(sim, pendingChoiceKey, pendingChoiceIndex);
+        try {
+            CardPlayer.playByKey(sim, pendingKey, pendingTarget, choice);
+            pendingSim = sim;
+            expectedTotal = sim.totalCards();
+            pendingDeferred = false;
+        } catch (ActionRejected e) {
+            pendingSim = null;
+            pendingRejection = e;
+            expectedTotal = -1;
+            pendingDeferred = false;
+        } catch (Throwable t) {
+            pendingSim = null;
+            pendingRejection = new ActionRejected("simulation failed: " + t);
+            expectedTotal = -1;
+            pendingDeferred = false;
+        }
     }
 
     /** True when no comparison is in flight — the auto pilot must wait for this. */
@@ -120,6 +162,7 @@ public final class ShadowTracker {
         pendingTarget = indexOf(target);
         pending = true;
         pendingChoiceKey = null;
+        pendingChoiceIndex = -1;
         framesAfterPlay = 0;
 
         // 在出牌这一刻就把影子算完：后面判定「实机结算好了没有」需要知道
@@ -189,17 +232,19 @@ public final class ShadowTracker {
         ActionRejected rejection = pendingRejection;
         boolean deferred = pendingDeferred;
         String choiceKey = pendingChoiceKey;
+        int choiceHint = pendingChoiceIndex;
         pre = null;
         pendingSim = null;
         pendingRejection = null;
         pendingDeferred = false;
         pendingChoiceKey = null;
+        pendingChoiceIndex = -1;
         expectedTotal = -1;
 
         if (sim == null && deferred && before != null) {
-            // 需要选牌的牌：此刻才知道实机选了哪张，补算影子
+            // 兜底：选牌回调没赶上（界面被外部关掉之类），只能在此刻补算
             sim = before.copy();
-            int choice = choiceIndexOf(sim, choiceKey);
+            int choice = choiceIndexOf(sim, choiceKey, choiceHint);
             try {
                 CardPlayer.playByKey(sim, pendingKey, pendingTarget, choice);
             } catch (ActionRejected e) {
@@ -374,9 +419,19 @@ public final class ShadowTracker {
      * （头槌/发掘）下标指的是另一个牌堆，这里退化成 -1（即不应用选择），
      * 等对拍暴露出来再按牌堆分别处理。
      */
-    private static int choiceIndexOf(SimState sim, String choiceKey) {
+    /**
+     * 选中的牌在影子手牌里的下标。
+     *
+     * <p>优先用「实机选牌瞬间的下标」（hint）：两份手牌的顺序理论上一致，
+     * 只要该位置上的牌确实是选中的那张就直接采用。不一致才退回按牌名查找。
+     */
+    private static int choiceIndexOf(SimState sim, String choiceKey, int hint) {
         if (choiceKey == null) {
             return -1;
+        }
+        if (hint >= 0 && hint < sim.hand.size()
+                && sim.hand.get(hint).key().equals(choiceKey)) {
+            return hint;
         }
         for (int i = 0; i < sim.hand.size(); i++) {
             if (sim.hand.get(i).key().equals(choiceKey)) {

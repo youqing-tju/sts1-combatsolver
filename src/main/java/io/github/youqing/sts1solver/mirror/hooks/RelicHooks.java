@@ -5,7 +5,7 @@ import io.github.youqing.sts1solver.sim.SimCard;
 import io.github.youqing.sts1solver.sim.SimState;
 
 /**
- * 计数类遗物的战斗内触发：修女、装饰扇、手里剑、笔尖、开信刀。
+ * 计数类遗物的战斗内触发：修女、装饰扇、手里剑、笔尖、开信刀、墨水瓶。
  *
  * <p>原版都是 {@code AbstractRelic.onUseCard(card, action)} 里对 {@code counter} 自增，
  * 达到阈值就归零并触发。阈值与效果全部来自字节码，不是卡面描述：
@@ -16,6 +16,7 @@ import io.github.youqing.sts1solver.sim.SimState;
  * Shuriken        攻击 3 次  → 力量 +1
  * Pen Nib         攻击 10 次 → 归零；第 10 次（计数为 9 时）那一击伤害翻倍
  * Letter Opener   技能 3 次  → 对全体 5 点伤害（THORNS，不吃力量/易伤）
+ * InkBottle       **任意**牌 10 张 → 归零并抽 1 张（不分牌型，见 onUseCard 字节码）
  * </pre>
  *
  * <p>{@code state.relics} 里存的就是原版 {@code AbstractRelic.counter}，所以对拍能直接比。
@@ -30,6 +31,8 @@ public final class RelicHooks {
         if (card == null) {
             return;
         }
+        // 墨水瓶数的是「打出的牌」，攻击/技能/能力都算 —— 所以放在牌型判断之外
+        inkBottle(state);
         if (card.isAttack()) {
             nunchaku(state);
             ornamentalFan(state);
@@ -100,6 +103,26 @@ public final class RelicHooks {
         }
         int next = counter + 1;
         state.relics.put("Pen Nib", next >= 10 ? 0 : next);
+    }
+
+    /**
+     * 墨水瓶：每打出 10 张牌抽 1 张。
+     *
+     * <p>字节码 {@code InkBottle.onUseCard}：{@code counter++; if (counter == 10) { counter = 0;
+     * addToBot(new DrawCardAction(1)); }}。不加牌型判断 —— 技能/能力一样计数。
+     */
+    private static void inkBottle(SimState state) {
+        Integer counter = state.relics.get("InkBottle");
+        if (counter == null) {
+            return;
+        }
+        int next = counter + 1;
+        if (next >= 10) {
+            state.relics.put("InkBottle", 0);
+            io.github.youqing.sts1solver.mirror.Effects.draw(1).applyTo(state, -1, null);
+        } else {
+            state.relics.put("InkBottle", next);
+        }
     }
 
     private static void letterOpener(SimState state) {
