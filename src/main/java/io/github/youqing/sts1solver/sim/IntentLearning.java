@@ -28,7 +28,9 @@ public final class IntentLearning {
     }
 
     /** 记录一次观测（幂等：同 type+turn 只写一次）。 */
-    public static void observe(String type, int turn, int intentDmg) {
+    // 搜索跑在后台线程、学习表在主线程写 —— 必须加锁，
+    // 否则 HashMap 并发读写会抛异常或死循环（JDK7 起虽然不再死循环，但仍会读到半截数据）。
+    public static synchronized void observe(String type, int turn, int intentDmg) {
         if (type == null || turn <= 0) {
             return;
         }
@@ -47,7 +49,7 @@ public final class IntentLearning {
      *
      * @param fallback 查不到时使用（通常是当前意图）
      */
-    public static int predict(String type, int turn, int fallback) {
+    public static synchronized int predict(String type, int turn, int fallback) {
         Map<Integer, Integer> byTurn = TABLE.get(type);
         if (byTurn != null && !byTurn.isEmpty()) {
             Integer known = byTurn.get(turn);
@@ -65,15 +67,15 @@ public final class IntentLearning {
         return fallback;
     }
 
-    public static int hits() {
+    public static synchronized int hits() {
         return hits;
     }
 
-    public static int misses() {
+    public static synchronized int misses() {
         return misses;
     }
 
-    public static int approxHits() {
+    public static synchronized int approxHits() {
         return approxHits;
     }
 

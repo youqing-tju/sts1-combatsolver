@@ -36,6 +36,10 @@ public final class BeamSolver {
     /** 上一次搜索的规模与耗时（A4 指标：120 秒 ≥ 10 万节点）。 */
     public int lastNodes;
     public long lastMillis;
+    /** 实际跑完的深度（迭代加深时用来看预算吃到了几层）。 */
+    public int lastDepth;
+    /** 实际跑完的 beam 宽度（深度爬满后预算还有富余就加宽）。 */
+    public int lastWidth;
     /**
      * ⚠️ 非蓝本实现，已默认关闭。
      *
@@ -84,28 +88,83 @@ public final class BeamSolver {
      * @return 从当前状态出发的最优第一步；无法判定时返回 {@code null}
      */
     public PlanAction bestFirstAction(SimState root) {
+        return bestFirstAction(root, Long.MAX_VALUE);
+    }
+
+    /**
+     * 迭代加深 + 时间预算。
+     *
+     * <p>固定「宽度 × 深度」的问题是：预算根本吃不满（实测每次决策只花 2 ms、生成几百个状态），
+     * 而蓝本是几百万条世界线。这里改成**在预算内一直加深**：
+     * 深度 1、2、3… 逐层跑完整 beam search，超时就停，返回最后**完整跑完**的那一层的结果。
+     *
+     * <p>为什么返回「最后一层完整结果」而不是「当前最优」：不完整的那一层只探索了一部分，
+     * 拿它当结论会引入深度偏置（浅层没跑完的分支永远赢不了）。
+     *
+     * @param budgetMillis 时间预算，{@code Long.MAX_VALUE} 表示只跑到 {@link #depth}
+     */
+    public PlanAction bestFirstAction(SimState root, long budgetMillis) {
         long startedAt = System.nanoTime();
         lastNodes = 0;
+        lastDepth = 0;
+
+        if (budgetMillis == Long.MAX_VALUE) {
+            // 无预算（单测/基准）：一次跑到配置深度
+            SearchNode best = searchToDepth(root, depth, beamWidth);
+            lastDepth = depth;
+            lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
+            return best == null ? null : best.firstAction();
+        }
+
+        // 预算内「先加深，再加宽」：
+        // 先把深度爬满（浅层跑得快），深度到顶后还有时间就加倍宽度再来一轮。
+        // 只采用**完整跑完**的那一轮，避免「跑了一半的深层」靠深度偏置赢过跑完的浅层。
+        SearchNode best = null;
+        long deadline = startedAt + budgetMillis * 1_000_000L;
+        int[] widths = {beamWidth, Math.max(beamWidth * 2, beamWidth + 2), beamWidth * 4};
+        outer:
+        for (int w : widths) {
+            for (int d = 1; d <= Math.max(1, depth); d++) {
+                best = searchToDepth(root, d, w);
+                lastDepth = d;
+                lastWidth = w;
+                if (System.nanoTime() >= deadline) {
+                    break outer;
+                }
+                if (d == depth) {
+                    break;      // 这个宽度爬满了，换更宽的
+                }
+            }
+        }
+        lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
+        return best == null ? null : best.firstAction();
+    }
+
+    /** 从根跑到固定深度，返回选出的一条。 */
+    private SearchNode searchToDepth(SimState root, int maxDepth, int width) {
         tt = new TranspositionTable();
         List<SearchNode> beam = new ArrayList<SearchNode>();
         beam.add(new SearchNode(root.copy(), null, null, 0, evaluate(root)));
 
         List<SearchNode> finished = new ArrayList<SearchNode>();
 
-        for (int d = 0; d < depth; d++) {
+        for (int d = 0; d < maxDepth; d++) {
             List<SearchNode> next = new ArrayList<SearchNode>();
+            int before = next.size();
             for (SearchNode node : beam) {
                 if (node.terminal()) {
                     finished.add(node);
                     continue;
                 }
                 expand(node, next);
-                lastNodes++;
             }
+            // 节点数 = 真正生成出来的子状态数（以前记的是「展开了几个父节点」，
+            // 一个父节点会生成十几二十个子状态，所以数字虚低了一个数量级）
+            lastNodes += next.size() - before;
             if (next.isEmpty()) {
                 break;
             }
-            beam = prune(next);
+            beam = prune(next, width);
         }
         finished.addAll(beam);
 
@@ -149,8 +208,7 @@ public final class BeamSolver {
             System.out.println("CHOSEN depth=" + best.depth + " score=" + best.score
                     + " action=" + best.action + " first=" + best.firstAction());
         }
-        lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
-        return best == null ? null : best.firstAction();
+        return best;
     }
 
     private void addPlay(SimState state, int cardIndex, int targetIndex, int choiceIndex,
@@ -272,7 +330,7 @@ public final class BeamSolver {
                 evaluate(afterTurn)));
     }
 
-    private List<SearchNode> prune(List<SearchNode> candidates) {
+    private List<SearchNode> prune(List<SearchNode> candidates, int width) {
         Map<String, SearchNode> byState = new LinkedHashMap<String, SearchNode>();
         for (SearchNode node : candidates) {
             String key = node.state.fingerprint();
@@ -286,7 +344,7 @@ public final class BeamSolver {
         }
         List<SearchNode> unique = new ArrayList<SearchNode>(byState.values());
         unique.sort((a, b) -> Long.compare(b.score, a.score));
-        return unique.size() <= beamWidth ? unique : new ArrayList<SearchNode>(unique.subList(0, beamWidth));
+        return unique.size() <= width ? unique : new ArrayList<SearchNode>(unique.subList(0, width));
     }
 
     /**

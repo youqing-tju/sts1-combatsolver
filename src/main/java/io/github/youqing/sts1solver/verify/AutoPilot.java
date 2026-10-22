@@ -111,6 +111,7 @@ public final class AutoPilot {
         blockedThisTurn.clear();
         blockedTurn = Integer.MIN_VALUE;
         stuckStreak = 0;
+        io.github.youqing.sts1solver.search.AsyncSearch.reset();
         Trace.info("AUTO state reset (combat boundary)");
     }
 
@@ -237,7 +238,17 @@ public final class AutoPilot {
             if (target == null) {
                 return;
             }
-            if (!playOneCard(player, target)) {
+            int outcome = playOneCard(player, target);
+            if (outcome == OUTCOME_WAITING) {
+                return;      // 后台还在算，这一帧什么都不做
+            }
+            if (outcome == OUTCOME_END_TURN) {
+                Trace.info("AUTO end turn (search says end)  " + describeHand(player));
+                requestEndTurn(player);
+                cooldown = 30;
+                return;
+            }
+            if (outcome == OUTCOME_NOTHING) {
                 noProgressEndTurns++;
                 if (noProgressEndTurns > NO_PROGRESS_LIMIT) {
                     Trace.warn("AUTO stopped: " + noProgressEndTurns
@@ -255,9 +266,66 @@ public final class AutoPilot {
         }
     }
 
-    /** 先打未镜像的牌（探索盲区），没有可探索的再打已镜像的（产出对拍）。 */
-    private static boolean playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
-        AbstractCard chosen = chooseBySearch(player);
+    /** 出牌决定的三态。 */
+    private static final int OUTCOME_PLAYED = 0;
+    private static final int OUTCOME_WAITING = 1;
+    private static final int OUTCOME_NOTHING = 2;
+    private static final int OUTCOME_END_TURN = 3;
+
+    /**
+     * 先打未镜像的牌（探索盲区），没有可探索的再打已镜像的（产出对拍）。
+     *
+     * <p>搜索现在跑在后台线程（{@link io.github.youqing.sts1solver.search.AsyncSearch}）：
+     * 提交之后这一帧返回 {@link #OUTCOME_WAITING}，等结果回来再执行。
+     * 这是为了把「时间预算」真正用起来 —— 蓝本是几百万条世界线，主线程给不了那个时间。
+     */
+    private static int playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
+        AbstractCard chosen = null;
+        io.github.youqing.sts1solver.search.AsyncSearch.Result result =
+                io.github.youqing.sts1solver.search.AsyncSearch.poll();
+        if (result != null) {
+            String fingerprint = currentFingerprint();
+            if (fingerprint != null && !fingerprint.equals(result.fingerprint)) {
+                // 局面已经变了（玩家手动出牌/怪物死亡），这份结果作废
+                Trace.info("SEARCH result discarded (state moved on)");
+                result = null;
+            }
+        }
+        if (result == null) {
+            if (!io.github.youqing.sts1solver.search.AsyncSearch.busy()) {
+                submitSearch(player);
+            }
+            return OUTCOME_WAITING;
+        }
+
+        if (result.action == null
+                || result.action.kind == PlanAction.Kind.END_TURN) {
+            Trace.info("SEARCH(depth " + result.depth + ", " + result.states + " states, "
+                    + result.millis + "ms) -> end turn");
+            return OUTCOME_END_TURN;
+        }
+        chosenTargetIndex = result.action.targetIndex;
+        pendingChoiceIndex = result.action.choiceIndex;
+        searchCount++;
+        searchNodesTotal += result.states;
+        if (result.millis > 400) {
+            Trace.warn("SEARCH slow: " + result.millis + " ms, " + result.states + " states, depth "
+                    + result.depth);
+        } else if (searchCount % 10 == 0) {
+            Trace.info("SEARCH #" + searchCount + " avgStates=" + (searchNodesTotal / searchCount)
+                    + " lastDepth=" + result.depth + " lastMs=" + result.millis
+                    + " budget=" + io.github.youqing.sts1solver.config.SolverConfig
+                            .budget().budgetMillis + "ms");
+        }
+
+        if (result.action.cardIndex >= 0
+                && result.action.cardIndex < player.hand.group.size()) {
+            chosen = player.hand.group.get(result.action.cardIndex);
+        }
+        if (chosen != null && blockedThisTurn.contains(key(chosen))) {
+            Trace.info("SEARCH picked " + key(chosen) + " which is blocked this turn -> fallback");
+            chosen = null;
+        }
         boolean mirrored = chosen != null && MirrorRegistry.supports(key(chosen));
         if (chosen == null) {
             // 搜索失败（没镜像/异常）时退回旧策略，保证 AUTO 不会因为搜索挂掉而停摆
@@ -269,7 +337,7 @@ public final class AutoPilot {
             }
         }
         if (chosen == null) {
-            return false;
+            return OUTCOME_NOTHING;
         }
 
         // 🔴 可打出性必须交给游戏判一次。搜索只看镜像语义，不知道「缠身封了攻击牌」
@@ -286,7 +354,7 @@ public final class AutoPilot {
                 chosen = firstPlayable(player, hand, attackTarget, Pref.MIRRORED);
             }
             if (chosen == null) {
-                return false;
+                return OUTCOME_NOTHING;
             }
             target = resolveTarget(chosen, pickTarget(attackTarget));
         }
@@ -299,7 +367,39 @@ public final class AutoPilot {
         Trace.info("AUTO play " + key + (target == null ? "" : " -> " + target.name)
                 + (mirrored ? "  (mirrored, diff)" : "  (unmirrored, record)"));
         cooldown = 6;
-        return true;
+        return OUTCOME_PLAYED;
+    }
+
+    /** 当前局面指纹；抓不到（还没捕获根状态）时返回 null = 不做有效性校验。 */
+    private static String currentFingerprint() {
+        try {
+            return io.github.youqing.sts1solver.sim.SimState.capture().fingerprint();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 把当前局面丢给后台线程去搜。 */
+    private static void submitSearch(AbstractPlayer player) {
+        try {
+            io.github.youqing.sts1solver.sim.SimState snapshot =
+                    io.github.youqing.sts1solver.sim.SimState.capture();
+            if (snapshot == null) {
+                return;
+            }
+            // 每回合把「怪物 + 回合号 + 当前意图」喂给学习表，搜索才能在跨回合时用真实意图
+            for (io.github.youqing.sts1solver.sim.SimMonster m : snapshot.monsters) {
+                io.github.youqing.sts1solver.sim.IntentLearning.observe(
+                        m.type, snapshot.turn, m.intentDmg);
+            }
+            io.github.youqing.sts1solver.config.SolverConfig.Budget budget =
+                    io.github.youqing.sts1solver.config.SolverConfig.budget();
+            io.github.youqing.sts1solver.search.AsyncSearch.submit(snapshot,
+                    snapshot.fingerprint(), CombatCapture.baseEnergy(), player.gameHandSize,
+                    budget.beamWidth, budget.depth, budget.budgetMillis);
+        } catch (Throwable t) {
+            Trace.warn("submit search failed: " + t);
+        }
     }
 
     /** 搜索为选牌类卡牌挑定的手牌下标；-1 表示没有。 */
@@ -349,94 +449,6 @@ public final class AutoPilot {
             }
         }
         return filtered;
-    }
-
-    /**
-     * 用 beam search 选牌。
-     *
-     * <p>照蓝本的骨架：动作是候选集合里的一等公民（含「结束回合」），
-     * 见 {@code reference/sts2-combatsolver/src/Search/CombatBeamSolver.Expansion.cs}。
-     *
-     * <p>额外加一条**只在平分时生效**的取舍：同样好的一步，优先挑还没镜像的牌，
-     * 这样既不牺牲决策质量，也不放弃数据采集。
-     */
-    private static AbstractCard chooseBySearch(AbstractPlayer player) {
-        try {
-            SimState snapshot = SimState.capture();
-            // 每回合把「怪物 + 回合号 + 当前意图」喂给学习表，搜索才能在跨回合时用真实意图
-            for (io.github.youqing.sts1solver.sim.SimMonster m : snapshot.monsters) {
-                io.github.youqing.sts1solver.sim.IntentLearning.observe(m.type, snapshot.turn, m.intentDmg);
-            }
-            BeamSolver solver = new BeamSolver(CombatCapture.baseEnergy(),
-                    player.gameHandSize,
-                    io.github.youqing.sts1solver.config.SolverConfig.budget().beamWidth,
-                    io.github.youqing.sts1solver.config.SolverConfig.budget().depth);
-            PlanAction action = solver.bestFirstAction(snapshot);
-            if (action == null || action.kind == PlanAction.Kind.END_TURN) {
-                chosenTargetIndex = -1;
-                pendingChoiceIndex = -1;
-                return null;
-            }
-            chosenTargetIndex = action.targetIndex;
-            pendingChoiceIndex = action.choiceIndex;
-            if (action.cardIndex < 0 || action.cardIndex >= player.hand.group.size()) {
-                return null;
-            }
-            // 这张本回合被游戏拒过，别再来一次；交给兜底路径换一张
-            AbstractCard planned = player.hand.group.get(action.cardIndex);
-            if (planned != null && blockedThisTurn.contains(key(planned))) {
-                Trace.info("SEARCH skip " + key(planned) + " (blocked this turn)");
-                return null;
-            }
-
-            searchCount++;
-            searchNodesTotal += solver.lastNodes;
-            if (solver.lastMillis > 30) {
-                Trace.warn("SEARCH slow: " + solver.lastMillis + " ms, " + solver.lastNodes + " nodes");
-            } else if (searchCount % 50 == 0) {
-                Trace.info("SEARCH #" + searchCount + " avgNodes=" + (searchNodesTotal / searchCount)
-                        + " lastMs=" + solver.lastMillis
-                        + " tt=" + solver.ttHits() + "/" + (solver.ttHits() + solver.ttMisses())
-                        + " intentHits=" + io.github.youqing.sts1solver.sim.IntentLearning.hits()
-                        + "A" + io.github.youqing.sts1solver.sim.IntentLearning.approxHits()
-                        + " misses=" + io.github.youqing.sts1solver.sim.IntentLearning.misses());
-            }
-
-            AbstractCard best = player.hand.group.get(action.cardIndex);
-            if (!MirrorRegistry.supports(key(best))) {
-                return best;
-            }
-            // 平分时优先未镜像：找出与所选动作同分的未镜像牌
-            long bestScore = Long.MIN_VALUE;
-            for (SearchNode child : solver.rootChildren(snapshot)) {
-                if (child.action.kind != PlanAction.Kind.PLAY_CARD
-                        || child.action.cardIndex < 0
-                        || child.action.cardIndex >= player.hand.group.size()) {
-                    continue;
-                }
-                AbstractCard candidate = player.hand.group.get(child.action.cardIndex);
-                if (MirrorRegistry.supports(key(candidate))) {
-                    continue;
-                }
-                bestScore = Math.max(bestScore, child.score);
-            }
-            for (SearchNode child : solver.rootChildren(snapshot)) {
-                if (child.action.kind == PlanAction.Kind.PLAY_CARD
-                        && child.score == bestScore
-                        && child.action.cardIndex >= 0
-                        && child.action.cardIndex < player.hand.group.size()) {
-                    AbstractCard candidate = player.hand.group.get(child.action.cardIndex);
-                    if (!MirrorRegistry.supports(key(candidate))) {
-                        return candidate;
-                    }
-                }
-            }
-            return best;
-        } catch (Throwable t) {
-            Trace.warn("search failed, falling back: " + t);
-            chosenTargetIndex = -1;
-            return null;
-        }
     }
 
     private enum Pref {

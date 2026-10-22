@@ -20,18 +20,22 @@ public final class SolverConfig {
 
     /** 搜索预算档位。宽度/深度同时放大，节点数是二者乘积量级。 */
     public enum Budget {
-        FAST("快", 4, 3),
-        NORMAL("标准", 6, 4),
-        DEEP("深", 10, 6);
+        FAST("快", 4, 6, 8),
+        NORMAL("标准", 6, 10, 50),
+        DEEP("深", 10, 16, 300);
 
         public final String label;
         public final int beamWidth;
+        /** 深度上限。搜索是迭代加深的，真正的深度由 {@link #budgetMillis} 决定。 */
         public final int depth;
+        /** 每次决策的时间预算（跑在后台线程，不会卡帧）。 */
+        public final long budgetMillis;
 
-        Budget(String label, int beamWidth, int depth) {
+        Budget(String label, int beamWidth, int depth, long budgetMillis) {
             this.label = label;
             this.beamWidth = beamWidth;
             this.depth = depth;
+            this.budgetMillis = budgetMillis;
         }
     }
 
@@ -61,7 +65,8 @@ public final class SolverConfig {
             }
             autoStart = config.getBool(KEY_AUTO_START);
             Trace.info("config loaded: budget=" + budget.label
-                    + " (" + budget.beamWidth + "x" + budget.depth + ")"
+                    + " (" + budget.beamWidth + "x" + budget.depth
+                    + "/" + budget.budgetMillis + "ms)"
                     + " autoStart=" + autoStart);
         } catch (Throwable t) {
             // 配置坏了也要能玩：全部走默认值
@@ -83,7 +88,8 @@ public final class SolverConfig {
         Budget[] all = Budget.values();
         budget = all[(budget.ordinal() + 1) % all.length];
         save();
-        Trace.info("budget -> " + budget.label + " (" + budget.beamWidth + "x" + budget.depth + ")");
+        Trace.info("budget -> " + budget.label + " (" + budget.beamWidth + "x" + budget.depth
+                + "/" + budget.budgetMillis + "ms)");
         return budget;
     }
 
