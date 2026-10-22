@@ -444,6 +444,49 @@ public final class AutoPilot {
         cooldown = 6;
     }
 
+    /**
+     * 当前计划的摘要（按回合分组），给面板显示用。
+     *
+     * <p>只列「还剩哪些回合、每回合打什么」——完整路线面板留到 M4-1 再做。
+     */
+    public static java.util.List<String> planLines(int maxLines) {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        if (plan == null || plan.isEmpty()) {
+            return out;
+        }
+        int turn = 1;
+        StringBuilder sb = new StringBuilder();
+        for (io.github.youqing.sts1solver.search.RouteStep step : plan) {
+            if (step.endTurn) {
+                if (sb.length() > 0) {
+                    out.add("T" + turn + "  " + sb);
+                    sb.setLength(0);
+                }
+                turn++;
+                if (out.size() >= maxLines) {
+                    return out;
+                }
+            } else {
+                if (sb.length() > 0) {
+                    sb.append("  ");
+                }
+                sb.append(shortName(step.cardKey));
+            }
+        }
+        if (sb.length() > 0 && out.size() < maxLines) {
+            out.add("T" + turn + "  " + sb);
+        }
+        return out;
+    }
+
+    /** 牌名缩写：去掉 {@code _R} 后缀，面板宽度有限。 */
+    private static String shortName(String key) {
+        if (key == null) {
+            return "?";
+        }
+        return key.endsWith("_R") ? key.substring(0, key.length() - 2) : key;
+    }
+
     /** 当前局面指纹；抓不到（还没捕获根状态）时返回 null = 不做有效性校验。 */
     private static String currentFingerprint() {
         try {

@@ -20,9 +20,9 @@ public final class SolverConfig {
 
     /** 搜索预算档位。宽度/深度同时放大，节点数是二者乘积量级。 */
     public enum Budget {
-        FAST("快", 4, 6, 8, 300),
-        NORMAL("标准", 6, 10, 50, 1500),
-        DEEP("深", 10, 16, 300, 8000);
+        FAST("快", 4, 6, 8, 1000),
+        NORMAL("标准", 6, 10, 50, 8000),
+        DEEP("深", 10, 16, 300, 120000);
 
         public final String label;
         public final int beamWidth;

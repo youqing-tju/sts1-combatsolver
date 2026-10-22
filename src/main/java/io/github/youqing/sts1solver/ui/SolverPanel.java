@@ -64,6 +64,7 @@ public final class SolverPanel {
     private static int lastMismatches = -1;
     private static boolean lastAuto;
     private static String lastBudget;
+    private static int lastPlanSize = -1;
 
     private SolverPanel() {
     }
@@ -74,9 +75,12 @@ public final class SolverPanel {
         int bad = ShadowTracker.mismatches();
         boolean auto = AutoPilot.enabled();
         String budget = io.github.youqing.sts1solver.config.SolverConfig.budget().name();
+        int planSize = AutoPilot.planLines(3).size();
         if (m != lastMatches || bad != lastMismatches || auto != lastAuto
+                || planSize != lastPlanSize
                 || (lastBudget != null && !lastBudget.equals(budget))) {
             lastBudget = budget;
+            lastPlanSize = planSize;
             lastMatches = m;
             lastMismatches = bad;
             lastAuto = auto;
@@ -121,6 +125,16 @@ public final class SolverPanel {
     private static String[] lines() {
         int m = ShadowTracker.matches();
         int bad = ShadowTracker.mismatches();
+        java.util.List<String> plan = AutoPilot.planLines(3);
+        java.util.List<String> rows = new java.util.ArrayList<String>();
+        for (String base : baseLines(m, bad)) {
+            rows.add(base);
+        }
+        rows.addAll(plan);
+        return rows.toArray(new String[0]);
+    }
+
+    private static String[] baseLines(int m, int bad) {
         return new String[]{
                 "STS1 Combat Solver   build " + io.github.youqing.sts1solver.BuildStamp.VALUE,
                 "diff " + m + "/" + (m + bad) + "   |   AUTO " + (AutoPilot.enabled() ? "ON" : "OFF"),
@@ -158,6 +172,22 @@ public final class SolverPanel {
                 + " fontLineHeight=" + font.getLineHeight());
     }
 
+    /** 前四行是固定信息，后面是计划摘要（浅蓝色）。 */
+    private static Color rowColor(int index) {
+        switch (index) {
+            case 0:
+                return Color.WHITE;
+            case 1:
+                return new Color(0.75f, 0.78f, 0.82f, 1f);
+            case 2:
+                return new Color(0.72f, 0.9f, 0.72f, 1f);
+            case 3:
+                return new Color(0.6f, 0.62f, 0.66f, 1f);
+            default:
+                return new Color(0.62f, 0.78f, 0.95f, 1f);
+        }
+    }
+
     private static float bottom() {
         return topY - panelH;
     }
@@ -188,15 +218,10 @@ public final class SolverPanel {
             sb.draw(ImageMaster.WHITE_SQUARE_IMG, x, y, panelW, 2f);
 
             String[] rows = lines();
-            Color[] colors = new Color[]{
-                    Color.WHITE,
-                    new Color(0.75f, 0.78f, 0.82f, 1f),
-                    new Color(0.72f, 0.9f, 0.72f, 1f),
-                    new Color(0.6f, 0.62f, 0.66f, 1f)
-            };
             for (int i = 0; i < rows.length; i++) {
                 float rowTop = topY - PAD - i * rowPitch;
-                FontHelper.renderFontLeftTopAligned(sb, font, rows[i], x + PAD, rowTop, colors[i]);
+                FontHelper.renderFontLeftTopAligned(sb, font, rows[i], x + PAD, rowTop,
+                        rowColor(i));
             }
 
             // button
