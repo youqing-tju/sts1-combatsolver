@@ -36,9 +36,11 @@ public final class SolverPanel {
     private static final float PAD = 14f;
     private static final float ROW_GAP = 8f;
     private static final float BUTTON_W = 96f;
+    private static final float BUDGET_BUTTON_W = 150f;
+    private static final float AUTOSTART_BUTTON_W = 130f;
     private static final float BUTTON_H = 34f;
     private static final float TITLE_BAR = 34f;
-    private static final float MIN_W = 380f;
+    private static final float MIN_W = 470f;
     private static final float MAX_W = 900f;
     private static final float TOP_MARGIN = 190f;
 
@@ -61,6 +63,7 @@ public final class SolverPanel {
     private static int lastMatches = -1;
     private static int lastMismatches = -1;
     private static boolean lastAuto;
+    private static String lastBudget;
 
     private SolverPanel() {
     }
@@ -70,7 +73,10 @@ public final class SolverPanel {
         int m = ShadowTracker.matches();
         int bad = ShadowTracker.mismatches();
         boolean auto = AutoPilot.enabled();
-        if (m != lastMatches || bad != lastMismatches || auto != lastAuto) {
+        String budget = io.github.youqing.sts1solver.config.SolverConfig.budget().name();
+        if (m != lastMatches || bad != lastMismatches || auto != lastAuto
+                || (lastBudget != null && !lastBudget.equals(budget))) {
+            lastBudget = budget;
             lastMatches = m;
             lastMismatches = bad;
             lastAuto = auto;
@@ -119,7 +125,10 @@ public final class SolverPanel {
                 "STS1 Combat Solver   build " + io.github.youqing.sts1solver.BuildStamp.VALUE,
                 "diff " + m + "/" + (m + bad) + "   |   AUTO " + (AutoPilot.enabled() ? "ON" : "OFF"),
                 combatLine,
-                "click AUTO to auto-play mirrored cards"
+                "budget " + io.github.youqing.sts1solver.config.SolverConfig.budget().label
+                        + " (" + io.github.youqing.sts1solver.config.SolverConfig.budget().beamWidth
+                        + "x" + io.github.youqing.sts1solver.config.SolverConfig.budget().depth + ")"
+                        + "   |   click AUTO to auto-play mirrored cards"
         };
     }
 
@@ -198,6 +207,21 @@ public final class SolverPanel {
             FontHelper.renderFontCentered(sb, font, AutoPilot.enabled() ? "ON" : "AUTO",
                     bx + BUTTON_W / 2f, by + BUTTON_H / 2f + 6f, Color.WHITE);
 
+            float gx = bx - BUDGET_BUTTON_W - 8f;
+            sb.setColor(new Color(0.22f, 0.26f, 0.34f, 0.95f));
+            sb.draw(ImageMaster.WHITE_SQUARE_IMG, gx, by, BUDGET_BUTTON_W, BUTTON_H);
+            FontHelper.renderFontCentered(sb, font,
+                    "budget: " + io.github.youqing.sts1solver.config.SolverConfig.budget().label,
+                    gx + BUDGET_BUTTON_W / 2f, by + BUTTON_H / 2f + 6f, Color.WHITE);
+
+            float ax = gx - AUTOSTART_BUTTON_W - 8f;
+            sb.setColor(new Color(0.22f, 0.28f, 0.24f, 0.95f));
+            sb.draw(ImageMaster.WHITE_SQUARE_IMG, ax, by, AUTOSTART_BUTTON_W, BUTTON_H);
+            FontHelper.renderFontCentered(sb, font,
+                    "auto-start: " + (io.github.youqing.sts1solver.config.SolverConfig.autoStart()
+                            ? "ON" : "OFF"),
+                    ax + AUTOSTART_BUTTON_W / 2f, by + BUTTON_H / 2f + 6f, Color.WHITE);
+
             sb.setColor(Color.WHITE);
         } catch (Throwable t) {
             Trace.error("panel render failed", t);
@@ -214,7 +238,13 @@ public final class SolverPanel {
             ensurePlaced();
             ensureLayout();
             if (InputHelper.justClickedLeft) {
-                if (inButton()) {
+                if (inAutoStartButton()) {
+                    io.github.youqing.sts1solver.config.SolverConfig.toggleAutoStart();
+                    layoutDirty = true;
+                } else if (inBudgetButton()) {
+                    io.github.youqing.sts1solver.config.SolverConfig.cycleBudget();
+                    layoutDirty = true;
+                } else if (inButton()) {
                     AutoPilot.toggle();
                     layoutDirty = true;
                 } else if (inTitleBar()) {
@@ -249,6 +279,20 @@ public final class SolverPanel {
         float bx = x + panelW - BUTTON_W - PAD;
         float by = bottom() + PAD;
         return InputHelper.mX >= bx && InputHelper.mX <= bx + BUTTON_W
+                && InputHelper.mY >= by && InputHelper.mY <= by + BUTTON_H;
+    }
+
+    private static boolean inBudgetButton() {
+        float bx = x + panelW - BUTTON_W - PAD - BUDGET_BUTTON_W - 8f;
+        float by = bottom() + PAD;
+        return InputHelper.mX >= bx && InputHelper.mX <= bx + BUDGET_BUTTON_W
+                && InputHelper.mY >= by && InputHelper.mY <= by + BUTTON_H;
+    }
+
+    private static boolean inAutoStartButton() {
+        float bx = x + panelW - BUTTON_W - PAD - BUDGET_BUTTON_W - AUTOSTART_BUTTON_W - 16f;
+        float by = bottom() + PAD;
+        return InputHelper.mX >= bx && InputHelper.mX <= bx + AUTOSTART_BUTTON_W
                 && InputHelper.mY >= by && InputHelper.mY <= by + BUTTON_H;
     }
 

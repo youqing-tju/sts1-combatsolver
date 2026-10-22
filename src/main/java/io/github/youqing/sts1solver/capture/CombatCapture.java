@@ -99,6 +99,11 @@ public final class CombatCapture {
             captured = true;
             // 注意：这里不能把 armed 复位，否则下一帧会重新 arm -> captured 又变 false -> 每帧重复捕获。
             // armed/captured 只在「离开战斗」时统一复位。
+            // 设置里勾了「开局自动」就自动接管（M4-5）
+            if (io.github.youqing.sts1solver.config.SolverConfig.autoStart()
+                    && !AutoPilot.enabled()) {
+                AutoPilot.toggle();
+            }
 
             if (timedOut && !dealt) {
                 Trace.warn("capture timeout after " + framesWaited + " frames (hand=" + handSize

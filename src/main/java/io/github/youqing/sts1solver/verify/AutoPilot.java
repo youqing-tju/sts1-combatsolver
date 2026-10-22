@@ -52,6 +52,19 @@ public final class AutoPilot {
     private static int noProgressEndTurns;
     private static final int NO_PROGRESS_LIMIT = 12;
 
+    /**
+     * 本回合被游戏拒绝过的牌（「入队了但一直留在手上」）。
+     *
+     * <p>以前一卡住就 {@code enabled = false}，等于因为一张牌废掉整场自动战斗 ——
+     * 实测缠身那次就是这样。现在改成：拉黑这一张，换别的牌继续；同回合连续撞墙 3 次
+     * 才判定真卡死并关掉 AUTO。
+     */
+    private static final java.util.Set<String> blockedThisTurn =
+            new java.util.HashSet<String>();
+    private static int blockedTurn = Integer.MIN_VALUE;
+    private static int stuckStreak;
+    private static final int STUCK_STREAK_LIMIT = 3;
+
     /** 回合切换的两段式等待：1=等敌方阶段开始，2=等它结束并回到玩家回合。 */
     private static int endPhase;
     private static int endPhaseFrames;
@@ -67,8 +80,10 @@ public final class AutoPilot {
     private static int searchCount;
     private static long searchNodesTotal;
 
-    private static final int BEAM_WIDTH = 8;
-    private static final int SEARCH_DEPTH = 5;
+    /**
+     * 搜索预算（宽度 × 深度）由设置页决定，不再写死。
+     * 档位定义见 {@link io.github.youqing.sts1solver.config.SolverConfig.Budget}。
+     */
 
     private AutoPilot() {
     }
@@ -93,6 +108,9 @@ public final class AutoPilot {
         noProgressEndTurns = 0;
         endPhase = 0;
         endPhaseFrames = 0;
+        blockedThisTurn.clear();
+        blockedTurn = Integer.MIN_VALUE;
+        stuckStreak = 0;
         Trace.info("AUTO state reset (combat boundary)");
     }
 
@@ -114,6 +132,14 @@ public final class AutoPilot {
         if (!enabled) {
             return;
         }
+        // 回合翻页 = 上一轮的拒绝记录作废（缠身/No Draw 这类限制本来就是按回合的）
+        int turnNow = AbstractDungeon.actionManager == null
+                ? Integer.MIN_VALUE : AbstractDungeon.actionManager.turn;
+        if (turnNow != blockedTurn) {
+            blockedTurn = turnNow;
+            blockedThisTurn.clear();
+            stuckStreak = 0;
+        }
         if (cooldown > 0) {
             cooldown--;
             return;
@@ -132,12 +158,21 @@ public final class AutoPilot {
                 queuedCard = null;
                 queuedFrames = 0;
             } else if (queuedFrames > 180 && drained()) {
-                // 入队三秒还留在手上、且动作队列已空 = 这一手游戏压根没执行，别再刷屏
-                Trace.warn("AUTO stuck on " + queuedCard.cardID + " (" + queuedFrames
-                        + " frames, same card object still in hand) -> AUTO off");
-                enabled = false;
+                // 入队三秒还留在手上、且动作队列已空 = 这一手游戏压根没执行。
+                // 先只拉黑这一张 —— 因为一张牌打不出去就关掉整场 AUTO 太粗暴（实测缠身那次）。
+                String blocked = key(queuedCard);
+                blockedThisTurn.add(blocked);
+                stuckStreak++;
+                Trace.warn("AUTO stuck on " + blocked + " (" + queuedFrames
+                        + " frames, same card object still in hand), blocked for this turn"
+                        + " [" + stuckStreak + "/" + STUCK_STREAK_LIMIT + "]");
                 queuedCard = null;
                 queuedFrames = 0;
+                if (stuckStreak >= STUCK_STREAK_LIMIT) {
+                    Trace.warn("AUTO stopped: " + stuckStreak
+                            + " cards in a row were refused by the game this turn");
+                    enabled = false;
+                }
                 return;
             }
             // 🔴 这张牌还在手上 = 游戏还没消费掉这次入队请求。
@@ -226,7 +261,7 @@ public final class AutoPilot {
         boolean mirrored = chosen != null && MirrorRegistry.supports(key(chosen));
         if (chosen == null) {
             // 搜索失败（没镜像/异常）时退回旧策略，保证 AUTO 不会因为搜索挂掉而停摆
-            ArrayList<AbstractCard> hand = new ArrayList<AbstractCard>(player.hand.group);
+            ArrayList<AbstractCard> hand = playableHand(player);
             chosen = firstPlayable(player, hand, attackTarget, Pref.UNMIRRORED);
             mirrored = chosen == null;
             if (chosen == null) {
@@ -244,7 +279,7 @@ public final class AutoPilot {
         AbstractMonster target = resolveTarget(chosen, pickTarget(attackTarget));
         if (!chosen.canUse(player, target)) {
             Trace.info("AUTO skip " + key(chosen) + " (game refuses to play it)");
-            ArrayList<AbstractCard> hand = new ArrayList<AbstractCard>(player.hand.group);
+            ArrayList<AbstractCard> hand = playableHand(player);
             chosen = firstPlayable(player, hand, attackTarget, Pref.UNMIRRORED);
             mirrored = chosen == null;
             if (chosen == null) {
@@ -301,6 +336,21 @@ public final class AutoPilot {
         return card.cardID + (card.upgraded ? "+" : "");
     }
 
+    /** 本回合还没被游戏拒绝过的手牌。 */
+    private static ArrayList<AbstractCard> playableHand(AbstractPlayer player) {
+        ArrayList<AbstractCard> hand = new ArrayList<AbstractCard>(player.hand.group);
+        if (blockedThisTurn.isEmpty()) {
+            return hand;
+        }
+        ArrayList<AbstractCard> filtered = new ArrayList<AbstractCard>(hand.size());
+        for (AbstractCard c : hand) {
+            if (c != null && !blockedThisTurn.contains(key(c))) {
+                filtered.add(c);
+            }
+        }
+        return filtered;
+    }
+
     /**
      * 用 beam search 选牌。
      *
@@ -318,7 +368,9 @@ public final class AutoPilot {
                 io.github.youqing.sts1solver.sim.IntentLearning.observe(m.type, snapshot.turn, m.intentDmg);
             }
             BeamSolver solver = new BeamSolver(CombatCapture.baseEnergy(),
-                    player.gameHandSize, BEAM_WIDTH, SEARCH_DEPTH);
+                    player.gameHandSize,
+                    io.github.youqing.sts1solver.config.SolverConfig.budget().beamWidth,
+                    io.github.youqing.sts1solver.config.SolverConfig.budget().depth);
             PlanAction action = solver.bestFirstAction(snapshot);
             if (action == null || action.kind == PlanAction.Kind.END_TURN) {
                 chosenTargetIndex = -1;
@@ -328,6 +380,12 @@ public final class AutoPilot {
             chosenTargetIndex = action.targetIndex;
             pendingChoiceIndex = action.choiceIndex;
             if (action.cardIndex < 0 || action.cardIndex >= player.hand.group.size()) {
+                return null;
+            }
+            // 这张本回合被游戏拒过，别再来一次；交给兜底路径换一张
+            AbstractCard planned = player.hand.group.get(action.cardIndex);
+            if (planned != null && blockedThisTurn.contains(key(planned))) {
+                Trace.info("SEARCH skip " + key(planned) + " (blocked this turn)");
                 return null;
             }
 

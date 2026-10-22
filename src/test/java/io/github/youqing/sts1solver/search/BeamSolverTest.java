@@ -37,6 +37,21 @@ class BeamSolverTest {
         return s;
     }
 
+    /**
+     * 没有压力时应该先铺成长，而不是无脑打一张攻击。
+     * 这条是「能力牌不再被估值惩罚」的行为验证 —— 之前它必定选攻击。
+     */
+    @Test
+    void playsAScalingPowerWhenThereIsNoPressure() {
+        SimState s = state(60, 0, "Demon Form", "Strike_R");
+        s.energy = 3;
+
+        PlanAction action = new BeamSolver(3, 5, 6, 4).bestFirstAction(s);
+
+        assertNotNull(action);
+        assertEquals(0, action.cardIndex, "空场无压力时应先开恶魔形态");
+    }
+
     @Test
     void blocksWhenAttackingWouldGetUsKilled() {
         // 手牌：[Strike_R, Defend_R]；怪意图 20 点，血只有 30

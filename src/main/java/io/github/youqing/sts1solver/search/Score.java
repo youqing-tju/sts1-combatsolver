@@ -31,9 +31,23 @@ public final class Score {
      * 蓝本对应概念见 {@code EnemyDurabilityVectorBuilder}（按每个敌人的耐久建向量）。
      */
     public final int easiestKill;
+    /**
+     * 玩家的**成长性能力**层数（恶魔形态/金属化/主宰/燃烧/无痛/黑暗拥抱/壁垒…）。
+     *
+     * <p>之前这些完全不计分，结果是「打能力牌 = 少能量少手牌 → 分数反而下降」，
+     * AI 几乎不会主动打成长牌。蓝本把这类状态算进战略血量赤字。
+     */
+    public final int scalingPowers;
+    /** 玩家力量层数（每层放大之后每一次攻击）。 */
+    public final int strength;
+    /** 敌人身上的易伤层数合计（放大我们的输出）。 */
+    public final int enemyVulnerable;
+    /** 敌人身上的虚弱层数合计（压低对方输出）。 */
+    public final int enemyWeak;
 
     private Score(int aliveEnemies, int playerHp, int enemyHp, int block, int energy,
-                  int handSize, int projectedHp, int easiestKill) {
+                  int handSize, int projectedHp, int easiestKill, int scalingPowers,
+                  int strength, int enemyVulnerable, int enemyWeak) {
         this.aliveEnemies = aliveEnemies;
         this.playerHp = playerHp;
         this.enemyHp = enemyHp;
@@ -42,7 +56,18 @@ public final class Score {
         this.handSize = handSize;
         this.projectedHp = projectedHp;
         this.easiestKill = easiestKill;
+        this.scalingPowers = scalingPowers;
+        this.strength = strength;
+        this.enemyVulnerable = enemyVulnerable;
+        this.enemyWeak = enemyWeak;
     }
+
+    /** 会「每个回合都变强」的能力：层数越打越值钱。 */
+    private static final String[] SCALING = {
+            "Metallicize", "Demon Form", "Juggernaut", "Combust", "Feel No Pain",
+            "Dark Embrace", "Barricade", "Corruption", "Fire Breathing", "Rage",
+            "Thorns", "Plated Armor", "Buffer", "Intangible", "Echo Form", "Brutality",
+    };
 
     public static Score of(SimState state) {
         int alive = 0;
@@ -59,14 +84,32 @@ public final class Score {
             easiest = 0;
         }
         int incoming = 0;
+        int vuln = 0;
+        int weak = 0;
         for (SimMonster m : state.monsters) {
-            if (m.hp > 0 && m.intentDmg > 0) {
-                incoming += m.intentDmg;
+            if (m.hp > 0) {
+                if (m.intentDmg > 0) {
+                    incoming += m.intentDmg;
+                }
+                vuln += amount(m.powers.get(io.github.youqing.sts1solver.mirror.DamageCalc.VULNERABLE));
+                weak += amount(m.powers.get(io.github.youqing.sts1solver.mirror.DamageCalc.WEAKENED));
             }
         }
         int projected = state.hp - Math.max(0, incoming - state.block);
+
+        int scaling = 0;
+        for (String id : SCALING) {
+            scaling += amount(state.playerPowers.get(id));
+        }
+        int strength = amount(state.playerPowers.get(
+                io.github.youqing.sts1solver.mirror.DamageCalc.STRENGTH));
+
         return new Score(alive, state.hp, enemyHp, state.block, state.energy,
-                state.hand.size(), projected, easiest);
+                state.hand.size(), projected, easiest, scaling, strength, vuln, weak);
+    }
+
+    private static int amount(Integer value) {
+        return value == null || value < 0 ? 0 : value;
     }
 
     /**
@@ -94,6 +137,12 @@ public final class Score {
             if (projectedHp <= 0) {
                 score -= 300_000_000L;
             }
+            // 成长与减益：都以「1 点敌方血量 = 1000」为单位折算成未来收益，
+            // 免得 AI 因为「打能力牌少一张手牌」而永远不打开局面。
+            score += (long) scalingPowers * 6_000L;
+            score += (long) strength * 3_000L;
+            score += (long) enemyVulnerable * 1_500L;
+            score += (long) enemyWeak * 1_500L;
         }
         return score;
     }
@@ -108,6 +157,10 @@ public final class Score {
                 + " hand=" + handSize
                 + " projHp=" + projectedHp
                 + " easiest=" + easiestKill
+                + " scaling=" + scalingPowers
+                + " str=" + strength
+                + " vuln=" + enemyVulnerable
+                + " weak=" + enemyWeak
                 + " total=" + total();
     }
 }

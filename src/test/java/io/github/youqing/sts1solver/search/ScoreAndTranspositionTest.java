@@ -36,6 +36,39 @@ class ScoreAndTranspositionTest {
         assertTrue(withoutEnemy > withEnemy, "killing outweighs any defensive bonus");
     }
 
+    /**
+     * 之前「打能力牌 = 少能量少手牌 → 分数下降」，AI 几乎不会主动打成长牌。
+     * 现在成长性能力按层计分，必须压过一张普通攻击带来的敌方掉血。
+     */
+    @Test
+    void scalingPowersAreWorthMoreThanOneAttack() {
+        SimState plain = state(40);
+        SimState powered = state(40);
+        powered.playerPowers.put("Demon Form", 2);
+
+        assertTrue(Score.of(powered).total() > Score.of(plain).total(),
+                "恶魔形态 2 层应该让局面更值钱");
+        assertEquals(2, Score.of(powered).scalingPowers);
+    }
+
+    @Test
+    void strengthAndEnemyDebuffsCount() {
+        SimState base = state(40);
+        long plain = Score.of(base).total();
+
+        SimState strong = state(40);
+        strong.playerPowers.put("Strength", 3);
+        assertTrue(Score.of(strong).total() > plain, "力量应该加分");
+
+        SimState debuffed = state(40);
+        debuffed.monsters.get(0).powers.put("Vulnerable", 2);
+        assertTrue(Score.of(debuffed).total() > plain, "敌人易伤应该加分");
+
+        SimState weakened = state(40);
+        weakened.monsters.get(0).powers.put("Weakened", 2);
+        assertTrue(Score.of(weakened).total() > plain, "敌人虚弱应该加分");
+    }
+
     @Test
     void scoreIsExplainablePerDimension() {
         String text = Score.of(state(10)).explain();

@@ -21,6 +21,7 @@ public class SolverMod {
         Trace.info("SolverMod " + VERSION + " build " + BuildStamp.VALUE
                 + " initializing (jre=" + System.getProperty("java.version") + ")");
         Trace.info("log file: " + Trace.path());
+        io.github.youqing.sts1solver.config.SolverConfig.load();
         SolverPanel.initialize();
         PatchManifest.report();
         Trace.info("SolverMod ready");
