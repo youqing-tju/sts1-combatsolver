@@ -491,6 +491,23 @@ public final class MirrorRegistry {
         registerExhaust("Metamorphosis", Effects.shuffleRandomAttacksIntoDraw(3));
         registerExhaust("Metamorphosis+", Effects.shuffleRandomAttacksIntoDraw(5));
 
+        // 深呼吸：弃牌堆洗回抽牌堆 + 洗抽牌堆 + 抽 1/2 张
+        // （两次 randomLong：EmptyDeckShuffleAction 一次、ShuffleAction 一次）
+        register("Deep Breath", Effects.deepBreath(1));
+        register("Deep Breath+", Effects.deepBreath(2));
+
+        // 结茧：3/5 张随机技能牌洗进抽牌堆，本场 0 费，消耗
+        registerExhaust("Chrysalis", Effects.chrysalis(3));
+        registerExhaust("Chrysalis+", Effects.chrysalis(5));
+
+        // 发现：3 选 1 进手牌、本回合 0 费；升级版不消耗
+        registerExhaust("Discovery", Effects.discovery());
+        register("Discovery+", Effects.discovery());
+
+        // 净化：最多 3/5 张手牌消耗，自身消耗
+        registerExhaust("Purity", Effects.exhaustUpTo(3));
+        registerExhaust("Purity+", Effects.exhaustUpTo(5));
+
         // ---- 第四批：靠「回合钩子引擎」才能生效的能力/延迟牌 --------------------
         // 数值全部取自 solver-data/cards.json，power ID 取自 powers 包的 POWER_ID 常量。
 

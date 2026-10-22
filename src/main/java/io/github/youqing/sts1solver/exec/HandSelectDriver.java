@@ -74,6 +74,8 @@ public final class HandSelectDriver {
 
             if (screen.selectedCards.size() >= need && screen.selectedCards.size() > 0) {
                 AutoPilot.clearPendingChoice();
+                // 确认之后才知道「一共选了哪几张」，多选卡（净化）要等到这一刻才补算影子
+                io.github.youqing.sts1solver.verify.ShadowTracker.onChoiceConfirmed();
                 AbstractDungeon.closeCurrentScreen();
                 Trace.info("HAND confirm " + screen.selectedCards.size() + " card(s)");
             }

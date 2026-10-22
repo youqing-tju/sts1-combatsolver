@@ -143,6 +143,9 @@ public final class SimState {
         s.rng.put(RngKind.AI, rngOf(AbstractDungeon.aiRng));
         s.rng.put(RngKind.SHUFFLE, rngOf(AbstractDungeon.shuffleRng));
         s.rng.put(RngKind.MISC, rngOf(AbstractDungeon.miscRng));
+        // 随机生成类卡牌（结茧/发现/变形/磁力…）要按原版池子顺序取牌；
+        // 顺序来自 CardLibrary 内部 HashMap 的迭代顺序，手算必错 —— 直接抓一次实机快照。
+        PoolCatalog.capture();
         return s;
     }
 

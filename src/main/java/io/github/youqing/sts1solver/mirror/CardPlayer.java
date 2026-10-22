@@ -47,10 +47,17 @@ public final class CardPlayer {
     }
 
     public static void play(SimState state, int handIndex, int targetIndex) {
-        play(state, handIndex, targetIndex, -1);
+        play(state, handIndex, targetIndex, (int[]) null);
     }
 
     public static void play(SimState state, int handIndex, int targetIndex, int choiceIndex) {
+        play(state, handIndex, targetIndex, choiceIndex < 0 ? null : new int[]{choiceIndex});
+    }
+
+    /**
+     * @param choices 手牌选择下标数组（多选卡用）；{@code null} = 由效果自己按策略决定
+     */
+    public static void play(SimState state, int handIndex, int targetIndex, int[] choices) {
         if (handIndex < 0 || handIndex >= state.hand.size()) {
             throw new ActionRejected("hand index out of range: " + handIndex);
         }
@@ -90,8 +97,11 @@ public final class CardPlayer {
         for (Effect effect : mirror.effects) {
             if (effect instanceof XEffect) {
                 ((XEffect) effect).applyWithX(state, targetIndex, card, xValue);
+            } else if (effect instanceof MultiChoiceEffect) {
+                ((MultiChoiceEffect) effect).applyWithChoices(state, targetIndex, card, choices);
             } else if (effect instanceof ChoiceEffect) {
-                ((ChoiceEffect) effect).applyWithChoice(state, targetIndex, card, choiceIndex);
+                ((ChoiceEffect) effect).applyWithChoice(state, targetIndex, card,
+                        choices == null || choices.length == 0 ? -1 : choices[0]);
             } else {
                 effect.applyTo(state, targetIndex, card);
             }
@@ -119,9 +129,13 @@ public final class CardPlayer {
     }
 
     public static void playByKey(SimState state, String cardKey, int targetIndex, int choiceIndex) {
+        playByKey(state, cardKey, targetIndex, choiceIndex < 0 ? null : new int[]{choiceIndex});
+    }
+
+    public static void playByKey(SimState state, String cardKey, int targetIndex, int[] choices) {
         for (int i = 0; i < state.hand.size(); i++) {
             if (state.hand.get(i).key().equals(cardKey)) {
-                play(state, i, targetIndex, choiceIndex);
+                play(state, i, targetIndex, choices);
                 return;
             }
         }

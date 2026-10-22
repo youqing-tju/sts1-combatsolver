@@ -43,6 +43,15 @@ public final class RngStream {
         return xs.nextInt(n + 1);
     }
 
+    /**
+     * {@code com.megacrit.cardcrawl.random.Random.randomLong()} —— 只递增一次计数器，
+     * 底层是 {@code RandomXS128.nextLong()}。洗牌就是拿它当种子（见 {@link Shuffle}）。
+     */
+    public long randomLong() {
+        counter++;
+        return xs.nextLong();
+    }
+
     public long state0() {
         return xs.getState(0);
     }

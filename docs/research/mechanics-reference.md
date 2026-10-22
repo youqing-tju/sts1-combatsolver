@@ -190,6 +190,47 @@
 
 ⚠️ 墨水瓶是最容易漏的：它不像修女只数攻击牌，`onUseCard` 里没有任何牌型判断。
 
+### 6.3 洗牌 = 取一个 long 当种子交给 `java.util.Random`（A｜字节码，2026-10-22）
+
+```java
+// CardGroup.shuffle()  —— 无参版本（ShuffleAction / 弃牌堆洗回都走它）
+Collections.shuffle(group, new java.util.Random(AbstractDungeon.shuffleRng.randomLong()));
+```
+
+三条硬结论：
+1. **不是** `rng.random(n)` 洗牌，也不是「n 次随机交换」→ 整个洗牌只消耗 **1 次** `shuffleRng`。
+2. 底层是 JDK 的 48 位 LCG（`RandomXS128` 完全不同），必须按 `next(31)` + 拒绝采样实现，
+   否则排列对不上。实现见 `sim/Shuffle.java`，用 JDK 自己的 `Collections.shuffle` 做了逐元素对拍。
+3. **即使列表只有 0/1 张，`randomLong()` 也照样消耗**（先取种子再调 shuffle）。
+
+`EmptyDeckShuffleAction`（抽牌堆空时自动洗牌）= `discardPile.shuffle(shuffleRng)` + 逐张搬进抽牌堆；
+`Deep Breath` = 上面这一步 + `ShuffleAction(drawPile)`（再洗一次）→ 共 **2 次** `randomLong`。
+
+⚠️ 未确认：`EmptyDeckShuffleAction` 对第 11 张起改用 `souls.shuffle(card, true)`（视觉上飞到牌堆底），
+落点没在字节码里核实；目前统一按顺序搬，若出现「洗牌后 `draw[i]` 失配」先查这条。
+
+### 6.4 随机生成卡牌用的池子顺序（A｜字节码，2026-10-22）
+
+`returnTrulyRandomCardInCombat(type)`：
+
+```
+for pool in [srcCommonCardPool, srcUncommonCardPool, srcRareCardPool]:
+    for card in pool.group:
+        if card.type == type and not card.hasTag(HEALING): list.add(card)
+return list.get(cardRandomRng.random(list.size() - 1))
+```
+
+- `src*CardPool` 的内容 = `CardLibrary.addColorlessCards()` + `player.getCardPool()`，再按稀有度分桶
+  → 每个桶里**无色在前、本职业在后**，池内顺序 = `CardLibrary.cards`（一个 **HashMap**）的迭代顺序。
+- HashMap 迭代顺序手算必错 → 所以 `PoolCatalog` 在战斗开始时直接从实机 `src*CardPool` 抓一次快照
+  （和蓝本缓存 root 候选集一个思路），静态表只作单测兜底。
+- `HEALING` 过滤：无色是 **Bandage Up / Bite**，红卡是 **Feed / Reaper**。
+- `random(size - 1)` 闭区间，**候选只有 1 张也消耗一次**。
+
+⚠️ 之前 `ColorlessPool` 的错误（已修）：按字母序 + 混进 10 张 token 牌（Shiv/Smite/Safety/Beta/Insight/
+Miracle/Omega/Ghostly/Expunger/ThroughViolence）+ `FlashofSteel`、`MasterofStrategy` 两个 ID 拼错
+（正确是 `Flash of Steel` / `Master of Strategy`）→ 磁力 / Jack Of All Trades / Transmutation 取到的牌必错。
+
 ---
 
 ## 7. 本项目实测踩过的坑（A｜实测，2026-10-21）

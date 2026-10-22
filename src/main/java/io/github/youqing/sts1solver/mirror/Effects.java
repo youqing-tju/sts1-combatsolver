@@ -103,10 +103,13 @@ public final class Effects {
                         return;
                     }
                     if (state.draw.isEmpty()) {
-                        if (state.discard.isEmpty()) {
+                        // DrawCardAction 在抽牌堆空时会先排一个 EmptyDeckShuffleAction：
+                        //   discardPile.shuffle(shuffleRng) → 逐张搬进抽牌堆
+                        // 洗牌只消耗 1 次 shuffleRng（见 Shuffle：randomLong 当种子）。
+                        reshuffleDiscardIntoDraw(state);
+                        if (state.draw.isEmpty()) {
                             return;
                         }
-                        throw new ActionRejected("draw needs a reshuffle (shuffle RNG not mirrored yet)");
                     }
                     // 抽牌堆的「顶」是列表末尾：CardGroup.getTopCard() 取的是 group.get(size-1)
                     state.hand.add(state.draw.remove(state.draw.size() - 1));
@@ -669,18 +672,15 @@ public final class Effects {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
-                io.github.youqing.sts1solver.sim.RngStream rng =
-                        state.rng.get(SimState.RngKind.CARD);
-                int size = ColorlessPool.size();
-                if (size <= 0) {
-                    return;
-                }
                 for (int i = 0; i < count; i++) {
-                    int pick = rng == null ? 0 : rng.random(size - 1);
-                    pick = Math.min(pick, size - 1);
-                    int cost = freeThisTurn ? 0 : ColorlessPool.costAt(pick);
-                    state.hand.add(new SimCard(ColorlessPool.idAt(pick), false, cost,
-                            ColorlessPool.damageAt(pick)));
+                    // 原版每张都重新走一遍 returnTrulyRandomColorlessCardInCombat：
+                    // 重建候选列表 → rng.random(size - 1)。列表长度参与取值，所以不能预排下标。
+                    SimCard c = io.github.youqing.sts1solver.sim.PoolCatalog
+                            .randomColorlessCard(state, freeThisTurn ? 0 : -1);
+                    if (c == null) {
+                        return;
+                    }
+                    state.hand.add(c);
                 }
             }
 
@@ -691,6 +691,201 @@ public final class Effects {
         };
     }
 
+    /**
+     * 消耗手牌里最多 count 张（净化 Purity）。
+     *
+     * <p>字节码 {@code Purity.use} → {@code new ExhaustAction(magicNumber, false, true)}
+     * = 不随机、可少选、上限 {@code magicNumber} 张。
+     *
+     * <p>搜索不传选择时用固定策略：先丢状态/诅咒，再丢费用最高的 —— 枚举 10 选 5 的
+     * 全部组合（252 种）对 beam search 不划算，蓝本处理多选类效果也是限定候选后展开。
+     */
+    public static Effect exhaustUpTo(final int count) {
+        return new MultiChoiceEffect() {
+            @Override
+            public void applyWithChoices(SimState state, int targetIndex, SimCard played,
+                                         int[] choices) {
+                int limit = Math.min(count, state.hand.size());
+                if (limit <= 0) {
+                    return;
+                }
+                int[] picked = choices != null ? choices : policyPick(state, limit);
+                // 从大到小删，避免删前面的元素后下标错位
+                int[] sorted = picked.clone();
+                java.util.Arrays.sort(sorted);
+                for (int i = sorted.length - 1; i >= 0; i--) {
+                    int idx = sorted[i];
+                    if (idx < 0 || idx >= state.hand.size()) {
+                        continue;
+                    }
+                    exhaustCard(state, state.hand.remove(idx));
+                }
+            }
+
+            private int[] policyPick(SimState state, int limit) {
+                Integer[] order = new Integer[state.hand.size()];
+                for (int i = 0; i < order.length; i++) {
+                    order[i] = i;
+                }
+                final SimState s = state;
+                java.util.Arrays.sort(order, new java.util.Comparator<Integer>() {
+                    @Override
+                    public int compare(Integer a, Integer b) {
+                        return Double.compare(score(s.hand.get(b)), score(s.hand.get(a)));
+                    }
+                });
+                int n = Math.min(limit, order.length);
+                int[] out = new int[n];
+                for (int i = 0; i < n; i++) {
+                    out[i] = order[i];
+                }
+                return out;
+            }
+
+            private double score(SimCard c) {
+                if ("STATUS".equals(c.type) || "CURSE".equals(c.type)) {
+                    return 1000 + c.cost;
+                }
+                return c.cost;
+            }
+
+            @Override
+            public String toString() {
+                return "exhaust<=" + count;
+            }
+        };
+    }
+
+    /**
+     * 弃牌堆洗回抽牌堆 —— 复刻 {@code EmptyDeckShuffleAction}。
+     *
+     * <p>字节码：{@code player.discardPile.shuffle(AbstractDungeon.shuffleRng)}，然后逐张从
+     * 弃牌堆取走、交给 {@code Soul} 落到抽牌堆。所以这里同样**只洗弃牌堆**（1 次 randomLong），
+     * 再按洗好的顺序搬进抽牌堆。
+     *
+     * <p>⚠️ 原版对第 11 张起用 {@code souls.shuffle(card, true)}（视觉上飞到牌堆底），
+     * 落点没在字节码里确认；这里统一按顺序搬。若对拍在「洗牌后抽牌」处出现 {@code draw[i]} 失配，
+     * 先查这条。
+     */
+    public static void reshuffleDiscardIntoDraw(SimState state) {
+        if (state.discard.isEmpty()) {
+            return;
+        }
+        io.github.youqing.sts1solver.sim.Shuffle.shuffle(state.discard,
+                state.rng.get(SimState.RngKind.SHUFFLE));
+        for (SimCard c : state.discard) {
+            state.draw.add(c);
+        }
+        state.discard.clear();
+    }
+
+    /**
+     * 深呼吸：弃牌堆洗回抽牌堆（若有），再把抽牌堆整体洗一次，然后抽 drawCount 张。
+     *
+     * <p>字节码 {@code DeepBreath.use}：
+     * {@code if (discardPile.size() > 0) addToBot(new EmptyDeckShuffleAction())}
+     * → {@code addToBot(new ShuffleAction(player.drawPile, false))}
+     * → {@code addToBot(new DrawCardAction(player, magicNumber))}。
+     * 也就是**两次** randomLong（弃牌堆一次 + 抽牌堆一次）。
+     */
+    public static Effect deepBreath(final int drawCount) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                reshuffleDiscardIntoDraw(state);
+                io.github.youqing.sts1solver.sim.Shuffle.shuffle(state.draw,
+                        state.rng.get(SimState.RngKind.SHUFFLE));
+                draw(drawCount).applyTo(state, targetIndex, played);
+            }
+
+            @Override
+            public String toString() {
+                return "shuffleAll+draw(" + drawCount + ")";
+            }
+        };
+    }
+
+    /**
+     * 结茧：把 count 张随机**技能牌**洗进抽牌堆，本场 0 费，自身消耗。
+     *
+     * <p>字节码 {@code Chrysalis.use}：循环
+     * {@code AbstractDungeon.returnTrulyRandomCardInCombat(CardType.SKILL)}
+     * → {@code makeCopy()} → {@code cost = costForTurn = 0}
+     * → {@code new MakeTempCardInDrawPileAction(card, 1, true, true)}。
+     * 每张牌都重新取一次候选列表，所以 RNG 消耗不能合并。
+     */
+    public static Effect chrysalis(final int count) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                io.github.youqing.sts1solver.sim.RngStream rng =
+                        state.rng.get(SimState.RngKind.CARD);
+                for (int i = 0; i < count; i++) {
+                    SimCard picked = io.github.youqing.sts1solver.sim.PoolCatalog
+                            .randomCombatCard(state, "SKILL");
+                    if (picked == null) {
+                        return;
+                    }
+                    SimCard c = new SimCard(picked.id, false, 0, -1, "SKILL");
+                    int at = (rng == null || state.draw.isEmpty())
+                            ? 0 : rng.random(state.draw.size() - 1);
+                    state.draw.add(at, c);
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "draw+=randomSkill(" + count + ")";
+            }
+        };
+    }
+
+    /**
+     * 发现：生成 3 张**互不相同**的牌，选 1 张进手牌，本回合 0 费。
+     *
+     * <p>字节码 {@code DiscoveryAction.generateCardChoices}：
+     * {@code while (list.size() != 3) { c = returnTrulyRandomCardInCombat(type);
+     * 去重后 list.add(c.makeCopy()); }} —— 去重按 {@code cardID}，重复就再抽，
+     * 所以 RNG 消耗次数不固定。
+     */
+    public static Effect discovery() {
+        return new ChoiceEffect() {
+            @Override
+            public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
+                java.util.List<SimCard> choices = new java.util.ArrayList<SimCard>(3);
+                int guard = 0;
+                while (choices.size() < 3 && guard++ < 64) {
+                    SimCard c = io.github.youqing.sts1solver.sim.PoolCatalog
+                            .randomCombatCard(state, null);
+                    if (c == null) {
+                        return;
+                    }
+                    boolean dup = false;
+                    for (SimCard e : choices) {
+                        if (e.id.equals(c.id)) {
+                            dup = true;
+                        }
+                    }
+                    if (!dup) {
+                        choices.add(c);
+                    }
+                }
+                if (choices.isEmpty()) {
+                    return;
+                }
+                int pick = (choiceIndex >= 0 && choiceIndex < choices.size()) ? choiceIndex : 0;
+                SimCard chosen = choices.get(pick);
+                state.hand.add(new SimCard(chosen.id, false, 0, chosen.baseDamage));
+            }
+
+            @Override
+            public String toString() {
+                return "choose1of3";
+            }
+        };
+    }
+
+
     /** 把 count 张随机攻击牌洗进抽牌堆，本场 0 费（Metamorphosis）。 */
     public static Effect shuffleRandomAttacksIntoDraw(final int count) {
         return new Effect() {
@@ -698,15 +893,13 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 io.github.youqing.sts1solver.sim.RngStream rng =
                         state.rng.get(SimState.RngKind.CARD);
-                int size = AttackPool.size();
-                if (size <= 0) {
-                    return;
-                }
                 for (int i = 0; i < count; i++) {
-                    int pick = rng == null ? 0 : rng.random(size - 1);
-                    pick = Math.min(pick, size - 1);
-                    SimCard c = new SimCard(AttackPool.idAt(pick), false, 0,
-                            AttackPool.damageAt(pick), "ATTACK");
+                    SimCard picked = io.github.youqing.sts1solver.sim.PoolCatalog
+                            .randomCombatCard(state, "ATTACK");
+                    if (picked == null) {
+                        return;
+                    }
+                    SimCard c = new SimCard(picked.id, false, 0, picked.baseDamage, "ATTACK");
                     // 同一个 MakeTempCardInDrawPileAction(randomSpot=true) →
                     // CardGroup.addToRandomSpot → add(random(size-1), card)，空堆不消耗 RNG
                     int at = (rng == null || state.draw.isEmpty())
@@ -728,17 +921,13 @@ public final class Effects {
         return new XEffect() {
             @Override
             public void applyWithX(SimState state, int targetIndex, SimCard played, int x) {
-                io.github.youqing.sts1solver.sim.RngStream rng =
-                        state.rng.get(SimState.RngKind.CARD);
-                int size = ColorlessPool.size();
-                if (size <= 0) {
-                    return;
-                }
                 for (int i = 0; i < x; i++) {
-                    int pick = rng == null ? 0 : rng.random(size - 1);
-                    pick = Math.min(pick, size - 1);
-                    state.hand.add(new SimCard(ColorlessPool.idAt(pick), false, 0,
-                            ColorlessPool.damageAt(pick)));
+                    SimCard c = io.github.youqing.sts1solver.sim.PoolCatalog
+                            .randomColorlessCard(state, 0);
+                    if (c == null) {
+                        return;
+                    }
+                    state.hand.add(c);
                 }
             }
 

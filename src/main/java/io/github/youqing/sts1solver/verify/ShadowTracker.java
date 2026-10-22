@@ -40,16 +40,16 @@ public final class ShadowTracker {
     private static ActionRejected pendingRejection;
     /** 需要选牌的牌：选哪张要等选牌界面，先把影子留到 resolve 再算。 */
     private static boolean pendingDeferred;
-    /** 选牌界面实际选中的牌（id+升级态）。 */
-    private static String pendingChoiceKey;
+    /** 选牌界面实际选中的牌（id+升级态），按选择顺序记录 —— 净化这类多选卡会有多张。 */
+    private static final java.util.List<String> pendingChoiceKeys = new java.util.ArrayList<String>();
     /**
-     * 选牌界面选中时，这张牌在**实机当前手牌**里的下标。
+     * 选中时这张牌在**实机当前手牌**里的下标，与 {@link #pendingChoiceKeys} 一一对应。
      *
      * <p>选牌窗口打开时打出的那张牌已经离开手牌，所以这个下标正好是
      * {@code ChoiceEffect} 要的「出牌后手牌下标」。以前用「出牌前」的下标去查，
      * 只要被选的牌排在打出的牌后面就会整体左移 1 —— 实测战吼：游戏选 Strike_R，影子搬走 Bash。
      */
-    private static int pendingChoiceIndex = -1;
+    private static final java.util.List<Integer> pendingChoiceIndices = new java.util.ArrayList<Integer>();
     /** 影子算出来的「四堆总张数」。实机达到这个数才算结算完毕。 */
     private static int expectedTotal;
     private static String pendingKey;
@@ -75,8 +75,8 @@ public final class ShadowTracker {
         pendingSim = null;
         pendingRejection = null;
         pendingDeferred = false;
-        pendingChoiceKey = null;
-        pendingChoiceIndex = -1;
+        pendingChoiceKeys.clear();
+        pendingChoiceIndices.clear();
         expectedTotal = -1;
         pending = false;
         pendingKey = null;
@@ -93,14 +93,21 @@ public final class ShadowTracker {
         if (card == null) {
             return;
         }
-        pendingChoiceKey = card.cardID + (card.upgraded ? "+" : "");
-        pendingChoiceIndex = AbstractDungeon.player == null
+        pendingChoiceKeys.add(card.cardID + (card.upgraded ? "+" : ""));
+        pendingChoiceIndices.add(AbstractDungeon.player == null
                 || AbstractDungeon.player.hand == null
                 || AbstractDungeon.player.hand.group == null
-                ? -1 : AbstractDungeon.player.hand.group.indexOf(card);
-        // 选牌一刻就把影子补算掉：这样 expectedTotal 立刻可知，
-        // 结算判据不必退化成「动作队列空」，也就不会比实机早半秒开比
-        // （实测战吼 cards=12/11：实机的消耗动画还没落位）。
+                ? -1 : AbstractDungeon.player.hand.group.indexOf(card));
+    }
+
+    /**
+     * 选牌界面点了确认 —— 此刻才知道「一共选了哪几张」，开始补算影子。
+     *
+     * <p>这样 {@code expectedTotal} 立刻可知，结算判据不必退化成「动作队列空」，
+     * 也就不会比实机早半秒开比（实测战吼 cards=12/11：实机的消耗动画还没落位）。
+     * 多选卡（净化）必须等到这一刻，否则第一次点击就会被当成最终选择。
+     */
+    public static void onChoiceConfirmed() {
         computeDeferredChoice();
     }
 
@@ -110,9 +117,9 @@ public final class ShadowTracker {
             return;
         }
         SimState sim = pre.copy();
-        int choice = choiceIndexOf(sim, pendingChoiceKey, pendingChoiceIndex);
+        int[] choices = choiceIndices(sim);
         try {
-            CardPlayer.playByKey(sim, pendingKey, pendingTarget, choice);
+            CardPlayer.playByKey(sim, pendingKey, pendingTarget, choices);
             pendingSim = sim;
             expectedTotal = sim.totalCards();
             pendingDeferred = false;
@@ -127,6 +134,18 @@ public final class ShadowTracker {
             expectedTotal = -1;
             pendingDeferred = false;
         }
+    }
+
+    /** 把记录下来的 (牌名, 实机下标) 映射成影子手牌下标。 */
+    private static int[] choiceIndices(SimState sim) {
+        if (pendingChoiceKeys.isEmpty()) {
+            return null;
+        }
+        int[] out = new int[pendingChoiceKeys.size()];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = choiceIndexOf(sim, pendingChoiceKeys.get(i), pendingChoiceIndices.get(i));
+        }
+        return out;
     }
 
     /** True when no comparison is in flight — the auto pilot must wait for this. */
@@ -161,8 +180,8 @@ public final class ShadowTracker {
         pendingKey = card.cardID + (card.upgraded ? "+" : "");
         pendingTarget = indexOf(target);
         pending = true;
-        pendingChoiceKey = null;
-        pendingChoiceIndex = -1;
+        pendingChoiceKeys.clear();
+        pendingChoiceIndices.clear();
         framesAfterPlay = 0;
 
         // 在出牌这一刻就把影子算完：后面判定「实机结算好了没有」需要知道
@@ -231,22 +250,26 @@ public final class ShadowTracker {
         SimState sim = pendingSim;
         ActionRejected rejection = pendingRejection;
         boolean deferred = pendingDeferred;
-        String choiceKey = pendingChoiceKey;
-        int choiceHint = pendingChoiceIndex;
+        java.util.List<String> choiceKeys = new java.util.ArrayList<String>(pendingChoiceKeys);
+        java.util.List<Integer> choiceHints = new java.util.ArrayList<Integer>(pendingChoiceIndices);
         pre = null;
         pendingSim = null;
         pendingRejection = null;
         pendingDeferred = false;
-        pendingChoiceKey = null;
-        pendingChoiceIndex = -1;
+        pendingChoiceKeys.clear();
+        pendingChoiceIndices.clear();
         expectedTotal = -1;
 
         if (sim == null && deferred && before != null) {
             // 兜底：选牌回调没赶上（界面被外部关掉之类），只能在此刻补算
             sim = before.copy();
-            int choice = choiceIndexOf(sim, choiceKey, choiceHint);
+            int[] choices = new int[choiceKeys.size()];
+            for (int i = 0; i < choices.length; i++) {
+                choices[i] = choiceIndexOf(sim, choiceKeys.get(i), choiceHints.get(i));
+            }
             try {
-                CardPlayer.playByKey(sim, pendingKey, pendingTarget, choice);
+                CardPlayer.playByKey(sim, pendingKey, pendingTarget,
+                        choices.length == 0 ? null : choices);
             } catch (ActionRejected e) {
                 record(before, e);
                 return;

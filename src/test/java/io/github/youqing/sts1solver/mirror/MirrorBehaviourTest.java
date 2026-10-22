@@ -27,11 +27,84 @@ class MirrorBehaviourTest {
         s.monsters.add(new SimMonster("AcidSlime_S", 200, 200, 0,
                 Collections.<String, Integer>emptyMap()));
         s.rng.put(SimState.RngKind.CARD, RngStream.from(1L, 2L, 0));
+        s.rng.put(SimState.RngKind.SHUFFLE, RngStream.from(7L, 8L, 0));
         return s;
     }
 
     private static int cardCounter(SimState s) {
         RngStream rng = s.rng.get(SimState.RngKind.CARD);
+        return rng == null ? -1 : rng.counter();
+    }
+
+    // -------------------------------------------------------------- 深呼吸 / 结茧 / 发现 / 净化
+
+    /** Deep Breath：弃牌堆洗回抽牌堆（1 次 randomLong）+ 洗抽牌堆（1 次）+ 抽 1 张。 */
+    @Test
+    void deepBreathShufflesDiscardIntoDrawThenDraws() {
+        SimState s = fight();
+        s.draw.clear();
+        s.hand.add(new SimCard("Deep Breath", false, 0));
+        for (int i = 0; i < 3; i++) {
+            s.discard.add(new SimCard("Defend_R", false, 1));
+        }
+        int before = shuffleCounter(s);
+
+        CardPlayer.play(s, 0, -1);
+
+        assertEquals(2, shuffleCounter(s) - before, "EmptyDeckShuffleAction + ShuffleAction = 2 次");
+        assertEquals(0, s.discard.size() - 1, "弃牌堆只剩深呼吸自己");
+        assertEquals(1, s.hand.size(), "抽到的 1 张");
+        assertEquals(2, s.draw.size(), "3 张洗回去，抽走 1 张");
+    }
+
+    /** 结茧：3 张随机技能牌进抽牌堆、0 费、自身消耗。 */
+    @Test
+    void chrysalisPutsRandomSkillsInDrawPile() {
+        SimState s = fight();
+        s.hand.add(new SimCard("Chrysalis", false, 2));
+
+        CardPlayer.play(s, 0, -1);
+
+        assertEquals(3, s.draw.size());
+        for (SimCard c : s.draw) {
+            assertEquals(0, c.cost, "本场 0 费");
+            assertEquals("SKILL", c.type, "只能是技能牌");
+        }
+        assertEquals(1, s.exhaust.size(), "结茧自身消耗");
+    }
+
+    /** 发现：3 选 1，进手牌的那张本回合 0 费。 */
+    @Test
+    void discoveryAddsTheChosenCardToHand() {
+        SimState s = fight();
+        s.hand.add(new SimCard("Discovery", false, 1));
+
+        CardPlayer.play(s, 0, -1, 0);
+
+        assertEquals(1, s.hand.size(), "只进手牌 1 张");
+        assertEquals(0, s.hand.get(0).cost, "本回合 0 费");
+        assertEquals(1, s.exhaust.size(), "发现自身消耗");
+    }
+
+    /** 净化：按传入的下标组消耗多张。 */
+    @Test
+    void purityExhaustsTheChosenCards() {
+        SimState s = fight();
+        s.hand.add(new SimCard("Strike_R", false, 1));
+        s.hand.add(new SimCard("Defend_R", false, 1));
+        s.hand.add(new SimCard("Bash", false, 2));
+        s.hand.add(new SimCard("Purity", false, 0));
+
+        // 出牌后手牌 = [Strike_R, Defend_R, Bash]，选 0 和 2
+        CardPlayer.play(s, 3, -1, new int[]{0, 2});
+
+        assertEquals(1, s.hand.size(), "3 张里消耗 2 张");
+        assertEquals("Defend_R", s.hand.get(0).id);
+        assertEquals(3, s.exhaust.size(), "2 张 + 净化自身");
+    }
+
+    private static int shuffleCounter(SimState s) {
+        RngStream rng = s.rng.get(SimState.RngKind.SHUFFLE);
         return rng == null ? -1 : rng.counter();
     }
 

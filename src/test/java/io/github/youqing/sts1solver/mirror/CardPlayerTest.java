@@ -135,9 +135,9 @@ class CardPlayerTest {
 
     @Test
     void unknownCardIsRejectedNotGuessed() {
-        SimState s = combat("Discovery");
+        SimState s = combat("Grand Finale");   // 观察者的牌，铁甲战士池里没有，也不该有镜像
         ActionRejected ex = assertThrows(ActionRejected.class, () -> CardPlayer.play(s, 0, 0));
-        assertTrue(ex.getMessage().contains("no mirror for card Discovery"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("no mirror for card Grand Finale"), ex.getMessage());
         assertEquals(4, s.energy, "a rejected action must not spend anything");
     }
 
@@ -157,7 +157,9 @@ class CardPlayerTest {
         assertNotNull(MirrorRegistry.lookup("Bash+"));
         assertNotNull(MirrorRegistry.lookup("Anger"));
         assertNotNull(MirrorRegistry.lookup("Thunderclap+"));
-        assertNull(MirrorRegistry.lookup("Discovery"), "needs a three-choice card picker, still unsupported");
+        assertNotNull(MirrorRegistry.lookup("Discovery"), "三选一已支持（选哪张由 choiceIndex 传入）");
+        assertNotNull(MirrorRegistry.lookup("Deep Breath"), "洗牌原语已落地");
+        assertNotNull(MirrorRegistry.lookup("Chrysalis"), "随机技能牌池已落地");
         assertTrue(MirrorRegistry.size() >= 28, "batch 2 should be registered: " + MirrorRegistry.size());
     }
 

@@ -30,8 +30,6 @@ REASONS = {
     "Searing Blow": "多次升级的成长曲线（当前只支持 0/1 次升级）",
     "Jack Of All Trades": "随机生成无色牌，需要无色牌池",
     "Metamorphosis": "随机生成攻击牌，需要攻击牌池",
-    "Chrysalis": "随机生成能力牌，需要能力牌池",
-    "Discovery": "三选一（需要选牌界面建模）",
     "Transmutation": "X 费 + 随机生成无色牌",
     "The Bomb": "延迟 3 回合后结算",
     "Apotheosis": "升级牌组里所有牌（含抽牌堆/弃牌堆）",
@@ -39,21 +37,13 @@ REASONS = {
     "Madness": "随机一张手牌费用归零",
     "Forethought": "把手牌放到底部（需要底部插入）",
     "Thinking Ahead": "抽 2 后放回牌堆顶（可做，待接线）",
-    "Purity": "多选消耗（需要多选建模）",
     "Secret Technique": "从抽牌堆检索技能牌",
     "Secret Weapon": "从抽牌堆检索攻击牌",
     "Violence": "从抽牌堆检索 3 张攻击牌",
-    "Deep Breath": "洗回弃牌堆（需要洗牌 RNG）",
     "HandOfGreed": "击杀获得金币（金币不在战斗模型内）",
     "RitualDagger": "击杀永久成长",
-    "Expunger": "按条件重复出牌次数",
     "ThroughViolence": "卡牌文本待核实",
     "Safety": "卡牌文本待核实",
-    "Mayhem": "每回合自动打出牌堆顶",
-    "Magnetism": "每回合随机生成无色牌",
-    "Panache": "每打出 5 张造成伤害（需要出牌计数器）",
-    "Sadistic Nature": "施加减益时造成伤害（需要减益触发器）",
-    "Omega": "回合结束造成伤害（需要回合末触发器）",
     "BecomeAlmighty": "事件牌（获得力量）",
     "Beta": "形态链中间态（转为 Omega）",
     "Ghostly": "形态链中间态（转为 Intangible）",
@@ -65,6 +55,16 @@ REASONS = {
 }
 
 SKIP_COLORS = {"CURSE", "STATUS"}
+
+# 铁甲战士一辈子拿不到的 token 牌（`cards/tempCards/` 里的类，颜色恰好也是 COLORLESS）。
+# 它们不该进覆盖率分母 —— 之前把 Expunger 算成"未覆盖"就是这么来的。
+TOKEN_CARDS = {
+    # cards/tempCards/ 下的 9 个类（铁甲战士拿不到）
+    "Beta", "Expunger", "Insight", "Miracle", "Omega",
+    "Safety", "Shiv", "Smite", "ThroughViolence",
+    # cards.json 里颜色标成 COLORLESS、实际 jar 里 cards/colorless 下没有的牌
+    "Ghostly",
+}
 
 
 def registered_keys(path: Path):
@@ -83,7 +83,9 @@ def main():
     data = json.loads(cards_path.read_text(encoding="utf-8"))
     # cost == -2 是不可打出的状态/诅咒牌，不需要镜像
     cards = [c for c in data["cards"]
-             if c["color"] not in SKIP_COLORS and c["cost"] != -2]
+             if c["color"] not in SKIP_COLORS and c["cost"] != -2
+             and c["type"] != "STATUS"
+             and c["id"] not in TOKEN_CARDS]
     keys = registered_keys(registry_path)
 
     rows = []
@@ -99,7 +101,7 @@ def main():
     entries = len([r for r in rows for ok in (r[2], r[3]) if ok])
 
     lines = ["# 镜像覆盖报告（自动生成）", "",
-             f"- 卡池：`{cards_path.name}`（排除 CURSE / STATUS）",
+             f"- 卡池：`{cards_path.name}`（排除 CURSE / STATUS / token 牌）",
              f"- 注册表：`{registry_path.name}`",
              f"- 卡牌总数：**{total}**",
              f"- 完整覆盖（原版+升级）：**{fully}**　部分覆盖：{partial}　未覆盖：**{none}**",
