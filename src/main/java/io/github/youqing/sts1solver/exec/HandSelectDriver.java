@@ -66,6 +66,8 @@ public final class HandSelectDriver {
                     break;
                 }
                 screen.selectedCards.group.add(pick);
+                // 告诉对拍台架「实机选的是哪张」，否则重放时选择为空，战吼这类牌必失配
+                io.github.youqing.sts1solver.verify.ShadowTracker.onChoicePicked(pick);
                 Trace.info("HAND pick " + pick.cardID + (pick.upgraded ? "+" : "")
                         + " (" + screen.selectedCards.size() + "/" + need + ")");
             }

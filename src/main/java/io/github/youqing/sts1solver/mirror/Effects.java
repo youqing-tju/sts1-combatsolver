@@ -1262,8 +1262,8 @@ public final class Effects {
         };
     }
 
-    private static boolean isAttackId(String id) {
-        // 攻击牌占比在红卡里很高，这里用已注册的镜像判断是否为攻击类
+    /** 这张牌的 ID 是不是已登记的攻击牌（缠身拦截、消耗非攻击牌那类效果都要用）。 */
+    public static boolean isAttackId(String id) {
         return ATTACK_IDS.contains(id);
     }
 

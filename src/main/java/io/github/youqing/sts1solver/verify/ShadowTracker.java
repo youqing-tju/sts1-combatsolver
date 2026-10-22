@@ -35,9 +35,13 @@ public final class ShadowTracker {
 
     private static SimState baseline;
     private static SimState pre;
-    /** 出牌瞬间就算好的影子结果；null 表示这张牌没有镜像，走 RECORD 路径。 */
+    /** 出牌瞬间就算好的影子结果；null 表示这张牌没镜像（RECORD）或需要选牌（延后补算）。 */
     private static SimState pendingSim;
     private static ActionRejected pendingRejection;
+    /** 需要选牌的牌：选哪张要等选牌界面，先把影子留到 resolve 再算。 */
+    private static boolean pendingDeferred;
+    /** 选牌界面实际选中的牌（id+升级态）。 */
+    private static String pendingChoiceKey;
     /** 影子算出来的「四堆总张数」。实机达到这个数才算结算完毕。 */
     private static int expectedTotal;
     private static String pendingKey;
@@ -62,10 +66,25 @@ public final class ShadowTracker {
         pre = null;
         pendingSim = null;
         pendingRejection = null;
+        pendingDeferred = false;
+        pendingChoiceKey = null;
         expectedTotal = -1;
         pending = false;
         pendingKey = null;
         framesAfterPlay = 0;
+    }
+
+    /**
+     * 选牌界面选中了哪张牌（战吼/军备/双持…）。
+     *
+     * <p>对拍要用「实机选的那张」重放，否则就算游戏和搜索一致，影子也会因为
+     * 没应用选择而差一手牌（实测战吼：hand 4 vs 3、discard 2 vs 1）。
+     */
+    public static void onChoicePicked(AbstractCard card) {
+        if (card == null) {
+            return;
+        }
+        pendingChoiceKey = card.cardID + (card.upgraded ? "+" : "");
     }
 
     /** True when no comparison is in flight — the auto pilot must wait for this. */
@@ -100,15 +119,27 @@ public final class ShadowTracker {
         pendingKey = card.cardID + (card.upgraded ? "+" : "");
         pendingTarget = indexOf(target);
         pending = true;
+        pendingChoiceKey = null;
         framesAfterPlay = 0;
 
         // 在出牌这一刻就把影子算完：后面判定「实机结算好了没有」需要知道
         // 这次出牌到底该产生几张牌（Anger 的复制、野性打击的状态牌都会变总数）。
         pendingSim = pre.copy();
         pendingRejection = null;
+        pendingDeferred = false;
         try {
-            CardPlayer.playByKey(pendingSim, pendingKey, pendingTarget);
-            expectedTotal = pendingSim.totalCards();
+            io.github.youqing.sts1solver.mirror.CardMirror mirror =
+                    io.github.youqing.sts1solver.mirror.MirrorRegistry.lookup(pendingKey);
+            if (mirror != null && mirror.needsChoice) {
+                // 选哪张要等选牌界面才定，只能等 resolve 时补算；
+                // 这条路径无法预知牌数，结算判据退回「动画走完」
+                pendingSim = null;
+                pendingDeferred = true;
+                expectedTotal = -1;
+            } else {
+                CardPlayer.playByKey(pendingSim, pendingKey, pendingTarget);
+                expectedTotal = pendingSim.totalCards();
+            }
         } catch (ActionRejected e) {
             pendingSim = null;
             pendingRejection = e;
@@ -156,11 +187,26 @@ public final class ShadowTracker {
         SimState before = pre;
         SimState sim = pendingSim;
         ActionRejected rejection = pendingRejection;
+        boolean deferred = pendingDeferred;
+        String choiceKey = pendingChoiceKey;
         pre = null;
         pendingSim = null;
         pendingRejection = null;
+        pendingDeferred = false;
+        pendingChoiceKey = null;
         expectedTotal = -1;
 
+        if (sim == null && deferred && before != null) {
+            // 需要选牌的牌：此刻才知道实机选了哪张，补算影子
+            sim = before.copy();
+            int choice = choiceIndexOf(sim, choiceKey);
+            try {
+                CardPlayer.playByKey(sim, pendingKey, pendingTarget, choice);
+            } catch (ActionRejected e) {
+                record(before, e);
+                return;
+            }
+        }
         if (sim == null) {
             record(before, rejection == null
                     ? new ActionRejected("no mirrored outcome") : rejection);
@@ -319,6 +365,25 @@ public final class ShadowTracker {
             return -1;
         }
         return AbstractDungeon.getMonsters().monsters.indexOf(target);
+    }
+
+    /**
+     * 选牌界面选中的那张牌，在影子手牌里的下标。
+     *
+     * <p>只支持「从手牌里选」这类（战吼/军备/双持/烧牌契约）；从弃牌堆/消耗堆里挑的
+     * （头槌/发掘）下标指的是另一个牌堆，这里退化成 -1（即不应用选择），
+     * 等对拍暴露出来再按牌堆分别处理。
+     */
+    private static int choiceIndexOf(SimState sim, String choiceKey) {
+        if (choiceKey == null) {
+            return -1;
+        }
+        for (int i = 0; i < sim.hand.size(); i++) {
+            if (sim.hand.get(i).key().equals(choiceKey)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     public static String stats() {

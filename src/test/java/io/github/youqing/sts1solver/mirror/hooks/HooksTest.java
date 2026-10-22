@@ -284,6 +284,39 @@ class HooksTest {
         assertEquals("Dazed", s.draw.get(0).id);
     }
 
+    // ---------------------------------------------------------------- 缠身
+
+    /** 缠身：本回合不能打出攻击牌（原版 AbstractCard 的可打出判定）。 */
+    @Test
+    void entangledBlocksAttacks() {
+        SimState s = fight();
+        s.energy = 3;
+        s.playerPowers.put("Entangled", 1);
+        s.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        s.hand.add(new SimCard("Defend_R", false, 1, -1, "SKILL"));
+
+        // 技能照打
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 1, -1);
+        assertEquals(5, s.block);
+
+        // 攻击被拒绝，而且状态没被吃掉
+        org.junit.jupiter.api.Assertions.assertThrows(
+                io.github.youqing.sts1solver.mirror.ActionRejected.class,
+                () -> CardPlayer.play(s, 0, 0));
+        assertEquals(1, (int) s.playerPowers.get("Entangled"));
+    }
+
+    /** 缠身是「本回合」的：回合末自己消失（EntanglePower.atEndOfTurn）。 */
+    @Test
+    void entangledExpiresAtEndOfTurn() {
+        SimState s = fight();
+        s.playerPowers.put("Entangled", 1);
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertNull(s.playerPowers.get("Entangled"), "entangle drops at end of turn");
+    }
+
     // ---------------------------------------------------------------- 注册表
 
     /** 本轮新增的 6 张无色牌都必须能查到镜像。 */
@@ -295,5 +328,14 @@ class HooksTest {
             assertTrue(MirrorRegistry.supports(key), "missing mirror: " + key);
             assertTrue(MirrorRegistry.supports(key + "+"), "missing mirror: " + key + "+");
         }
+    }
+
+    /** 战吼自身要进消耗堆（字节码里 exhaust = true），不是进弃牌堆。 */
+    @Test
+    void warcryExhaustsItself() {
+        assertTrue(MirrorRegistry.lookup("Warcry").exhaustsOnPlay, "warcry exhausts");
+        assertTrue(MirrorRegistry.lookup("Warcry+").exhaustsOnPlay, "warcry+ exhausts");
+        assertFalse(MirrorRegistry.lookup("Burning Pact").exhaustsOnPlay,
+                "burning pact only exhausts the chosen card, not itself");
     }
 }

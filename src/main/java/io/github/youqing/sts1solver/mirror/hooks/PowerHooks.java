@@ -78,6 +78,14 @@ public final class PowerHooks {
         });
 
         // ---- 回合末，弃手牌之后 -------------------------------------------------
+        // EntanglePower.atEndOfTurn → 自己消失（「本回合不能打出攻击牌」只管这一回合）
+        reg("Entangled", HookPhase.END_OF_TURN, new Handler() {
+            @Override
+            public void fire(SimState state, int amount, HookContext ctx) {
+                state.playerPowers.remove("Entangled");
+            }
+        });
+
         // CombustPower.atEndOfTurn → LoseHPAction(owner, owner, hpLoss) + DamageAllEnemies(amount)
         reg("Combust", HookPhase.END_OF_TURN, new Handler() {
             @Override

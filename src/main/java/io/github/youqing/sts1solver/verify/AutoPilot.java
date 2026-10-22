@@ -237,8 +237,26 @@ public final class AutoPilot {
             return false;
         }
 
-        String key = key(chosen);
+        // 🔴 可打出性必须交给游戏判一次。搜索只看镜像语义，不知道「缠身封了攻击牌」
+        // 这类限制，会反复选中一张永远打不出的牌，然后卡在 queuedCard 上直到 AUTO 自杀
+        // （实测：16:10:11 AUTO play Strike_R → 3 秒后 AUTO stuck）。游戏说打不了，
+        // 就退回到下面那条会检查 canUse 的兜底路径。
         AbstractMonster target = resolveTarget(chosen, pickTarget(attackTarget));
+        if (!chosen.canUse(player, target)) {
+            Trace.info("AUTO skip " + key(chosen) + " (game refuses to play it)");
+            ArrayList<AbstractCard> hand = new ArrayList<AbstractCard>(player.hand.group);
+            chosen = firstPlayable(player, hand, attackTarget, Pref.UNMIRRORED);
+            mirrored = chosen == null;
+            if (chosen == null) {
+                chosen = firstPlayable(player, hand, attackTarget, Pref.MIRRORED);
+            }
+            if (chosen == null) {
+                return false;
+            }
+            target = resolveTarget(chosen, pickTarget(attackTarget));
+        }
+
+        String key = key(chosen);
         AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
         queuedCard = chosen;
         queuedFrames = 0;

@@ -276,9 +276,10 @@ public final class MirrorRegistry {
         register("Burning Pact", Effects.exhaustChosenThenDraw(2));
         register("Burning Pact+", Effects.exhaustChosenThenDraw(3));
 
-        // 战吼：抽 1/2，然后把一张手牌放回抽牌堆顶
-        register("Warcry", Effects.drawThenPutChosenOnTop(1));
-        register("Warcry+", Effects.drawThenPutChosenOnTop(2));
+        // 战吼：抽 1/2，然后把一张手牌放回抽牌堆顶，**自身消耗**
+        // （字节码：Warcry 构造器里 putfield exhaust:Z = 1；Burning Pact 没有）
+        registerExhaust("Warcry", Effects.drawThenPutChosenOnTop(1));
+        registerExhaust("Warcry+", Effects.drawThenPutChosenOnTop(2));
 
         // ---- 第八批：条件/收益类 ---------------------------------------------
         // 啃食：10/12 伤，击杀则最大生命 +3/+4

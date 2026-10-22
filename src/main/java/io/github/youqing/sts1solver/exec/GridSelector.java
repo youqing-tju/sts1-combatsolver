@@ -70,6 +70,8 @@ public final class GridSelector {
                 return;
             }
             card.hb.clicked = true;
+            // 记下实机选中的是哪张，对拍重放时要用同一个选择
+            io.github.youqing.sts1solver.verify.ShadowTracker.onChoicePicked(card);
             Trace.info("GRID pick " + card.cardID + (card.upgraded ? "+" : ""));
         } catch (Throwable t) {
             Trace.error("grid mark failed", t);

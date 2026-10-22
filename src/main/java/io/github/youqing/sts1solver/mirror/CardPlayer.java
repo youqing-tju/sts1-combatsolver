@@ -59,6 +59,11 @@ public final class CardPlayer {
         if (mirror == null) {
             throw new ActionRejected("no mirror for card " + card.key());
         }
+        // 缠身（Entangled）：本回合不能打出攻击牌。
+        // 原版在 AbstractCard 的可打出判定里：hasPower("Entangled") && type == ATTACK → false。
+        if (isAttack(card) && power(state, "Entangled") > 0) {
+            throw new ActionRejected("attack blocked by Entangled: " + card.key());
+        }
         // 动态费用（浴血奋战：本场每损失一次 HP，费用 -1，最低 0）
         int effectiveCost = card.cost;
         if (mirror.costDropsWithHpLoss && effectiveCost > 0) {
@@ -110,12 +115,34 @@ public final class CardPlayer {
      * while still holding the same cards.
      */
     public static void playByKey(SimState state, String cardKey, int targetIndex) {
+        playByKey(state, cardKey, targetIndex, -1);
+    }
+
+    public static void playByKey(SimState state, String cardKey, int targetIndex, int choiceIndex) {
         for (int i = 0; i < state.hand.size(); i++) {
             if (state.hand.get(i).key().equals(cardKey)) {
-                play(state, i, targetIndex);
+                play(state, i, targetIndex, choiceIndex);
                 return;
             }
         }
         throw new ActionRejected("card not in hand: " + cardKey);
+    }
+
+    private static int power(SimState state, String id) {
+        Integer v = state.playerPowers.get(id);
+        return v == null ? 0 : v;
+    }
+
+    /**
+     * 这张牌算不算攻击牌。
+     *
+     * <p>影子只在从手牌捕获时带上 {@code type}；效果生成的牌可能没有类型，
+     * 这时退回注册表维护的攻击牌名单。判断错了会漏掉「缠身」的拦截，所以两条路都留着。
+     */
+    private static boolean isAttack(SimCard card) {
+        if (card.isAttack()) {
+            return true;
+        }
+        return card.type.isEmpty() && Effects.isAttackId(card.id);
     }
 }
