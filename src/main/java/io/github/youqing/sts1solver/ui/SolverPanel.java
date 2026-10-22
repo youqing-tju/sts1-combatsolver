@@ -140,9 +140,10 @@ public final class SolverPanel {
                 "diff " + m + "/" + (m + bad) + "   |   AUTO " + (AutoPilot.enabled() ? "ON" : "OFF"),
                 combatLine,
                 "budget " + io.github.youqing.sts1solver.config.SolverConfig.budget().label
-                        + " (" + io.github.youqing.sts1solver.config.SolverConfig.budget().beamWidth
-                        + "x" + io.github.youqing.sts1solver.config.SolverConfig.budget().depth + ")"
-                        + "   |   click AUTO to auto-play mirrored cards"
+                        + " (width " + io.github.youqing.sts1solver.config.SolverConfig.budget().beamWidth
+                        + ", nodes " + io.github.youqing.sts1solver.config.SolverConfig.budget().nodeLimit
+                        + ", " + (io.github.youqing.sts1solver.config.SolverConfig.budget().timeMillis / 1000)
+                        + "s)   |   click AUTO to auto-play mirrored cards"
         };
     }
 

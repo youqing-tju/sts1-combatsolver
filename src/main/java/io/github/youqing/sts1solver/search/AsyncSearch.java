@@ -54,6 +54,8 @@ public final class AsyncSearch {
     private static long requestBudget;
     private static int requestWidth;
     private static int requestDepth;
+    private static int requestNodeLimit;
+    private static int requestCardBranches;
     private static boolean running;
 
     private static volatile Result ready;
@@ -84,6 +86,8 @@ public final class AsyncSearch {
             int hand;
             int width;
             int depth;
+            int nodeLimit;
+            int cardBranches;
             String fingerprint;
             synchronized (LOCK) {
                 while (request == null) {
@@ -99,6 +103,8 @@ public final class AsyncSearch {
                 hand = requestHand;
                 width = requestWidth;
                 depth = requestDepth;
+                nodeLimit = requestNodeLimit;
+                cardBranches = requestCardBranches;
                 fingerprint = requestFingerprint;
                 request = null;
                 requestFingerprint = null;
@@ -106,7 +112,8 @@ public final class AsyncSearch {
             }
             Result result;
             try {
-                BeamSolver solver = new BeamSolver(energy, hand, width, depth);
+                BeamSolver solver = new BeamSolver(energy, hand, width, depth,
+                        nodeLimit, cardBranches);
                 PlanAction action = solver.bestFirstAction(root, budget);
                 result = new Result(fingerprint, action, solver.lastNodes,
                         solver.lastDepth, solver.lastMillis, solver.lastLeaves,
@@ -123,7 +130,8 @@ public final class AsyncSearch {
 
     /** 提交一次搜索（重复提交会覆盖上一次未开始的请求）。 */
     public static void submit(SimState root, String fingerprint, int energy, int hand,
-                              int width, int depth, long budgetMillis) {
+                              int width, int depth, long budgetMillis,
+                              int nodeLimit, int cardBranches) {
         start();
         synchronized (LOCK) {
             request = root;
@@ -133,6 +141,8 @@ public final class AsyncSearch {
             requestWidth = width;
             requestDepth = depth;
             requestBudget = budgetMillis;
+            requestNodeLimit = nodeLimit;
+            requestCardBranches = cardBranches;
             LOCK.notifyAll();
         }
     }

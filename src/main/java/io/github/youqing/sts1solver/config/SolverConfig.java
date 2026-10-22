@@ -18,30 +18,43 @@ import io.github.youqing.sts1solver.diag.Trace;
  */
 public final class SolverConfig {
 
-    /** 搜索预算档位。宽度/深度同时放大，节点数是二者乘积量级。 */
+    /**
+     * 搜索预算档位 —— 数值直接照抄蓝本 {@code SolverSearchProfile}
+     * （{@code reference/sts2-combatsolver/src/Search/SolverSearchProfile.cs}）：
+     *
+     * <pre>
+     *          BeamWidth  MaxExpandedNodes  MaxCardBranches  SoftTimeLimit
+     * Low          45          60,000             24            60 s
+     * Medium       60         120,000             32           120 s
+     * High         90         250,000             48           180 s
+     * VeryHigh    135         500,000             72           300 s
+     * </pre>
+     *
+     * <p>⚠️ 我们之前只有「宽度 6~10」，比蓝本窄一个数量级 —— 这才是「搜索量太小」的真正原因。
+     * 节点上限是**硬停止**：跑满就返回当前最好的完整路线（蓝本同样会在面板上标
+     * 「计算尚未彻底穷尽，已达到节点上限」）。
+     */
     public enum Budget {
-        FAST("快", 4, 6, 8, 1000),
-        NORMAL("标准", 6, 10, 50, 8000),
-        DEEP("深", 10, 16, 300, 120000);
+        LOW("低", 45, 60_000, 24, 60_000),
+        MEDIUM("中", 60, 120_000, 32, 120_000),
+        HIGH("高", 90, 250_000, 48, 180_000),
+        VERY_HIGH("极高", 135, 500_000, 72, 300_000);
 
         public final String label;
         public final int beamWidth;
-        /** 深度上限。搜索是迭代加深的，真正的深度由 {@link #budgetMillis} 决定。 */
-        public final int depth;
-        /** 每次决策的时间预算（跑在后台线程，不会卡帧）。 */
-        public final long budgetMillis;
-        /**
-         * **整场战斗规划**的预算。蓝本实测是 1.1 s（第一场小怪）到 120 s（最终 boss），
-         * 我们这里给的是起步值，可按需调大到 120000。
-         */
-        public final long planMillis;
+        /** 生成状态数的硬上限（蓝本 MaxExpandedNodes）。 */
+        public final int nodeLimit;
+        /** 每个节点最多展开多少个「牌 × 目标」分支（蓝本 MaxCardBranchesPerNode）。 */
+        public final int cardBranches;
+        /** 软时间上限（毫秒），到点就返回当前最好的完整路线。 */
+        public final long timeMillis;
 
-        Budget(String label, int beamWidth, int depth, long budgetMillis, long planMillis) {
+        Budget(String label, int beamWidth, int nodeLimit, int cardBranches, long timeMillis) {
             this.label = label;
             this.beamWidth = beamWidth;
-            this.depth = depth;
-            this.budgetMillis = budgetMillis;
-            this.planMillis = planMillis;
+            this.nodeLimit = nodeLimit;
+            this.cardBranches = cardBranches;
+            this.timeMillis = timeMillis;
         }
     }
 
@@ -51,7 +64,7 @@ public final class SolverConfig {
     private static final String KEY_AUTO_START = "autoStart";
 
     private static SpireConfig config;
-    private static Budget budget = Budget.NORMAL;
+    private static Budget budget = Budget.MEDIUM;
     private static boolean autoStart;
 
     private SolverConfig() {
@@ -59,7 +72,7 @@ public final class SolverConfig {
 
     public static void load() {
         Properties defaults = new Properties();
-        defaults.setProperty(KEY_BUDGET, Budget.NORMAL.name());
+        defaults.setProperty(KEY_BUDGET, Budget.MEDIUM.name());
         defaults.setProperty(KEY_AUTO_START, "false");
         try {
             config = new SpireConfig(MOD_ID, FILE, defaults);
@@ -71,8 +84,8 @@ public final class SolverConfig {
             }
             autoStart = config.getBool(KEY_AUTO_START);
             Trace.info("config loaded: budget=" + budget.label
-                    + " (" + budget.beamWidth + "x" + budget.depth
-                    + "/" + budget.budgetMillis + "ms)"
+                    + " (width " + budget.beamWidth + ", nodes " + budget.nodeLimit
+                    + ", time " + budget.timeMillis + "ms)"
                     + " autoStart=" + autoStart);
         } catch (Throwable t) {
             // 配置坏了也要能玩：全部走默认值
@@ -94,8 +107,8 @@ public final class SolverConfig {
         Budget[] all = Budget.values();
         budget = all[(budget.ordinal() + 1) % all.length];
         save();
-        Trace.info("budget -> " + budget.label + " (" + budget.beamWidth + "x" + budget.depth
-                + "/" + budget.budgetMillis + "ms)");
+        Trace.info("budget -> " + budget.label + " (width " + budget.beamWidth
+                + ", nodes " + budget.nodeLimit + ", time " + budget.timeMillis + "ms)");
         return budget;
     }
 

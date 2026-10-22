@@ -125,6 +125,23 @@ class SearchThroughputTest {
         assertTrue(solver.lastLeaves > 0, "至少要有一条世界线走到战斗结束");
     }
 
+    /**
+     * 蓝本档位（Medium：宽度 60 / 节点 12 万 / 分支 32 / 时间 120 s）跑起来什么量。
+     * 测试里只给 2 秒，避免 CI 等两分钟。
+     */
+    @Test
+    void blueprintMediumProfile() {
+        BeamSolver solver = new BeamSolver(3, 5, 60, 60, 120_000, 32);
+        solver.bestFirstAction(longFight(), 2000);
+
+        System.out.printf("[blueprint-medium] 2s：路线 %d 步，世界线 %d 条，状态 %d 个，"
+                        + "深度 %d，宽度 %d，耗时 %d ms，节点上限命中=%s%n",
+                solver.lastRoute.size(), solver.lastLeaves, solver.lastNodes,
+                solver.lastDepth, solver.lastWidth, solver.lastMillis, solver.hitNodeLimit);
+
+        assertTrue(solver.lastNodes > 10_000, "宽度 60 应该能跑出上万状态");
+    }
+
     /** AUTO 真正走的路径：给 50 ms 预算，迭代加深看能吃多深。 */
     @Test
     void timeBudgetedDeepening() {

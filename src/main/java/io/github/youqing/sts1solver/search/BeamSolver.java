@@ -49,6 +49,8 @@ public final class BeamSolver {
     public int lastLeaves;
     /** {@link #lastRoute} 的可执行版本（带牌名，能校验）。 */
     public java.util.List<RouteStep> lastSteps = new java.util.ArrayList<RouteStep>();
+    /** 是否被节点上限/时间预算截断（= 蓝本的「尚未彻底穷尽」）。 */
+    public boolean hitNodeLimit;
     /**
      * ⚠️ 非蓝本实现，已默认关闭。
      *
@@ -76,11 +78,23 @@ public final class BeamSolver {
         return tt.misses();
     }
 
+    /** 生成状态数的硬上限（蓝本 MaxExpandedNodes）；0 = 不限。 */
+    private final int nodeLimit;
+    /** 每个节点最多展开多少个「牌 × 目标」分支（蓝本 MaxCardBranchesPerNode）；0 = 不限。 */
+    private final int cardBranchLimit;
+
     public BeamSolver(int energyPerTurn, int handSize, int beamWidth, int depth) {
+        this(energyPerTurn, handSize, beamWidth, depth, 0, 0);
+    }
+
+    public BeamSolver(int energyPerTurn, int handSize, int beamWidth, int depth,
+                      int nodeLimit, int cardBranchLimit) {
         this.energyPerTurn = energyPerTurn;
         this.handSize = handSize;
         this.beamWidth = Math.max(1, beamWidth);
         this.depth = Math.max(1, depth);
+        this.nodeLimit = Math.max(0, nodeLimit);
+        this.cardBranchLimit = Math.max(0, cardBranchLimit);
     }
 
     /**
@@ -177,6 +191,11 @@ public final class BeamSolver {
             if (next.isEmpty()) {
                 break;
             }
+            if (nodeLimit > 0 && lastNodes >= nodeLimit) {
+                // 硬上限：蓝本会在面板标「尚未彻底穷尽」，这里用返回值体现
+                hitNodeLimit = true;
+                break;
+            }
             beam = prune(next, width);
         }
         finished.addAll(beam);
@@ -248,18 +267,19 @@ public final class BeamSolver {
         return new java.util.ArrayList<PlanAction>(reversed);
     }
 
-    private void addPlay(SimState state, int cardIndex, int targetIndex, int choiceIndex,
-                         SearchNode node, List<SearchNode> out) {
+    private boolean addPlay(SimState state, int cardIndex, int targetIndex, int choiceIndex,
+                            SearchNode node, List<SearchNode> out) {
         SimState copy = state.copy();
         try {
             CardPlayer.play(copy, cardIndex, targetIndex, choiceIndex);
         } catch (ActionRejected rejected) {
-            return;   // 这张牌没镜像/打不出，跳过而不是猜
+            return false;   // 这张牌没镜像/打不出，跳过而不是猜
         } catch (Throwable t) {
-            return;
+            return false;
         }
         out.add(new SearchNode(copy, PlanAction.play(cardIndex, targetIndex, choiceIndex), node,
                 node.depth + 1, evaluate(copy), state.hand.get(cardIndex).key()));
+        return true;
     }
 
     private static boolean sameAction(SearchNode a, SearchNode b) {
@@ -327,7 +347,11 @@ public final class BeamSolver {
     private void expand(SearchNode node, List<SearchNode> out) {
         SimState state = node.state;
 
+        int produced = 0;
         for (int i = 0; i < state.hand.size(); i++) {
+            if (cardBranchLimit > 0 && produced >= cardBranchLimit) {
+                break;      // 蓝本的 MaxCardBranchesPerNode：分支太散就截断
+            }
             SimCard card = state.hand.get(i);
             io.github.youqing.sts1solver.mirror.CardMirror mirror =
                     io.github.youqing.sts1solver.mirror.MirrorRegistry.lookup(
@@ -344,7 +368,12 @@ public final class BeamSolver {
                     choices = Math.max(0, state.hand.size() - 1);
                 }
                 for (int c = 0; c < choices; c++) {
-                    addPlay(state, i, -1, c, node, out);
+                    if (cardBranchLimit > 0 && produced >= cardBranchLimit) {
+                        break;
+                    }
+                    if (addPlay(state, i, -1, c, node, out)) {
+                        produced++;
+                    }
                 }
             } else if (mirror != null && mirror.targeted) {
                 // 单目标牌：对每个存活敌人各展开一条（M2-1 多目标）
@@ -352,11 +381,15 @@ public final class BeamSolver {
                     if (state.monsters.get(t).hp <= 0) {
                         continue;
                     }
-                    addPlay(state, i, t, -1, node, out);
+                    if (addPlay(state, i, t, -1, node, out)) {
+                        produced++;
+                    }
                 }
             } else {
                 // 群伤/自我指向：只需展开一次，否则白白吃掉 beam 宽度
-                addPlay(state, i, -1, -1, node, out);
+                if (addPlay(state, i, -1, -1, node, out)) {
+                    produced++;
+                }
             }
         }
 
