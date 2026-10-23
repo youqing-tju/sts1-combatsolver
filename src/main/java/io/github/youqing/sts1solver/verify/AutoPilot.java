@@ -318,13 +318,14 @@ public final class AutoPilot {
         framesWaitingForPlan = 0;
 
         searchCount++;
-        searchNodesTotal += result.states;
+        searchNodesTotal += result.nodes;
         if (result.millis > 5000) {
-            Trace.warn("SEARCH slow: " + result.millis + " ms, " + result.states + " states");
+            Trace.warn("SEARCH slow: " + result.millis + " ms, " + result.nodes + " nodes");
         } else if (searchCount % 5 == 0) {
-            Trace.info("SEARCH #" + searchCount + " avgStates=" + (searchNodesTotal / searchCount)
+            Trace.info("SEARCH #" + searchCount + " avgNodes=" + (searchNodesTotal / searchCount)
                     + " depth=" + result.depth + " lines=" + result.lines
-                    + " ms=" + result.millis + " plan=" + result.steps.size() + " steps");
+                    + " ms=" + result.millis + " plan=" + result.steps.size() + " steps"
+                    + " states=" + result.states);
         }
         if (result.steps == null || result.steps.isEmpty()) {
             Trace.info("SEARCH -> empty plan, end turn");
@@ -333,7 +334,8 @@ public final class AutoPilot {
         plan = new java.util.ArrayDeque<io.github.youqing.sts1solver.search.RouteStep>(
                 result.steps);
         Trace.info("PLAN ready: " + result.steps.size() + " steps, depth " + result.depth
-                + ", " + result.states + " states, " + result.millis + " ms");
+                + ", " + result.nodes + " nodes / " + result.states + " states, "
+                + result.millis + " ms");
         int outcome = executePlannedStep(player, attackTarget);
         return outcome == OUTCOME_REPLAN ? OUTCOME_WAITING : outcome;
     }

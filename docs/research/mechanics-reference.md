@@ -387,3 +387,38 @@ mod 在首场战斗时一次性导出（`capture/CardExporter`）：
 | 输出完整路线 + 每回合战损/能量 | 只输出「下一张牌」 |
 | 冻结路线 / 执行本回合 / 重新计算 | AUTO 逐张实时决策 |
 
+
+### 12.1 「世界线」到底是什么（A｜蓝本源码，2026-10-23）
+
+面板上的「已查阅 N 条世界线」**不是完整路线数**，而是**展开节点数**：
+
+```csharp
+// src/Runtime/SolverController.cs:617-625
+private static void RecordReviewedWorldlines(SolverResult result) {
+    if (result.WasRestoredFromCache) return;
+    if (!_combat.ReviewedWorldlineResults.Add(result)) return;
+    long reviewed = result.TotalExpandedNodes;          // ← 就是它
+    _combat.ReviewedWorldlinesTotal = checked(_combat.ReviewedWorldlinesTotal + reviewed);
+}
+```
+
+循环里 {@code _run.Expanded++} 在 `src/Search/CombatBeamSolver.ExpansionPlan.cs:34`，
+而节点上限的判定在 `CombatBeamSolver.Phases.cs:534`：
+`else if (boundary == None && _run.Expanded >= _profile.MaxExpandedNodes)`。
+
+**结论**：`MaxExpandedNodes` 卡的就是这个计数器，所以：
+- 我们早期记「展开了几个父节点」是**对的**；
+- 后来改成「生成的子状态数」反而**偏离了蓝本口径**（一个展开会生成十几个子状态，差一个数量级）；
+- 现在两个都记：`lastNodes`（展开数 = 世界线）+ `lastStates`（子状态数 = 诊断）。
+
+对齐后的实测（合成 220 血战斗）：
+
+| 档 | 节点 | 状态 | 到达终局 | 宽度 | 耗时 |
+|---|---|---|---|---|---|
+| 固定 6×4（单次决策） | 19 | 176 | - | 6 | 0.63 ms |
+| Medium，2 s 预算 | 102,807 | 286,934 | 3,720 | 960 | 946 ms |
+
+吞吐 ≈ **10.8 万节点/秒**，蓝本 ≈ 1000 节点/秒 —— 差两个数量级，
+说明 STS2 那边一个「展开」真实成本比我们重得多（完整对象图克隆 vs 纯数据 copy）。
+所以**节点上限不能照抄数值**：蓝本 Medium=12 万节点要 120 s，我们 1 s 就跑完了。
+

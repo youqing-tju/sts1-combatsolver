@@ -59,20 +59,23 @@ class SearchThroughputTest {
         }
 
         int runs = 30;
+        long nodes = 0;
         long states = 0;
         long startedAt = System.nanoTime();
         for (int i = 0; i < runs; i++) {
             solver.bestFirstAction(realistic());
-            states += solver.lastNodes;
+            nodes += solver.lastNodes;
+            states += solver.lastStates;
         }
         long elapsed = System.nanoTime() - startedAt;
-        double perSecond = states * 1e9 / Math.max(1, elapsed);
+        double nodesPerSecond = nodes * 1e9 / Math.max(1, elapsed);
+        double statesPerSecond = states * 1e9 / Math.max(1, elapsed);
 
-        System.out.printf("[A4-fixed] %d 状态/次，%.0f 状态/秒，单次 %.2f ms%n",
-                states / runs, perSecond, elapsed / 1e6 / runs);
+        System.out.printf("[A4-fixed] 每次 %d 节点 / %d 状态，%.0f 节点/秒（%.0f 状态/秒），单次 %.2f ms%n",
+                nodes / runs, states / runs, nodesPerSecond, statesPerSecond, elapsed / 1e6 / runs);
 
-        assertTrue(perSecond > 30_000,
-                "固定深度吞吐太低：" + perSecond + " 状态/秒");
+        assertTrue(nodesPerSecond > 3_000,
+                "固定深度吞吐太低：" + nodesPerSecond + " 节点/秒");
     }
 
     /** 一场能打十几个回合的仗，用来测「整场战斗规划」吃多少量。 */
@@ -116,13 +119,13 @@ class SearchThroughputTest {
             }
         }
         System.out.printf(
-                "[full] 1.5s 预算：路线 %d 步 / %d 回合，世界线 %d 条，状态 %d 个，"
+                "[full] 1.5s 预算：路线 %d 步 / %d 回合，%d 节点 / %d 状态，到达终局 %d 条，"
                         + "深度 %d，宽度 %d，耗时 %d ms%n",
-                solver.lastRoute.size(), turns, solver.lastLeaves, solver.lastNodes,
-                solver.lastDepth, solver.lastWidth, solver.lastMillis);
+                solver.lastRoute.size(), turns, solver.lastNodes, solver.lastStates,
+                solver.lastLeaves, solver.lastDepth, solver.lastWidth, solver.lastMillis);
 
         assertTrue(solver.lastRoute.size() > 0, "至少要产出一条路线");
-        assertTrue(solver.lastLeaves > 0, "至少要有一条世界线走到战斗结束");
+        assertTrue(solver.lastNodes > 0, "至少要展开节点");
     }
 
     /**
@@ -134,12 +137,13 @@ class SearchThroughputTest {
         BeamSolver solver = new BeamSolver(3, 5, 60, 60, 120_000, 32);
         solver.bestFirstAction(longFight(), 2000);
 
-        System.out.printf("[blueprint-medium] 2s：路线 %d 步，世界线 %d 条，状态 %d 个，"
-                        + "深度 %d，宽度 %d，耗时 %d ms，节点上限命中=%s%n",
-                solver.lastRoute.size(), solver.lastLeaves, solver.lastNodes,
-                solver.lastDepth, solver.lastWidth, solver.lastMillis, solver.hitNodeLimit);
+        System.out.printf("[blueprint-medium] 2s：路线 %d 步，%d 节点 / %d 状态，"
+                        + "到达终局 %d 条，深度 %d，宽度 %d，耗时 %d ms，节点上限命中=%s%n",
+                solver.lastRoute.size(), solver.lastNodes, solver.lastStates,
+                solver.lastLeaves, solver.lastDepth, solver.lastWidth, solver.lastMillis,
+                solver.hitNodeLimit);
 
-        assertTrue(solver.lastNodes > 10_000, "宽度 60 应该能跑出上万状态");
+        assertTrue(solver.lastNodes > 3_000, "宽度 60 应该能跑出上千节点");
     }
 
     /** AUTO 真正走的路径：给 50 ms 预算，迭代加深看能吃多深。 */

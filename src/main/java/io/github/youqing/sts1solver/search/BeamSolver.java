@@ -33,8 +33,17 @@ public final class BeamSolver {
     /** 诊断开关（单测里打开）。 */
     public static boolean DEBUG;
 
-    /** 上一次搜索的规模与耗时（A4 指标：120 秒 ≥ 10 万节点）。 */
+    /**
+     * 上一次搜索**展开的节点数** —— 这是蓝本「世界线」的口径。
+     *
+     * <p>依据：{@code SolverController.RecordReviewedWorldlines} 里
+     * {@code ReviewedWorldlinesTotal += result.TotalExpandedNodes}，
+     * 面板上「已查阅 N 条世界线（M 条/s）」的 N 就是它；节点上限
+     * {@code MaxExpandedNodes} 卡的也是这个数。
+     */
     public int lastNodes;
+    /** 生成的子状态数（我们自己看的诊断指标，一个展开会生成十几个）。 */
+    public int lastStates;
     public long lastMillis;
     /** 实际跑完的深度（迭代加深时用来看预算吃到了几层）。 */
     public int lastDepth;
@@ -129,6 +138,7 @@ public final class BeamSolver {
     public PlanAction bestFirstAction(SimState root, long budgetMillis) {
         long startedAt = System.nanoTime();
         lastNodes = 0;
+        lastStates = 0;
         lastDepth = 0;
         lastLeaves = 0;
         lastRoute = new java.util.ArrayList<PlanAction>();
@@ -147,19 +157,27 @@ public final class BeamSolver {
         // 只采用**完整跑完**的那一轮，避免「跑了一半的深层」靠深度偏置赢过跑完的浅层。
         SearchNode best = null;
         long deadline = startedAt + budgetMillis * 1_000_000L;
-        int[] widths = {beamWidth, Math.max(beamWidth * 2, beamWidth + 2), beamWidth * 4};
+        // 宽度阶梯：1×/2×/4×/8×/16×。搜索会在某一档把预算吃完或把树搜尽，
+        // 所以阶梯给足，让时间/节点上限去决定停在哪一档（实测 4 档时 336ms 就提前收敛了）。
+        int[] widths = {beamWidth, beamWidth * 2, beamWidth * 4, beamWidth * 8, beamWidth * 16};
+        int maxDepth = Math.max(1, depth);
         outer:
         for (int w : widths) {
-            for (int d = 1; d <= Math.max(1, depth); d++) {
+            // 🔴 深度按几何级数加深（2/4/8/16/32/60），不是每次 +1。
+            // 每轮都从零重跑，+1 式加深在深度 60 时会白跑 60 遍前 59 层（实测 92% 的节点是重复功）。
+            for (int d = 2; d < maxDepth; d *= 2) {
                 best = searchToDepth(root, d, w);
                 lastDepth = d;
                 lastWidth = w;
                 if (System.nanoTime() >= deadline) {
                     break outer;
                 }
-                if (d == depth) {
-                    break;      // 这个宽度爬满了，换更宽的
-                }
+            }
+            best = searchToDepth(root, maxDepth, w);
+            lastDepth = maxDepth;
+            lastWidth = w;
+            if (System.nanoTime() >= deadline) {
+                break outer;
             }
         }
         lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
@@ -180,14 +198,13 @@ public final class BeamSolver {
             for (SearchNode node : beam) {
                 if (node.terminal()) {
                     finished.add(node);
-                    lastLeaves++;      // 一条完整的「世界线」走到头了
+                    lastLeaves++;      // 这条路线已经打到战斗结束了
                     continue;
                 }
                 expand(node, next);
+                lastNodes++;           // 蓝本口径：一个展开 = 一条「世界线」
             }
-            // 节点数 = 真正生成出来的子状态数（以前记的是「展开了几个父节点」，
-            // 一个父节点会生成十几二十个子状态，所以数字虚低了一个数量级）
-            lastNodes += next.size() - before;
+            lastStates += next.size() - before;
             if (next.isEmpty()) {
                 break;
             }
