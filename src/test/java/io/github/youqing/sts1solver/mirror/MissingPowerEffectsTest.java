@@ -5,10 +5,12 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 
 import io.github.youqing.sts1solver.sim.CombatFlow;
+import io.github.youqing.sts1solver.sim.SimCard;
 import io.github.youqing.sts1solver.sim.SimMonster;
 import io.github.youqing.sts1solver.sim.SimState;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 「卡牌设置了能力，但效果没建模」那一批里的三个。
@@ -91,5 +93,68 @@ class MissingPowerEffectsTest {
 
         assertEquals(37, s.monsters.get(0).hp, "6 反弹 - 3 格挡 = 3 点掉血");
         assertEquals(0, s.monsters.get(0).block);
+    }
+
+    // ------------------------------------------ 第二批：Flex / Rupture / Evolve
+
+    /**
+     * Flex「活动肌肉」：立即 +N 力量，回合末 −N。
+     *
+     * <p>🔴 能力名必须是 {@code "Gain Strength"}（{@code GainStrengthPower.POWER_ID}），
+     * 不是 {@code "Flex"} —— {@code SimState.capture()} 用 {@code pw.ID} 作 key，
+     * 写错会对拍失配。
+     */
+    @Test
+    void flexAddsStrengthNowAndLosesItAtEndOfTurn() {
+        SimState s = fight();
+        Effects.powerOnPlayer("Gain Strength", 2).applyTo(s, -1, null);
+        Effects.powerOnPlayer(io.github.youqing.sts1solver.mirror.DamageCalc.STRENGTH, 2)
+                .applyTo(s, -1, null);
+        assertEquals(2, s.playerPowers.get("Strength"));
+        assertEquals(2, s.playerPowers.get("Gain Strength"));
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(0, s.playerPowers.get("Strength"), "回合末被减掉");
+    }
+
+    /** 破裂：自己掉血（卡牌自伤）时，+N 力量。 */
+    @Test
+    void ruptureGrantsStrengthOnSelfDamage() {
+        SimState s = fight();
+        s.playerPowers.put("Rupture", 3);
+
+        Effects.loseHp(2).applyTo(s, -1, null);
+
+        assertEquals(3, s.playerPowers.get("Strength"));
+        assertEquals(28, s.hp);
+    }
+
+    /** 没有掉血（0 伤）不触发。 */
+    @Test
+    void ruptureIgnoresZeroDamage() {
+        SimState s = fight();
+        s.playerPowers.put("Rupture", 3);
+        Effects.loseHp(0).applyTo(s, -1, null);
+        assertEquals(0, s.playerPowers.get("Strength") == null ? 0 : s.playerPowers.get("Strength"));
+    }
+
+    /** 进化：抽到状态牌时，抽 amount 张。 */
+    @Test
+    void evolveDrawsExtraWhenAStatusIsDrawn() {
+        SimState s = fight();
+        s.playerPowers.put("Evolve", 2);
+        s.hand.clear();
+        s.draw.clear();
+        // 抽牌从**堆顶**（列表末尾）取，所以把状态牌放末尾
+        for (int i = 0; i < 6; i++) {
+            s.draw.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+        s.draw.add(new SimCard("Wound", false, -1, 0, "STATUS"));   // 堆顶，最先被抽到
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        // 抽 5 张里有 1 张状态 → 进化补 2 张
+        assertTrue(s.hand.size() > 5, "手牌超过 5 张 = 进化补的：" + s.hand.size());
     }
 }

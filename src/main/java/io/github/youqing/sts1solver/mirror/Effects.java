@@ -232,6 +232,16 @@ public final class Effects {
                 state.hp = Math.max(0, state.hp - amount);
                 state.hpLossCount++;
                 DeathSaveRelic.applyIfLethal(state);
+                // RupturePower.wasHPLost：自己掉血（info.owner == owner）且 damageAmount > 0
+                // 时，+amount 点力量
+                if (amount > 0) {
+                    Integer rupture = state.playerPowers.get("Rupture");
+                    if (rupture != null && rupture > 0) {
+                        Integer str = state.playerPowers.get(DamageCalc.STRENGTH);
+                        state.playerPowers.put(DamageCalc.STRENGTH,
+                                (str == null ? 0 : str) + rupture);
+                    }
+                }
             }
 
             @Override

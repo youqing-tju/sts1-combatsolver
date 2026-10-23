@@ -88,13 +88,16 @@ public final class MirrorRegistry {
         register("Metallicize", Effects.powerOnPlayer("Metallicize", 3));
         register("Metallicize+", Effects.powerOnPlayer("Metallicize", 4));
 
-        // 活动肌肉：力量 +2，回合末失去（用两个 power 表达）
+        // 活动肌肉（Flex）：力量 +2，回合末失去
+        // 🔴 能力名必须用原版 ID "Gain Strength"（GainStrengthPower.POWER_ID）——
+        //    SimState.capture() 用 pw.ID 作 key，写 "Flex" 会对拍失配。
+        //    这个 power 的 atEndOfTurn 会减去 amount 点力量。
         register("Flex", Arrays.asList(
                 Effects.powerOnPlayer(DamageCalc.STRENGTH, 2),
-                Effects.powerOnPlayer("Flex", 2)));
+                Effects.powerOnPlayer("Gain Strength", 2)));
         register("Flex+", Arrays.asList(
                 Effects.powerOnPlayer(DamageCalc.STRENGTH, 4),
-                Effects.powerOnPlayer("Flex", 4)));
+                Effects.powerOnPlayer("Gain Strength", 4)));
 
         // ---- 第三批：攻击/技能 -------------------------------------------------
         // 铁斩波：5 伤 + 5 格挡

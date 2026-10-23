@@ -96,6 +96,16 @@ public final class PowerHooks {
             }
         });
 
+        // GainStrengthPower.atEndOfTurn（Flex「活动肌肉」）→ ApplyPowerAction(..., Strength, -amount)
+        // 即回合末减去 amount 点力量。原版 power ID 是 "Gain Strength"，不是 "Flex"。
+        reg("Gain Strength", HookPhase.END_OF_TURN, new Handler() {
+            @Override
+            public void fire(SimState state, int amount, HookContext ctx) {
+                addPower(state, DamageCalc.STRENGTH, -amount);
+                state.playerPowers.remove("Gain Strength");
+            }
+        });
+
         // CombustPower.atEndOfTurn → LoseHPAction(owner, owner, hpLoss) + DamageAllEnemies(amount)
         reg("Combust", HookPhase.END_OF_TURN, new Handler() {
             @Override

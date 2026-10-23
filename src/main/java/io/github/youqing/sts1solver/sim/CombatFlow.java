@@ -157,17 +157,39 @@ public final class CombatFlow {
     }
 
     private static void draw(SimState state, int count) {
+        draw(state, count, 0);
+    }
+
+    /**
+     * @param evolveDepth 递归深度保护：{@code EvolvePower.onCardDraw} 抽到 STATUS 会再抽，
+     *                    再抽到 STATUS 还会再抽……原版是 action 异步入队不会死循环，
+     *                    我们同步算就要自己限深度。
+     */
+    private static void draw(SimState state, int count, int evolveDepth) {
+        int statusDrawn = 0;
         for (int i = 0; i < count; i++) {
             if (state.hand.size() >= HAND_LIMIT) {
-                return;
+                break;
             }
             if (state.draw.isEmpty()) {
                 io.github.youqing.sts1solver.mirror.Effects.reshuffleDiscardIntoDraw(state);
                 if (state.draw.isEmpty()) {
-                    return;    // 弃牌堆也空了，真的没牌可抽
+                    break;    // 弃牌堆也空了，真的没牌可抽
                 }
             }
-            state.hand.add(state.draw.remove(state.draw.size() - 1));
+            io.github.youqing.sts1solver.sim.SimCard drawn =
+                    state.draw.remove(state.draw.size() - 1);
+            state.hand.add(drawn);
+            if ("STATUS".equals(drawn.type)) {
+                statusDrawn++;
+            }
+        }
+        // EvolvePower.onCardDraw：每抽到一张 STATUS 牌，抽 amount 张
+        if (evolveDepth < 3 && statusDrawn > 0) {
+            Integer evolve = state.playerPowers.get("Evolve");
+            if (evolve != null && evolve > 0) {
+                draw(state, evolve * statusDrawn, evolveDepth + 1);
+            }
         }
     }
 
