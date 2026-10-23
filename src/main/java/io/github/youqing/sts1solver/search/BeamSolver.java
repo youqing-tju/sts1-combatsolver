@@ -567,6 +567,33 @@ public final class BeamSolver {
                 node.depth + 1, potionId);
     }
 
+    /** 多选形态的药水（赌徒酿造 / 灵药）。 */
+    private SearchNode potionMultiNode(SimState state, int slotIndex, int[] choices,
+                                       SearchNode node) {
+        String potionId = state.potions.get(slotIndex);
+        if (potionId == null
+                || !io.github.youqing.sts1solver.mirror.Potions.canUse(potionId)) {
+            return null;
+        }
+        SimState copy = state.copy();
+        try {
+            boolean used = io.github.youqing.sts1solver.mirror.Potions.useMulti(
+                    copy, potionId, choices);
+            if (!used) {
+                return null;
+            }
+        } catch (ActionRejected rejected) {
+            reportReject(state, -1, rejected.getMessage());
+            return null;
+        } catch (Throwable t) {
+            reportReject(state, -1, String.valueOf(t));
+            return null;
+        }
+        copy.potions.set(slotIndex, null);
+        return nodeOf(copy, PlanAction.potionMulti(slotIndex, -1, choices), node,
+                node.depth + 1, potionId);
+    }
+
     /**
      * 把「这张牌为什么打不出」里**属于语义缺失**的那几种报一次（每次搜索每张牌每原因一条）。
      *
@@ -848,36 +875,113 @@ public final class BeamSolver {
                     || !io.github.youqing.sts1solver.mirror.Potions.canUse(potionId)) {
                 continue;
             }
-            // 三选一药水：候选固定 3 张，各展开一条（蓝本 PotionChoiceSupport 的 CardChoiceSpec）
-            int choiceCount = io.github.youqing.sts1solver.mirror.Potions.needsChoice(potionId)
-                    ? 3 : 1;
-            boolean targeted = io.github.youqing.sts1solver.mirror.Potions.needsTarget(potionId);
-            for (int c = 0; c < choiceCount; c++) {
-                if (targeted) {
-                    for (int t = 0; t < state.monsters.size(); t++) {
-                        if (branchLimit > 0 && produced >= branchLimit) {
-                            break;
-                        }
-                        if (state.monsters.get(t).hp <= 0) {
-                            continue;
-                        }
-                        if (route(potionNode(state, slot, t, c, node), plays, ended)) {
-                            produced++;
-                        }
-                    }
-                } else {
-                    if (branchLimit > 0 && produced >= branchLimit) {
-                        break;
-                    }
-                    if (route(potionNode(state, slot, -1, c, node), plays, ended)) {
-                        produced++;
-                    }
-                }
-            }
+            produced += expandPotion(state, slot, node, plays, ended, produced, branchLimit);
         }
 
         // 「结束回合」永远是合法动作（蓝本 PlanActionKind.EndTurn）
         ended.add(endTurnOf(node));
+    }
+
+    /**
+     * 展开一格药水的全部分支，返回这一格产出的子节点数。
+     *
+     * <p>三种形态对应蓝本 {@code CardChoiceSpec} 的 {@code MinCount/MaxCount}：
+     * <ul>
+     *   <li>{@code NONE}：一条</li>
+     *   <li>{@code SINGLE}：每个候选一条（三选一固定 3 条；液态记忆 = 弃牌堆大小条）</li>
+     *   <li>{@code MULTI}：赌徒酿造 / 灵药，选 0~N 张 —— 按蓝本 {@code BuildChoices} 的
+     *       「按基数保代表 + 按优先级补足到上限」枚举，不枚举全部 2^N 子集</li>
+     * </ul>
+     */
+    private int expandPotion(SimState state, int slot, SearchNode node,
+                             List<SearchNode> plays, List<SearchNode> ended,
+                             int produced, int branchLimit) {
+        String potionId = state.potions.get(slot);
+        io.github.youqing.sts1solver.mirror.Potions.ChoiceMode mode =
+                io.github.youqing.sts1solver.mirror.Potions.choiceModeOf(potionId);
+        boolean targeted = io.github.youqing.sts1solver.mirror.Potions.needsTarget(potionId);
+        int made = 0;
+
+        if (mode == io.github.youqing.sts1solver.mirror.Potions.ChoiceMode.MULTI) {
+            for (int[] choice : multiChoiceBranches(state, potionId, branchLimit)) {
+                if (branchLimit > 0 && produced + made >= branchLimit) {
+                    break;
+                }
+                if (route(potionMultiNode(state, slot, choice, node), plays, ended)) {
+                    made++;
+                }
+            }
+            return made;
+        }
+
+        int choiceCount;
+        if (mode == io.github.youqing.sts1solver.mirror.Potions.ChoiceMode.SINGLE) {
+            choiceCount = io.github.youqing.sts1solver.mirror.Potions.choiceFromDiscard(potionId)
+                    ? state.discard.size() : 3;
+        } else {
+            choiceCount = 1;
+        }
+        for (int c = 0; c < choiceCount; c++) {
+            if (targeted) {
+                for (int t = 0; t < state.monsters.size(); t++) {
+                    if (branchLimit > 0 && produced + made >= branchLimit) {
+                        break;
+                    }
+                    if (state.monsters.get(t).hp <= 0) {
+                        continue;
+                    }
+                    if (route(potionNode(state, slot, t, c, node), plays, ended)) {
+                        made++;
+                    }
+                }
+            } else {
+                if (branchLimit > 0 && produced + made >= branchLimit) {
+                    break;
+                }
+                if (route(potionNode(state, slot, -1, c, node), plays, ended)) {
+                    made++;
+                }
+            }
+        }
+        return made;
+    }
+
+    /**
+     * 多选分支的最小枚举：空集 + 每个单张 + 全选，受 {@code branchLimit} 约束。
+     *
+     * <p>蓝本 {@code BuildChoices} 是「每种选几张保留一个代表 + 按优先级补足到上限」，
+     * 这里取它的**基数代表**那一半（空集/单张/全选），优先级补足那半留待
+     * 需要更好的多选质量时再加（现在分支上限小，基数代表已够）。
+     *
+     * <p>下标按手牌顺序；「先弃哪张」不给估值（避免自创量化），按费用升序取
+     * （低费牌先弃）—— 客观量，可复现。
+     */
+    private List<int[]> multiChoiceBranches(SimState state, String potionId, int branchLimit) {
+        java.util.List<Integer> order = new java.util.ArrayList<Integer>();
+        for (int i = 0; i < state.hand.size(); i++) {
+            order.add(i);
+        }
+        java.util.Collections.sort(order, new java.util.Comparator<Integer>() {
+            @Override
+            public int compare(Integer a, Integer b) {
+                int c = Integer.compare(state.hand.get(a).effectiveCost(),
+                        state.hand.get(b).effectiveCost());
+                return c != 0 ? c : Integer.compare(a, b);
+            }
+        });
+        List<int[]> out = new ArrayList<int[]>();
+        out.add(new int[0]);                                   // 一张不选（canPickZero）
+        for (int i = 0; i < order.size(); i++) {
+            out.add(new int[]{order.get(i)});                  // 每个单张
+        }
+        if (state.hand.size() > 1) {
+            int[] all = new int[order.size()];
+            for (int i = 0; i < order.size(); i++) {
+                all[i] = order.get(i);
+            }
+            out.add(all);                                      // 全选
+        }
+        return out;
     }
 
     /** 按「这一步之后还在不在本回合」把子节点放进不同的桶。 */

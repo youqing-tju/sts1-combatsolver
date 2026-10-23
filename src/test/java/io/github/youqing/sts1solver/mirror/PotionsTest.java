@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
+import io.github.youqing.sts1solver.sim.SimCard;
 import io.github.youqing.sts1solver.sim.SimMonster;
 import io.github.youqing.sts1solver.sim.SimState;
 
@@ -242,6 +243,90 @@ class PotionsTest {
 
         assertEquals(s1.hand.get(0).id, s3.hand.get(0).id,
                 "越界的 choiceIndex 退回 0，和第 0 张一致");
+    }
+
+    // -------------------------------------------- 第四批：选牌类（多选/单选）
+
+    /** 灵药的 ID 带 Potion 后缀，不是 "Elixir"。 */
+    @Test
+    void elixirIdIsElixirPotion() {
+        assertEquals("ElixirPotion", Potions.ELIXIR);
+        assertEquals("GamblersBrew", Potions.GAMBLERS_BREW);
+        assertEquals("LiquidMemories", Potions.LIQUID_MEMORIES);
+    }
+
+    @Test
+    void choiceModesAreClassified() {
+        assertEquals(Potions.ChoiceMode.MULTI, Potions.choiceModeOf(Potions.GAMBLERS_BREW));
+        assertEquals(Potions.ChoiceMode.MULTI, Potions.choiceModeOf(Potions.ELIXIR));
+        assertEquals(Potions.ChoiceMode.SINGLE, Potions.choiceModeOf(Potions.LIQUID_MEMORIES));
+        assertEquals(Potions.ChoiceMode.SINGLE, Potions.choiceModeOf(Potions.POWER_POTION));
+        assertEquals(Potions.ChoiceMode.NONE, Potions.choiceModeOf(Potions.FIRE_POTION));
+        assertTrue(Potions.choiceFromDiscard(Potions.LIQUID_MEMORIES),
+                "液态记忆从弃牌堆取");
+    }
+
+    /** 赌徒酿造：弃掉选中的手牌，然后**抽等量**。 */
+    @Test
+    void gamblersBrewDiscardsSelectedAndDrawsAsMany() {
+        SimState s = fight();
+        s.hand.add(new SimCard("Strike_R", false, 1));
+        s.hand.add(new SimCard("Defend_R", false, 1));
+        s.hand.add(new SimCard("Bash", false, 2));
+        s.draw.add(new SimCard("Strike_R", false, 1));
+        s.draw.add(new SimCard("Defend_R", false, 1));
+
+        assertTrue(Potions.useMulti(s, Potions.GAMBLERS_BREW, new int[]{0, 2}));
+
+        // 手牌剩 1 张（Defend_R），抽了 2 张回来 → 3 张
+        assertEquals(3, s.hand.size(), "弃 2 张后抽 2 张");
+        assertEquals(2, s.discard.size(), "弃掉的 2 张进了弃牌堆");
+    }
+
+    /** 灵药：消耗选中的手牌（不动抽牌堆）。 */
+    @Test
+    void elixirExhaustsSelectedCards() {
+        SimState s = fight();
+        s.hand.add(new SimCard("Strike_R", false, 1));
+        s.hand.add(new SimCard("Defend_R", false, 1));
+        s.hand.add(new SimCard("Bash", false, 2));
+
+        assertTrue(Potions.useMulti(s, Potions.ELIXIR, new int[]{0, 1}));
+
+        assertEquals(1, s.hand.size(), "剩 1 张");
+        assertEquals("Bash", s.hand.get(0).id);
+        assertEquals(2, s.exhaust.size(), "选中的 2 张进了消耗堆");
+    }
+
+    /** 灵药可以一张不选（原版 {@code canPickZero}）。 */
+    @Test
+    void elixirCanPickZero() {
+        SimState s = fight();
+        s.hand.add(new SimCard("Strike_R", false, 1));
+        assertTrue(Potions.useMulti(s, Potions.ELIXIR, new int[0]));
+        assertEquals(1, s.hand.size());
+        assertEquals(0, s.exhaust.size());
+    }
+
+    /** 液态记忆：从**弃牌堆**选 1 张拿回手牌。 */
+    @Test
+    void liquidMemoriesTakesOneFromDiscard() {
+        SimState s = fight();
+        s.discard.add(new SimCard("Bash", false, 2));
+        s.discard.add(new SimCard("Defend_R", false, 1));
+
+        assertTrue(Potions.use(s, Potions.LIQUID_MEMORIES, -1, 1));
+
+        assertEquals(1, s.hand.size());
+        assertEquals("Defend_R", s.hand.get(0).id);
+        assertEquals(1, s.discard.size());
+    }
+
+    /** 弃牌堆空时用不出（原版 do-while 也走不到）。 */
+    @Test
+    void liquidMemoriesFailsOnEmptyDiscard() {
+        SimState s = fight();
+        assertFalse(Potions.use(s, Potions.LIQUID_MEMORIES, -1, 0));
     }
 
     /** 瓶中仙子的 {@code canUse() == false}：不能主动喝。 */

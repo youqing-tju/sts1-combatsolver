@@ -105,6 +105,14 @@ public final class CombatFlow {
      * 以前这里是直接 return —— 结果第 3 回合以后模型里的手牌永远是空的，
      * 整场路线的后半段全是「结束回合」，执行层就照着空打，AI 站着被打死（2026-10-23 实机事故）。
      */
+    /**
+     * 公开抽牌入口：药水（赌徒酿造）用。和回合开始的 {@link #draw} 同一套语义，
+     * 包括「抽牌堆空了洗回弃牌堆」。
+     */
+    public static void drawAfterPotion(SimState state, int count) {
+        draw(state, count);
+    }
+
     private static void draw(SimState state, int count) {
         for (int i = 0; i < count; i++) {
             if (state.hand.size() >= HAND_LIMIT) {

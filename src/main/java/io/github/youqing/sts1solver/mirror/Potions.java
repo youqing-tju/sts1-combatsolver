@@ -1,5 +1,6 @@
 package io.github.youqing.sts1solver.mirror;
 
+import io.github.youqing.sts1solver.sim.SimCard;
 import io.github.youqing.sts1solver.sim.SimMonster;
 import io.github.youqing.sts1solver.sim.SimState;
 
@@ -60,6 +61,24 @@ public final class Potions {
     public static final String ATTACK_POTION = "AttackPotion";
     public static final String SKILL_POTION = "SkillPotion";
     public static final String COLORLESS_POTION = "ColorlessPotion";
+    /**
+     * 选牌类（玩家自己挑）：弃手牌抽等量 / 消耗手牌 / 从弃牌堆拿回。
+     *
+     * <p>⚠️ 灵药的 ID 是 {@code "ElixirPotion"}（带 Potion 后缀），不是 {@code "Elixir"}。
+     */
+    public static final String GAMBLERS_BREW = "GamblersBrew";
+    public static final String ELIXIR = "ElixirPotion";
+    public static final String LIQUID_MEMORIES = "LiquidMemories";
+
+    /** 药水用掉后要不要选牌，选几张。 */
+    public enum ChoiceMode {
+        /** 不选。 */
+        NONE,
+        /** 选 1 张（三选一发现 / 液态记忆）。 */
+        SINGLE,
+        /** 选任意数量（赌徒酿造 / 灵药）。 */
+        MULTI
+    }
 
     /**
      * 火药水伤害（{@code FirePotion.getPotency} → {@code bipush 20}）。
@@ -137,15 +156,96 @@ public final class Potions {
      * 是动作的一部分，搜索要为每个候选各展开一条分支。
      */
     public static boolean needsChoice(String potionId) {
-        return POWER_POTION.equals(potionId)
-                || ATTACK_POTION.equals(potionId)
-                || SKILL_POTION.equals(potionId)
-                || COLORLESS_POTION.equals(potionId);
+        return choiceModeOf(potionId) != ChoiceMode.NONE;
+    }
+
+    /** 这张药水的选牌形态（决定搜索展开单选还是多选分支）。 */
+    public static ChoiceMode choiceModeOf(String potionId) {
+        if (POWER_POTION.equals(potionId) || ATTACK_POTION.equals(potionId)
+                || SKILL_POTION.equals(potionId) || COLORLESS_POTION.equals(potionId)
+                || LIQUID_MEMORIES.equals(potionId)) {
+            return ChoiceMode.SINGLE;
+        }
+        if (GAMBLERS_BREW.equals(potionId) || ELIXIR.equals(potionId)) {
+            return ChoiceMode.MULTI;
+        }
+        return ChoiceMode.NONE;
+    }
+
+    /**
+     * 选牌的候选来自哪个牌堆（供搜索展开分支时取下标）。
+     *
+     * <ul>
+     *   <li>{@link #LIQUID_MEMORIES}：弃牌堆（原版 {@code BetterDiscardPileToHandAction}
+     *       从 {@code discardPile} 取 → 加入 hand → 从弃牌堆移除）</li>
+     *   <li>其余选牌类：手牌（三选一发现是**生成的候选**，不属任何牌堆，
+     *       由 {@link #use} 自己算 3 张，所以下标固定 0..2）</li>
+     * </ul>
+     */
+    public static boolean choiceFromDiscard(String potionId) {
+        return LIQUID_MEMORIES.equals(potionId);
     }
 
     /** 不需要选牌的药水（绝大多数）。 */
     public static boolean use(SimState state, String potionId, int targetIndex) {
         return use(state, potionId, targetIndex, -1);
+    }
+
+    /**
+     * 多选形态（赌徒酿造 / 灵药）：按一组下标结算。
+     *
+     * <p>原版分别走 {@code GamblingChipAction}（弃掉选中的手牌、再抽等量）与
+     * {@code ExhaustAction(99, false, true, true)}（{@code anyNumber=true}、
+     * {@code canPickZero=true}，从**手牌**选 0~99 张消耗）。
+     *
+     * @param choices 选中的手牌下标；空数组 = 一张不选（原版 {@code canPickZero}）
+     */
+    public static boolean useMulti(SimState state, String potionId, int[] choices) {
+        if (GAMBLERS_BREW.equals(potionId)) {
+            // GamblingChipAction：把选中的手牌移到弃牌堆，再抽等量
+            int discarded = moveSelectedHandTo(state, choices, state.discard);
+            io.github.youqing.sts1solver.sim.CombatFlow.drawAfterPotion(state, discarded);
+            return true;
+        }
+        if (ELIXIR.equals(potionId)) {
+            moveSelectedHandTo(state, choices, state.exhaust);
+            return true;
+        }
+        if (choiceModeOf(potionId) == ChoiceMode.SINGLE) {
+            // 单选走 choiceIndex 那条路（三选一发现 / 液态记忆）
+            return use(state, potionId, -1, choices != null && choices.length > 0 ? choices[0] : -1);
+        }
+        throw new ActionRejected("Potion " + potionId + " -> no multi-choice mirror");
+    }
+
+    /**
+     * 把选中的手牌移到目标牌堆（弃牌堆 / 消耗堆），返回实际移走的张数。
+     *
+     * <p>下标按**原始手牌顺序**解释，从大到小移除以免下标错位
+     * （原版 {@code HandCardSelectScreen} 结算后一次性把选中的移到目标堆）。
+     */
+    private static int moveSelectedHandTo(SimState state, int[] choices,
+                                          java.util.List<SimCard> destination) {
+        if (choices == null || choices.length == 0) {
+            return 0;
+        }
+        // 去重 + 排序（升序），再从后往前移
+        int[] sorted = choices.clone();
+        java.util.Arrays.sort(sorted);
+        int moved = 0;
+        for (int i = sorted.length - 1; i >= 0; i--) {
+            int idx = sorted[i];
+            if (i > 0 && idx == sorted[i - 1]) {
+                continue;               // 重复下标只算一次
+            }
+            if (idx < 0 || idx >= state.hand.size()) {
+                continue;
+            }
+            SimCard c = state.hand.remove(idx);
+            destination.add(c);
+            moved++;
+        }
+        return moved;
     }
 
     /**
@@ -263,6 +363,17 @@ public final class Potions {
         String discoveryType = discoveryTypeOf(potionId);
         if (discoveryType != null) {
             Effects.discovery(discoveryType).applyWithChoice(state, targetIndex, null, choiceIndex);
+            return true;
+        }
+        // 液态记忆：从**弃牌堆**选 1 张拿回手牌（原版 BetterDiscardPileToHandAction(potency=1, 0)
+        // 从 discardPile 取 → addToHand → 从弃牌堆移除）。
+        if (LIQUID_MEMORIES.equals(potionId)) {
+            int idx = choiceIndex;
+            if (idx < 0 || idx >= state.discard.size()) {
+                return false;                  // 弃牌堆空 / 没选中：原版 do-while 也走不到
+            }
+            SimCard c = state.discard.remove(idx);
+            state.hand.add(c);
             return true;
         }
         // 未知药水：显式拒绝，不静默算错（D2 风险点）
