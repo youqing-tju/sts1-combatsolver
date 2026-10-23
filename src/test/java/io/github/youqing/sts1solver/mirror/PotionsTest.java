@@ -480,4 +480,26 @@ class PotionsTest {
         assertEquals(2, s.monsters.get(0).powers.get("Plated Armor").intValue(), "受伤掉 1 层");
     }
 
+
+    /**
+     * 神器（{@code ArtifactPower}）：施加负面效果时抵消一次并消耗一层。
+     * Spheric Guardian 等有，不建模的话搜索以为易伤生效、实际被吃。
+     */
+    @Test
+    void artifactBlocksOneDebuffAndTicksDown() {
+        SimState s = fight();
+        SimMonster m = s.monsters.get(0);
+        m.powers.put("Artifact", 2);
+
+        assertFalse(Effects.applyDebuff(s, m, "Vulnerable", 3), "被神器抵消");
+        assertEquals(1, m.powers.get("Artifact").intValue(), "消耗一层");
+        assertFalse(m.powers.containsKey("Vulnerable"));
+
+        assertFalse(Effects.applyDebuff(s, m, "Vulnerable", 3), "第 2 次也被抵消");
+        assertFalse(m.powers.containsKey("Artifact"), "第 2 层吃完就没了");
+
+        assertTrue(Effects.applyDebuff(s, m, "Vulnerable", 3), "没神器了，正常施加");
+        assertEquals(3, m.powers.get("Vulnerable").intValue());
+    }
+
 }

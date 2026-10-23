@@ -302,12 +302,12 @@ public final class Potions {
             return true;
         }
         if (FEAR_POTION.equals(potionId)) {
-            // ApplyPowerAction(player, target, VulnerablePower, 3)
+            // ApplyPowerAction(player, target, VulnerablePower, 3) —— 过神器
             SimMonster target = monsterAt(state, targetIndex);
             if (target == null || target.hp <= 0) {
                 return false;
             }
-            addPower(target.powers, "Vulnerable", FEAR_POTION_AMOUNT);
+            Effects.applyDebuff(state, target, "Vulnerable", FEAR_POTION_AMOUNT);
             return true;
         }
         if (EXPLOSIVE_POTION.equals(potionId)) {
@@ -331,12 +331,12 @@ public final class Potions {
             return true;
         }
         if (POISON_POTION.equals(potionId)) {
-            // ApplyPowerAction(player, target, PoisonPower, 6)
+            // ApplyPowerAction(player, target, PoisonPower, 6) —— 过神器
             SimMonster target = monsterAt(state, targetIndex);
             if (target == null || target.hp <= 0) {
                 return false;
             }
-            addPower(target.powers, "Poison", POISON_POTION_AMOUNT);
+            Effects.applyDebuff(state, target, "Poison", POISON_POTION_AMOUNT);
             return true;
         }
         if (FRUIT_JUICE.equals(potionId)) {

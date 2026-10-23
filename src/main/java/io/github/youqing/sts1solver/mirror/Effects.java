@@ -1566,4 +1566,30 @@ public final class Effects {
         Integer current = powers.get(id);
         powers.put(id, (current == null ? 0 : current) + amount);
     }
+
+    /**
+     * 给怪物施加**负面**效果，先过神器（{@code ArtifactPower}）。
+     *
+     * <p>原版 {@code ApplyPowerAction}：目标有 {@code Artifact} 时，
+     * 调 {@code ArtifactPower.onSpecificTrigger()} 消耗一层（{@code amount>0} 时减 1，
+     * 否则整个移除），**这次施加被抵消**。
+     *
+     * <p>只用于**负面**效果（易伤/虚弱/中毒/缠身等）。正面效果（力量/格挡/装甲）
+     * 不走这里 —— 神器不吃正面。
+     *
+     * @return {@code true} = 真的加上了；{@code false} = 被神器抵消
+     */
+    public static boolean applyDebuff(SimState state, SimMonster target, String id, int amount) {
+        Integer artifact = target.powers.get("Artifact");
+        if (artifact != null && artifact > 0) {
+            if (artifact == 1) {
+                target.powers.remove("Artifact");
+            } else {
+                target.powers.put("Artifact", artifact - 1);
+            }
+            return false;
+        }
+        add(target.powers, id, amount);
+        return true;
+    }
 }
