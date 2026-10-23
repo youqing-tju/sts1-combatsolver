@@ -533,6 +533,39 @@ public final class BeamSolver {
     }
 
     /**
+     * 用一格药水，返回新节点；用不出时返回 {@code null}。
+     *
+     * <p>对应蓝本 {@code PlanActionKind.UsePotion}：药水是和打牌同级的一等动作，
+     * 不是「没牌可打才喝药」。被 {@link io.github.youqing.sts1solver.mirror.Potions#canUse}
+     * 挡下的（瓶中仙子）自动跳过 —— 那是被动药水，玩家点不动。
+     */
+    private SearchNode potionNode(SimState state, int slotIndex, int targetIndex,
+                                  SearchNode node) {
+        String potionId = state.potions.get(slotIndex);
+        if (potionId == null
+                || !io.github.youqing.sts1solver.mirror.Potions.canUse(potionId)) {
+            return null;
+        }
+        SimState copy = state.copy();
+        try {
+            boolean used = io.github.youqing.sts1solver.mirror.Potions.use(
+                    copy, potionId, targetIndex);
+            if (!used) {
+                return null;
+            }
+        } catch (ActionRejected rejected) {
+            reportReject(state, -1, rejected.getMessage());
+            return null;
+        } catch (Throwable t) {
+            reportReject(state, -1, String.valueOf(t));
+            return null;
+        }
+        copy.potions.set(slotIndex, null);       // 原版 TopPanel.destroyPotion(slot)
+        return nodeOf(copy, PlanAction.potion(slotIndex, targetIndex), node,
+                node.depth + 1, potionId);
+    }
+
+    /**
      * 把「这张牌为什么打不出」里**属于语义缺失**的那几种报一次（每次搜索每张牌每原因一条）。
      *
      * <p>为什么要专门报：搜索里「打不出」是静默跳过的 —— 分支直接不生成。
@@ -672,9 +705,9 @@ public final class BeamSolver {
         if (candidateAlive != incumbentAlive) {
             return candidateAlive;
         }
-        // 蓝本 FinalPlanOrdering 的 DeathSaveUseCount 键：用掉一次性救命遗物越少越好
-        int candidateSaves = candidate.state.deathSaveUsed ? 1 : 0;
-        int incumbentSaves = incumbent.state.deathSaveUsed ? 1 : 0;
+        // 蓝本 FinalPlanOrdering 的 DeathSaveUseCount 键：一次性救命用得越少越好
+        int candidateSaves = candidate.state.deathSaveUseCount;
+        int incumbentSaves = incumbent.state.deathSaveUseCount;
         if (candidateSaves != incumbentSaves) {
             return candidateSaves < incumbentSaves;
         }
@@ -798,6 +831,35 @@ public final class BeamSolver {
             } else {
                 // 群伤/自我指向：只需展开一次，否则白白吃掉 beam 宽度
                 if (route(playNode(state, i, -1, -1, node), plays, ended)) {
+                    produced++;
+                }
+            }
+        }
+
+        // 药水：和打牌同级的一等动作（蓝本 PlanActionKind.UsePotion）
+        for (int slot = 0; slot < state.potions.size(); slot++) {
+            if (branchLimit > 0 && produced >= branchLimit) {
+                break;
+            }
+            String potionId = state.potions.get(slot);
+            if (potionId == null
+                    || !io.github.youqing.sts1solver.mirror.Potions.canUse(potionId)) {
+                continue;
+            }
+            if (io.github.youqing.sts1solver.mirror.Potions.needsTarget(potionId)) {
+                for (int t = 0; t < state.monsters.size(); t++) {
+                    if (branchLimit > 0 && produced >= branchLimit) {
+                        break;
+                    }
+                    if (state.monsters.get(t).hp <= 0) {
+                        continue;
+                    }
+                    if (route(potionNode(state, slot, t, node), plays, ended)) {
+                        produced++;
+                    }
+                }
+            } else {
+                if (route(potionNode(state, slot, -1, node), plays, ended)) {
                     produced++;
                 }
             }

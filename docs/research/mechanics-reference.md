@@ -1285,3 +1285,91 @@ public void endBattle() {
 - `Mark of the Bloom` 会让所有 `heal` 静默失效 —— `BurningBlood.onVictory`
   里的 `player.heal(6)` 会被 `onPlayerHeal` 链归零。当前没建模这个，
   偏差方向是「我们以为会回血、实际不回」（偏低估计回血，安全方向）。
+
+
+## 25. 药水镜像层（第一批）—— 4 张 + 动作空间（A｜蓝本源码 + STS1 字节码，2026-10-23）
+
+> 之前我把「药水」记成「⛔ STS1 无对应机制」是**错的**（见 §18.3）。
+> 这是纠正后的第一批补做：**镜像层**（药水怎么生效），不含估值策略（`PotionStrategicCost`
+> 那一套需要玩家在侧栏填额度，属 M4）。
+
+### 25.1 蓝本的药水是一等动作
+
+`CombatPlan.cs:8` 的 `PlanActionKind`：
+
+```csharp
+enum PlanActionKind { PlayCard, UsePotion, EndTurn }
+```
+
+**喝药和打牌同级**，不是「没牌可打才喝药」。我们的 `PlanAction.Kind` 照搬了三件套。
+
+### 25.2 STS1 原版语义（javap 逐个核实）
+
+| 药水 | 运行时 ID | 效果 | 目标 | 能主动用 |
+|---|---|---|---|---|
+| 火药水 | `"Fire Potion"` | 20 伤害 | 敌人 | ✅ |
+| 格挡药水 | `"Block Potion"` | 12 格挡（走 `GainBlockAction`） | 自己 | ✅ |
+| 能量药水 | `"Energy Potion"` | +2 能量 | 自己 | ✅ |
+| 瓶中仙子 | `"FairyPotion"` | 死亡时自动回 `max(1, (int)(maxHp × 0.3f))` | 自己 | ❌ |
+
+⚠️ **ID 格式不统一**：三张带空格、瓶中仙子**不带**。记错的话对拍一直失配且看不出原因。
+
+**火药水的伤害管线**（`FirePotion.use`）：
+
+```java
+DamageInfo info = new DamageInfo(player, potency /*20*/, DamageType.THORNS);
+info.applyEnemyPowersOnly(target);        // 只应用**受击方**能力
+addToBot(new DamageAction(target, info, AttackEffect.FIRE));
+```
+
+`applyEnemyPowersOnly` 从 `output = base` 开始，只遍历 `target.powers` 改写输出。
+所以：**易伤 ×1.5（向下取整）生效，玩家的力量不生效，玩家的虚弱也不打折**
+（虚弱挂在攻击者身上，这里不走攻击流程）。
+
+**瓶中仙子**（`FairyPotion`）：
+
+```java
+public void use(AbstractCreature target) {
+    float pct = potency / 100.0f;                              // 0.30
+    int healAmt = (int)(player.maxHealth * pct);               // f2i = 向零截断
+    if (healAmt < 1) healAmt = 1;
+    player.heal(healAmt, true);                                 // 从 0 起算（调用方先归零）
+    AbstractDungeon.topPanel.destroyPotion(this.slot);
+}
+public boolean canUse() { return false; }                       // 不能主动用！
+```
+
+### 25.3 我们的实现
+
+| 位置 | 作用 |
+|---|---|
+| `mirror/Potions` | 4 张的语义 + `canUse` / `needsTarget` / `fairyHealAmount` |
+| `sim/SimState.potions` | 槽位列表（空格 = `null`），`potionSlots` 上限 |
+| `sim/SimState.capture()` | 读 `p.potions`（含空槽），`potionSlots = potions.size()` |
+| `search/PlanAction.Kind.USE_POTION` | 蓝本 `PlanActionKind.UsePotion` |
+| `BeamSolver.potionNode` + `expandTurnLayer` | 药水与打牌同级展开；火药水按存活敌人分目标 |
+| `DeathSaveRelic.applyIfLethal` | **接上瓶中仙子**：`fairy 优先，else if 蜥蜴尾巴` |
+
+**未登记的药水**走 `ActionRejected`，搜索里报 `SEARCH REJECT: -1 -> Potion X -> no mirror`
+—— 覆盖缺口会出现在日志里，不静默算错（D2）。
+
+### 25.4 蓝本里**没有**搬的部分（估值策略）
+
+蓝本还有 8 个药水文件（`PotionUsePolicy` / `PotionValuationRegistry` /
+`SmartPotionBound` / `BlockPotionInsertion` / `PotionChoiceContinuation` /
+`PotionRewardOutlook` / `PotionChain` / `PotionStrategySnapshot`，共约 1100 行），
+做的是「**该不该喝**」的估值：
+
+- `StrategicHpCost`：按药水档次折算战略代价（Token 免费，其他至少 baseline）
+- `RequiredHpSaved = potionCount × PotionMinimumHpSaved`
+- `HpSaved = max(0, potionFree赤字 − potionRoute赤字)`
+- `SmartRequiredHpSaved`：按 `BossHpRelief` 折算后的门槛
+
+这套依赖**玩家在侧栏填额度**（`SolverSettings.GrowthBudgets`，默认 0），
+不做 UI 就等于不算收益。所以留到 M4，本轮只做正确性。
+
+### 25.5 还没做
+
+- 剩下 30+ 张药水（生成类/选择类/被动类各有各的形态）；
+- `BlockPotionInsertion`（把药水插进已解路线）、`PotionChoiceContinuation`（药水开出的选牌）；
+- 估值策略（见 §25.4）。

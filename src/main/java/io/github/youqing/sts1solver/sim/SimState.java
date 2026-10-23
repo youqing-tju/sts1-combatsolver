@@ -70,6 +70,14 @@ public final class SimState {
      * 并且用掉的那部分血要在打分里扣回来再加收 9 倍溢价（{@code DeathSavePremium}）。
      */
     public boolean deathSaveUsed;
+    /**
+     * 本条路线上一次性救命**用掉的次数**（蓝本 {@code DeathSaveUseCount}）。
+     *
+     * <p>目前最多 2 次：先瓶中仙子（可多瓶），再蜥蜴尾巴（一次）。
+     * {@link #deathSaveUsed} 只表达「尾巴用没用」，计数单独记，供
+     * {@code FinalPlanOrdering} 的第 3 键用。
+     */
+    public int deathSaveUseCount;
     /** 救命遗物这条路线上实际回的血（蓝本 {@code DeathSaveHpRestored}）。 */
     public int deathSaveHpRestored;
     public int energy;
@@ -97,6 +105,21 @@ public final class SimState {
     public final List<SimCard> discard = new ArrayList<SimCard>();
     public final List<SimCard> exhaust = new ArrayList<SimCard>();
     public final TreeMap<String, Integer> relics = new TreeMap<String, Integer>();
+
+    /**
+     * 药水槽，**按槽位顺序**存药水 ID；{@code null} 表示这一格空着。
+     *
+     * <p>原版 {@code AbstractPlayer.potions} 就是一张固定长度的列表（铁甲战士 2 格），
+     * 用掉一格就空出、捡到新的才填进去。空格本身也是状态 —— 捡到的药水没地方放。
+     *
+     * <p>语义见 {@code mirror/Potions}；只做了 4 张（火/格挡/能量/瓶中仙子），
+     * 其余药水进 {@code use()} 会显式 {@code ActionRejected}，不静默算错。
+     */
+    public final List<String> potions = new java.util.ArrayList<String>();
+
+    /** 药水槽上限（原版 {@code PotionSlot}）。 */
+    public int potionSlots = io.github.youqing.sts1solver.mirror.Potions.DEFAULT_POTION_SLOTS;
+
     public final List<SimMonster> monsters = new ArrayList<SimMonster>();
     public final EnumMap<RngKind, RngStream> rng = new EnumMap<RngKind, RngStream>(RngKind.class);
 
@@ -147,8 +170,25 @@ public final class SimState {
                 if (io.github.youqing.sts1solver.mirror.DeathSaveRelic.LIZARD_TAIL
                         .equals(r.relicId)) {
                     s.deathSaveUsed = r.counter != -1;
+                    if (s.deathSaveUsed) {
+                        s.deathSaveUseCount = 1;
+                    }
                 }
             }
+        }
+
+        // 药水槽：p.potions 是固定长度列表，空格是 null（原版 destroyPotion 会置 null）。
+        // 只认 ID，不记 potency —— 4 张里的 potency 全是常量，记了反而是重复信息。
+        try {
+            java.util.ArrayList<com.megacrit.cardcrawl.potions.AbstractPotion> potions = p.potions;
+            if (potions != null) {
+                s.potionSlots = potions.size();
+                for (com.megacrit.cardcrawl.potions.AbstractPotion potion : potions) {
+                    s.potions.add(potion == null ? null : potion.ID);
+                }
+            }
+        } catch (Throwable ignored) {
+            // 不在战斗中/字段不可见时保持默认空槽，搜索会把「药水」当没有
         }
 
         MonsterGroup group = AbstractDungeon.getMonsters();
@@ -279,6 +319,7 @@ public final class SimState {
         c.block = block;
         c.hpLossCount = hpLossCount;
         c.deathSaveUsed = deathSaveUsed;
+        c.deathSaveUseCount = deathSaveUseCount;
         c.deathSaveHpRestored = deathSaveHpRestored;
         c.energy = energy;
 
@@ -289,6 +330,8 @@ public final class SimState {
         c.discard.addAll(discard);
         c.exhaust.addAll(exhaust);
         c.relics.putAll(relics);
+        c.potions.addAll(potions);
+        c.potionSlots = potionSlots;
 
         for (SimMonster m : monsters) {
             c.monsters.add(m.copy());
@@ -311,6 +354,7 @@ public final class SimState {
         cmp(out, "ascension", ascension, o.ascension);
         cmp(out, "boss", boss, o.boss);
         cmp(out, "deathSaveUsed", deathSaveUsed, o.deathSaveUsed);
+        cmp(out, "deathSaveUseCount", deathSaveUseCount, o.deathSaveUseCount);
         cmp(out, "deathSaveHpRestored", deathSaveHpRestored, o.deathSaveHpRestored);
         cmp(out, "hp", hp, o.hp);
         cmp(out, "maxHp", maxHp, o.maxHp);
@@ -325,6 +369,19 @@ public final class SimState {
         diffCards(out, "discard", discard, o.discard);
         diffCards(out, "exhaust", exhaust, o.exhaust);
         diffMap(out, "relics", relics, o.relics);
+        // 药水槽按槽位比（顺序有意义：空格位置决定捡到的新药水落到哪）
+        if (potions.size() != o.potions.size() || potionSlots != o.potionSlots) {
+            out.add("potions: " + potions + "@" + potionSlots
+                    + " vs " + o.potions + "@" + o.potionSlots);
+        } else {
+            for (int i = 0; i < potions.size(); i++) {
+                String a = potions.get(i);
+                String b = o.potions.get(i);
+                if (a == null ? b != null : !a.equals(b)) {
+                    out.add("potions[" + i + "]: " + a + " vs " + b);
+                }
+            }
+        }
 
         if (monsters.size() != o.monsters.size()) {
             out.add("monsters.size: " + monsters.size() + " vs " + o.monsters.size());
@@ -480,6 +537,7 @@ public final class SimState {
           .append(",\"block\":").append(block)
           .append(",\"energy\":").append(energy)
           .append(",\"deathSaveUsed\":").append(deathSaveUsed)
+          .append(",\"deathSaveUseCount\":").append(deathSaveUseCount)
           .append(",\"deathSaveHpRestored\":").append(deathSaveHpRestored)
           .append(",\"powers\":").append(mapJson(playerPowers))
           .append(",\"powerAux\":").append(mapJson(powerAux))
@@ -489,6 +547,7 @@ public final class SimState {
         sb.append("  \"discard\":").append(cardsJson(discard)).append(",\n");
         sb.append("  \"exhaust\":").append(cardsJson(exhaust)).append(",\n");
         sb.append("  \"relics\":").append(mapJson(relics)).append(",\n");
+        sb.append("  \"potions\":").append(listJson(potions)).append(",\n");
         sb.append("  \"monsters\":").append(monstersJson()).append(",\n");
         sb.append("  \"rng\":").append(rngJson()).append("\n}");
         return sb.toString();
@@ -501,6 +560,23 @@ public final class SimState {
                 sb.append(',');
             }
             sb.append('"').append(cards.get(i).key()).append('"');
+        }
+        return sb.append(']').toString();
+    }
+
+    /** 药水槽：空格是 {@code null}，JSON 里也是 {@code null}。 */
+    private static String listJson(List<String> items) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            String id = items.get(i);
+            if (id == null) {
+                sb.append("null");
+            } else {
+                sb.append('"').append(id).append('"');
+            }
         }
         return sb.append(']').toString();
     }

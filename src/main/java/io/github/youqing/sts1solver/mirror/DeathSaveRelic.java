@@ -35,7 +35,7 @@ public final class DeathSaveRelic {
     }
 
     /**
-     * 玩家血量被打到 0 时调用：有蜥蜴尾巴且本场未用，就回到 50% 最大生命并记账。
+     * 玩家血量被打到 0 时调用：按原版顺序**依次**问瓶中仙子、蜥蜴尾巴。
      *
      * <p>调用点必须覆盖**所有**把玩家血量扣到 0 的地方：怪物攻击（{@code CombatFlow.hitPlayer}）、
      * 自伤（{@code Effects.loseHp}）、回合末能力自伤（{@code PowerHooks} 的燃烧）。
@@ -44,12 +44,14 @@ public final class DeathSaveRelic {
      * <pre>
      * if (currentHealth &lt; 1) {
      *     if (hasRelic("Mark of the Bloom"))        goto 真死;   // 连消耗都不做
-     *     if (hasPotion("FairyPotion"))             { 用掉; return; }
+     *     if (hasPotion("FairyPotion"))             { 用掉那一瓶; return; }   // ← 优先
      *     else if (hasRelic("Lizard Tail") &amp;&amp; counter == -1) { currentHealth = 0; onTrigger(); return; }
      *     真死;
      * }
      * </pre>
-     * 我们只做遗物这一支；瓶中仙子等建模药水时接（届时注意**它优先于**蜥蜴尾巴）。
+     *
+     * <p>⚠️ 是 {@code else if} 而不是「先试仙子再试尾巴」：**有仙子就一定用仙子**，
+     * 不会降级到尾巴；用完一瓶才会在下一次致死时考虑尾巴。
      */
     public static void applyIfLethal(SimState state) {
         if (state.hp > 0 || state.deathSaveUsed) {
@@ -59,6 +61,18 @@ public final class DeathSaveRelic {
         if (state.relics.containsKey(MARK_OF_THE_BLOOM)) {
             return;
         }
+        // ① 瓶中仙子：优先，且是 else-if（不在这里 fall through 到尾巴）
+        int fairySlot = fairySlotIn(state);
+        if (fairySlot >= 0) {
+            // 原版先把 currentHealth 置 0 再 use()，所以回血从 0 起算
+            int restored = healedAmount(state, Potions.fairyHealAmount(state.maxHp));
+            state.hp = Math.min(state.maxHp, restored);
+            state.deathSaveHpRestored += state.hp;
+            state.deathSaveUseCount++;
+            state.potions.set(fairySlot, null);      // TopPanel.destroyPotion(slot)
+            return;
+        }
+        // ② 蜥蜴尾巴：一次性
         if (!state.relics.containsKey(LIZARD_TAIL)) {
             return;
         }
@@ -66,7 +80,18 @@ public final class DeathSaveRelic {
         // 原版先把 currentHealth 置 0 再 heal，所以复活结果就是这次治疗量（受上限截断）
         state.hp = Math.min(state.maxHp, restored);
         state.deathSaveUsed = true;
+        state.deathSaveUseCount++;
         state.deathSaveHpRestored += state.hp;
+    }
+
+    /** 找第一瓶瓶中仙子所在的槽位（原版 {@code hasPotion("FairyPotion")} 后遍历找那一瓶）。 */
+    private static int fairySlotIn(SimState state) {
+        for (int i = 0; i < state.potions.size(); i++) {
+            if (Potions.FAIRY_POTION.equals(state.potions.get(i))) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**

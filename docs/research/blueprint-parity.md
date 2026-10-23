@@ -26,7 +26,7 @@ read_when:
 | `StateEvaluation.cs` `StrategicEffects` / 逐能力 RetentionValue | 按层数的近似 | 🔶 近似：没有 STS2 那张能力价值表 |
 | `LatentCardSetupValue` 逐卡分值表 | 走默认分支（能力牌 2 点） | 🔶 部分：表是 STS2 卡，不臆造 |
 | `ReplayPotentialValue`（附魔重放次数） | — | ⛔ 不适用：STS1 无附魔/重放机制（唯一接近的是双发/爆发，但那是「下一次打两次」，不是可重放卡） |
-| 药水估值（`PotionStrategicCost` / `SmartRequiredHpSaved`） | — | ❌ **未做**：STS1 有药水（火焰/格挡/敏捷/瓶中仙子…），我们**没建模**，不是没有 |
+| 药水估值（`PotionStrategicCost` / `SmartRequiredHpSaved`） | `mirror/Potions`（4 张）+ `PlanAction.USE_POTION` | 🔶 **镜像层已做**：火/格挡/能量/瓶中仙子 4 张 + 槽位 + 动作空间，瓶中仙子已接进死亡豁免；**估值策略未做**（依赖侧栏额度输入，见 `mechanics-reference` §25.4）；其余 30+ 张药水未做 |
 | `DeathSave*`（`DeathSaveHpRestored` / `DeathSavePremium` / `DeathSaveUseCount`） | `mirror/DeathSaveRelic` + `Score.deathSaveBeamCost` + `BeamSolver.strategicHpDeficit` | 🔶 **遗物侧已做**：**蜥蜴尾巴**在仿真里真拦一次致死伤害、记回血量、进三处计价；**瓶中仙子**（药水）等药水建模后接 |
 | `GrowthRewards` / `GrowthHpCredit` / `LongTermResourceValue`（局外收益） | 只有 `Feed` 的最大生命增长进了基础分 | 🔶 **部分**：`GrowthSource` 里就有 **Feed**；我们缺的是「成长奖励」这条独立计分轴与逐来源计数 |
 | `UnrecoveredLoot` / `TheftEncounterStrategy`（被偷资源） | — | ❌ **未做**：STS1 有 **Looter（掠夺者）** 偷金币后逃走 |
@@ -92,8 +92,8 @@ read_when:
 8. ~~**战后阈值回血**（`PostCombatRelicHeal`）~~ → **主路径已做**（`mirror/PostCombatRelicHeal`）：
    燃烧之血/黑血的无条件回血进 `StrategicHpDeficit`，带骨肉的阈值回血照蓝本不进排序。
    剩「阈值回血 → `HealingHpCredit`」那条通道未做（依赖 `RelicCounterEvaluation`）。
-9. **药水**——最大的一块：要新建动作空间（使用药水 = 一个动作，有目标与时机），
-   还会牵动 `SmartRequiredHpSaved`、`BlockPotionInsertion` 等一串策略。
+9. ~~**药水**~~ → **镜像层第一批已做**（4 张 + 槽位 + `USE_POTION` 动作 + 瓶中仙子接进死亡豁免）。
+   剩下的是估值策略（依赖侧栏额度，M4）和其余 30+ 张药水（生成类/选择类形态各不同）。
 10. **局外收益**（`GrowthRewards` 逐来源计数 + `GrowthHpCredit` 轴）。
 11. **被偷资源**（`Looter` 偷金币逃走 → `UnrecoveredLoot` / `TheftEncounterStrategy`）。
 

@@ -8,6 +8,7 @@ public final class PlanAction {
 
     public enum Kind {
         PLAY_CARD,
+        USE_POTION,
         END_TURN
     }
 
@@ -38,6 +39,11 @@ public final class PlanAction {
         return new PlanAction(Kind.PLAY_CARD, cardIndex, targetIndex, choiceIndex);
     }
 
+    /** 用掉一格药水（{@code cardIndex} 复用为**药水槽位**，对应蓝本的 {@code UsePotion}）。 */
+    public static PlanAction potion(int slotIndex, int targetIndex) {
+        return new PlanAction(Kind.USE_POTION, slotIndex, targetIndex, -1);
+    }
+
     public static PlanAction endTurn() {
         return new PlanAction(Kind.END_TURN, -1, -1, -1);
     }
@@ -46,6 +52,9 @@ public final class PlanAction {
     public String toString() {
         if (kind == Kind.END_TURN) {
             return "END_TURN";
+        }
+        if (kind == Kind.USE_POTION) {
+            return "POTION[" + cardIndex + "]->" + targetIndex;
         }
         return "PLAY[" + cardIndex + "]->" + targetIndex
                 + (choiceIndex >= 0 ? " pick[" + choiceIndex + "]" : "");
