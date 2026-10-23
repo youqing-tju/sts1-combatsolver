@@ -32,11 +32,16 @@ public final class BeamSolver {
     private final int handSize;
     private final int beamWidth;
     /**
-     * 最多推进几个**回合层**（不是动作步数）。
+     * 回合层的**安全上界**（不是搜索深度预算）。
      *
-     * <p>⚠️ 2026-10-23 改了含义：以前是「动作层数」，现在外层循环一次就是一个完整回合，
-     * 搜索的「深度」由回合数定义（蓝本同理，它连深度参数都没有，靠节点/时间预算收敛）。
-     * 传 16 ≈ 蓝本的 {@code SetupValueHorizonTurns}。
+     * <p>⚠️ 2026-10-23 第二次改含义，这次才对齐蓝本：蓝本的回合层循环**没有上界**
+     * （{@code while (frontier.Count > 0 && ... && _run.Expanded < MaxExpandedNodes
+     * && !timeBudgetReached)}，{@code CombatBeamSolver.Phases.cs:1479-1485}），
+     * 收敛靠「节点上限 / 时间预算 / 前沿走空」三件事。
+     *
+     * <p>我们先把它当「最多 16 回合」传下去，真机日志于是出现
+     * {@code PLAN ready: 56 steps, depth 16} —— 每场战斗都在第 16 个回合层被硬截断，
+     * 预算根本没用完。现在传 {@link #SAFETY_MAX_TURN_LAYERS}，正常不会咬住。
      */
     private final int depth;
 
@@ -136,6 +141,20 @@ public final class BeamSolver {
      * 我们留一个硬上限，防止 0 费引擎在**不限节点**的场景（单测）里把内存跑爆。
      */
     public static final int MAX_PLAY_DEPTH_PER_TURN = 64;
+
+    /**
+     * 回合层的**安全上界**（不是预算）。
+     *
+     * <p>蓝本的回合层循环没有上界：{@code while (frontier.Count > 0 && ... && _run.Expanded <
+     * MaxExpandedNodes && !timeBudgetReached)}（{@code CombatBeamSolver.Phases.cs:1479-1485}）——
+     * 收敛全靠「节点上限 / 时间预算 / 前沿走空」。
+     *
+     * <p>我们之前把 {@code depth} 直接当上界传 16（取自蓝本 {@code SetupValueHorizonTurns} 的用例，
+     * 那是 UI 投影用的，不是搜索上界），结果真机上日志出现 {@code PLAN ready: 56 steps, depth 16}
+     * —— **是被这个 16 截断的，不是把树搜完了**，白扔了预算。
+     * 现在 {#depth} 只作安全上界，正常情况下永远不会咬住。
+     */
+    public static final int SAFETY_MAX_TURN_LAYERS = 500;
 
     // ===== 加宽补搜（照抄蓝本 SolverWeights.NoVictoryEscalation* + EscalateSearchWhenNoVictory） =====
     /**

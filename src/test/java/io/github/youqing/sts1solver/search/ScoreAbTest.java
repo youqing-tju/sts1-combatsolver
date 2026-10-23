@@ -148,6 +148,27 @@ class ScoreAbTest {
         }
     }
 
+    /** 预算用量：回合层不设上限后，一次决策到底用掉多少预算、树有没有被搜完。 */
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "离线实验（gradle test -Pexperiments 才跑）")
+    @Test
+    void budgetUsage() {
+        System.out.println("[ab] ===== 预算用量（回合层不设上限，节点上限 12 万，标准档宽度 60） =====");
+        System.out.println("[ab] 宽度 | 场面 | 回合层 | 展开 | 生成状态 | 上限命中 | ms");
+        for (int width : new int[]{60, 135, 240}) {
+            for (int scene = 0; scene < 2; scene++) {
+                SimState s = scene == 0 ? twoCultists() : bigSingle();
+                CombatFlow.endTurn(s, 3, 5);
+                BeamSolver solver = new BeamSolver(3, 5, width,
+                        BeamSolver.SAFETY_MAX_TURN_LAYERS, 120_000, 32);
+                solver.bestFirstAction(s, Long.MAX_VALUE);
+                System.out.printf("[ab] %4d | %s | %5d | %6d | %8d | %s | %4d%n",
+                        width, scene == 0 ? "双教徒" : "单厚怪",
+                        solver.lastDepth, solver.lastNodes, solver.lastStates,
+                        solver.hitNodeLimit ? "是" : "否", solver.lastMillis);
+            }
+        }
+    }
+
     /** Boss 房把「保留回合层数」从 4 抬到 8：看每层节点预算变小后覆盖有什么变化。 */
     @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "离线实验（gradle test -Pexperiments 才跑）")
     @Test

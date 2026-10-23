@@ -377,7 +377,8 @@ public final class AutoPilot {
             Trace.info("SEARCH #" + searchCount + " avgNodes=" + (searchNodesTotal / searchCount)
                     + " depth=" + result.depth + " lines=" + result.lines
                     + " ms=" + result.millis + " plan=" + result.steps.size() + " steps"
-                    + " states=" + result.states);
+                    + " states=" + result.states
+                    + " budget=" + (result.hitNodeLimit ? "hit" : "exhausted"));
         }
         if (result.steps == null || result.steps.isEmpty()) {
             Trace.info("SEARCH -> empty plan, end turn");
@@ -387,9 +388,14 @@ public final class AutoPilot {
                 result.steps);
         planTurn = turnNow;
         planSummary = summarizePlan(result);
+        // 预算用量一并打出来：树被搜完了（exhausted）再加预算也没用，
+        // 只有 hitNodeLimit=true 才说明「是预算把它掐断的」。
         Trace.info("PLAN ready: " + result.steps.size() + " steps, depth " + result.depth
-                + ", " + result.nodes + " nodes / " + result.states + " states, "
-                + result.millis + " ms");
+                + " turns, " + result.nodes + "/" + result.nodeLimit + " nodes ("
+                + (result.nodeLimit <= 0 ? "unlimited"
+                    : (result.nodes * 100 / Math.max(1, result.nodeLimit)) + "%")
+                + ", " + (result.hitNodeLimit ? "node limit hit" : "tree exhausted")
+                + ") / " + result.states + " states, " + result.millis + " ms");
         int outcome = executePlannedStep(player, attackTarget);
         return outcome == OUTCOME_REPLAN ? OUTCOME_WAITING : outcome;
     }
@@ -586,12 +592,12 @@ public final class AutoPilot {
             }
             io.github.youqing.sts1solver.config.SolverConfig.Budget budget =
                     io.github.youqing.sts1solver.config.SolverConfig.budget();
-            // 整场战斗规划：最多推进 16 个**回合层**（≈ 蓝本 SetupValueHorizonTurns）+
-            // 蓝本同款节点/分支/时间上限。搜索内部按回合均分节点预算，一层吃不掉整份。
+            // 整场战斗规划：回合层**不设预算上界**（蓝本没有上界，靠节点/时间预算收敛），
+            // 只留一个安全上界防止病态局面死循环。搜索内部按回合均分节点预算，一层吃不掉整份。
             io.github.youqing.sts1solver.search.AsyncSearch.submit(snapshot,
                     snapshot.fingerprint(), CombatCapture.baseEnergy(), player.gameHandSize,
-                    budget.beamWidth, 16, budget.timeMillis,
-                    budget.nodeLimit, budget.cardBranches);
+                    budget.beamWidth, io.github.youqing.sts1solver.search.BeamSolver.SAFETY_MAX_TURN_LAYERS,
+                    budget.timeMillis, budget.nodeLimit, budget.cardBranches);
         } catch (Throwable t) {
             Trace.warn("submit search failed: " + t);
         }

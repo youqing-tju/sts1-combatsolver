@@ -34,9 +34,13 @@ public final class AsyncSearch {
         public final int lines;
         /** 可执行的完整路线（牌名 + 目标），执行层按它一步步走。 */
         public final java.util.List<RouteStep> steps;
+        /** 这一次的节点上限（面板档位给的），配合 {@link #nodes} 看预算用了多少。 */
+        public final int nodeLimit;
+        /** 是不是被节点上限截断的。false = 树被搜完了，再加预算也没用。 */
+        public final boolean hitNodeLimit;
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
-               int lines, java.util.List<RouteStep> steps) {
+               int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit) {
             this.fingerprint = fingerprint;
             this.action = action;
             this.nodes = nodes;
@@ -45,6 +49,8 @@ public final class AsyncSearch {
             this.millis = millis;
             this.lines = lines;
             this.steps = steps;
+            this.nodeLimit = nodeLimit;
+            this.hitNodeLimit = hitNodeLimit;
         }
     }
 
@@ -121,11 +127,11 @@ public final class AsyncSearch {
                 PlanAction action = solver.bestFirstAction(root, budget);
                 result = new Result(fingerprint, action, solver.lastNodes, solver.lastStates,
                         solver.lastDepth, solver.lastMillis, solver.lastLeaves,
-                        solver.lastSteps);
+                        solver.lastSteps, nodeLimit, solver.hitNodeLimit);
             } catch (Throwable t) {
                 Trace.error("background search failed", t);
                 result = new Result(fingerprint, null, 0, 0, 0, 0, 0,
-                        java.util.Collections.<RouteStep>emptyList());
+                        java.util.Collections.<RouteStep>emptyList(), nodeLimit, false);
             }
             running = false;
             ready = result;
