@@ -837,3 +837,62 @@ Beam 项 A/B 的四组数字也完全一致 —— 说明在现有场面上新�
 - 局外收益（`GrowthRewards` / `LongTermResourceValue` / `UnrecoveredLoot`）
 - 被偷资源（`TheftEncounterStrategy`）、复活遗物（`DeathSave*`）
 - `ContextualRankingModel` / `NoveltySearch` / `BeamPortfolio`（多策略组合，M4 之后再谈）
+
+
+## 19. 真机事故：升级态镜像缺失 → AI「像不会打仗」（2026-10-23）
+
+### 19.1 现象
+
+真机打完一局后的反馈：「不像是具有跨回合战斗的能力」。
+翻当天日志（`SlayTheSpire/solver-logs/sts1-combatsolver-2026-10-23.log`）先看到搜索其实是好的：
+
+```
+PLAN ready: 56 steps, depth 16, 7504 nodes / 18047 states, 148 ms
+PLAN ready: 53 steps, depth 15, ...
+PLAN ready: 50 steps, depth 14, ...
+```
+
+`depth` = **回合层数**，一路 13–16，说明确实在规划十几个回合。真正的问题在下一行：
+
+```
+AUTO end turn (search says end)  energy=1 hand[Body Slam+(cost=0/turn=0,atk), Defend_R(cost=1)]
+```
+
+**手里有一张 0 费、可打、伤害等于格挡的 `Body Slam+`，AI 选择结束回合。**
+
+### 19.2 根因：镜像表少了升级态
+
+`MirrorRegistry` 是「牌名 → 效果」的查表，查不到时 `CardPlayer.play` 抛 `ActionRejected`，
+搜索的分支被**静默跳过** —— 在 AI 眼里那张牌不存在。
+
+统计后：牌池里只有 9 个 `+` 键没注册，而用户那一局的牌组里正好有 3 个：
+
+| 缺的键 | 升级改了什么 | 后果 |
+|---|---|---|
+| `Body Slam+` | 1 费 → 0 费 | 0 费免费输出，AI 却当成没有 |
+| `Dark Embrace+` | 2 费 → 1 费 | 抽牌引擎永远打不出 |
+| `Entrench+` | 2 费 → 1 费 | 格挡翻倍永远打不出 |
+| `Barricade+` / `Corruption+` / `Seeing Red+` | 只改费用 | 同上 |
+| `Brutality+` | 只加 Innate（开局关键字） | 战斗中无差别 |
+| `Limit Break+` | **去掉 Exhaust** | 有差别：不能当消耗牌处理 |
+| `Transmutation+` | 生成的是**已升级**无色牌 | 仍未支持（见下） |
+
+### 19.3 修法
+
+1. **补齐 8 个升级态**。费用来自 `SimCard.effectiveCost()`（实机捕获），**不进镜像**，
+   所以升级只改费用的牌，效果体直接复用基础版；`Limit Break+` 用 `register` 而不是
+   `registerExhaust`（升级去掉了消耗）。依据是 jar 内 `localization/eng/cards.json` 的
+   `UPGRADE_DESCRIPTION`，不是记忆。
+   `Transmutation+` 仍不支持：`PoolCatalog` 还没有「生成**已升级**牌」的路径，
+   打不出会走 `ActionRejected`（不会算错），已登记进已知例外。
+2. **加覆盖闸门** `MirrorCoverageTest`：牌池里每张牌 × {基础, 升级} 都必须有镜像，
+   例外表必须写明理由、且「已支持的必须从例外里删掉」。这道闸本来能提前拦下这个 bug。
+3. **加真机诊断** `MIRROR MISS: <牌名>`：每场战斗把「手牌里没有镜像的牌」各报一次。
+   以前只能靠人肉对日志，现在下一次跑局就能直接看到覆盖缺口。
+4. **顺手修** `PoolCatalog.Entry.toCard` 丢 `type` 的问题：不传 type 时 `isAttack()` 永假，
+   于是「效果生成的牌」在估值（攻击总量 / 易伤窗口）和计数遗物（修女 / 手里剑 / 开信刀）里全算错。
+
+### 19.4 教训
+
+「未知语义显式拒绝」这条硬规则是对的（宁可打不出也不许算错），但**拒绝之后要能被看见**：
+查表 miss 在生产里不能是静默的，否则表现成「AI 变傻」，而不是「有张牌没支持」。

@@ -52,7 +52,9 @@ public final class PoolCatalog {
         }
 
         public SimCard toCard(int costOverride) {
-            return new SimCard(id, false, costOverride < 0 ? cost : costOverride, damage);
+            // 🔴 必须带上 type：不带的话 isAttack() 永远是 false，
+            // 「本次生成的牌」在估值（攻击总量/易伤窗口）和计数遗物（修女/手里剑/开信刀）里全部算错。
+            return new SimCard(id, false, costOverride < 0 ? cost : costOverride, damage, type);
         }
     }
 

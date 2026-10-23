@@ -155,15 +155,27 @@ public final class MirrorRegistry {
         registerExhaust("Disarm+", Effects.powerOnTarget(DamageCalc.STRENGTH, -3));
 
         // 壁垒 / 重击 / 自伤 / 回能
+        //
+        // ⚠️ 升级态必须逐个注册：镜像是往表里放「牌名 → 效果」，查不到就是**打不出这张牌**，
+        // 搜索会当成手牌里没有它 —— 真机上的表现是「手里有牌却结束回合」。
+        // 2026-10-23 真机踩过：Body Slam+ / Dark Embrace+ / Entrench+ 三张全缺，
+        // AI 拿着 0 费 Body Slam+ 直接结束回合。
+        //
+        // 这几张的升级只改**费用**（费用来自 SimCard，不进镜像），或只加 Innate（开局关键字），
+        // 所以效果体可以直接复用基础版。文本依据：jar 内 localization/eng/cards.json。
         register("Entrench", Effects.doubleBlock());
+        register("Entrench+", Effects.doubleBlock());          // 2 费 -> 1 费
         register("Body Slam", Effects.damageEqualToBlock());
+        register("Body Slam+", Effects.damageEqualToBlock());  // 1 费 -> 0 费
         registerExhaust("Limit Break", Effects.doubleStrength());
+        register("Limit Break+", Effects.doubleStrength());    // 升级**去掉 Exhaust**（不再是消耗牌）
         register("Heavy Blade", Effects.damageWithStrengthMult(14, 3));
         register("Heavy Blade+", Effects.damageWithStrengthMult(14, 5));
 
         register("Bloodletting", Arrays.asList(Effects.loseHp(3), Effects.gainEnergy(2)));
         register("Bloodletting+", Arrays.asList(Effects.loseHp(3), Effects.gainEnergy(3)));
         registerExhaust("Seeing Red", Effects.gainEnergy(2));
+        registerExhaust("Seeing Red+", Effects.gainEnergy(2));  // 1 费 -> 0 费，仍然消耗
 
         registerExhaust("Offering", Arrays.asList(
                 Effects.loseHp(6), Effects.gainEnergy(2), Effects.draw(3)));
@@ -194,8 +206,11 @@ public final class MirrorRegistry {
         register("Demon Form", Effects.powerOnPlayer("Demon Form", 2));
         register("Demon Form+", Effects.powerOnPlayer("Demon Form", 3));
         register("Barricade", Effects.powerOnPlayer("Barricade", 1));
+        register("Barricade+", Effects.powerOnPlayer("Barricade", 1));      // 3 费 -> 2 费
         register("Corruption", Effects.powerOnPlayer("Corruption", 3));
+        register("Corruption+", Effects.powerOnPlayer("Corruption", 3));    // 3 费 -> 2 费
         register("Dark Embrace", Effects.powerOnPlayer("Dark Embrace", 1));
+        register("Dark Embrace+", Effects.powerOnPlayer("Dark Embrace", 1));// 2 费 -> 1 费
         register("Evolve", Effects.powerOnPlayer("Evolve", 1));
         register("Evolve+", Effects.powerOnPlayer("Evolve", 2));
         register("Feel No Pain", Effects.powerOnPlayer("Feel No Pain", 3));
@@ -207,6 +222,7 @@ public final class MirrorRegistry {
         register("Rupture", Effects.powerOnPlayer("Rupture", 1));
         register("Rupture+", Effects.powerOnPlayer("Rupture", 2));
         register("Brutality", Effects.powerOnPlayer("Brutality", 1));
+        register("Brutality+", Effects.powerOnPlayer("Brutality", 1));      // 升级只加 Innate（开局）
         register("Combust", Effects.powerOnPlayer("Combust", 5));
         register("Combust+", Effects.powerOnPlayer("Combust", 7));
         register("Double Tap", Effects.powerOnPlayer("Double Tap", 1));

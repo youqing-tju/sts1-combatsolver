@@ -116,6 +116,7 @@ public final class AutoPilot {
         planTurn = -1;
         planSummary = "";
         framesWaitingForPlan = 0;
+        reportedMissingMirrors.clear();
         Trace.info("AUTO state reset (combat boundary)");
     }
 
@@ -296,13 +297,44 @@ public final class AutoPilot {
     private static final int PLAN_WAIT_LIMIT = 1800;   // 30 秒
 
     /**
+     * 已经报过「没有镜像」的牌名（每场战斗清空）。
+     *
+     * <p>没镜像的牌在搜索里等于**不存在**：{@code CardPlayer.play} 会抛 {@code ActionRejected}，
+     * 分支被静默跳过。结果就是「手里明明有牌，AI 却结束回合」。
+     * 2026-10-23 真机踩过（Body Slam+ / Dark Embrace+ / Entrench+ 三张升级态没注册），
+     * 当时只能靠翻日志猜。现在每场战斗把这类牌报一次，直接暴露覆盖缺口。
+     */
+    private static final java.util.Set<String> reportedMissingMirrors =
+            new java.util.HashSet<String>();
+
+    /**
      * 先打未镜像的牌（探索盲区），没有可探索的再打已镜像的（产出对拍）。
      *
      * <p>搜索现在跑在后台线程（{@link io.github.youqing.sts1solver.search.AsyncSearch}）：
      * 提交之后这一帧返回 {@link #OUTCOME_WAITING}，等结果回来再执行。
      * 这是为了把「时间预算」真正用起来 —— 蓝本是几百万条世界线，主线程给不了那个时间。
      */
+    /** 手牌里没有镜像的牌，每场战斗各报一次（这类牌搜索根本看不见）。 */
+    private static void reportMissingMirrors(AbstractPlayer player) {
+        if (player == null || player.hand == null || player.hand.group == null) {
+            return;
+        }
+        for (AbstractCard card : player.hand.group) {
+            if (card == null) {
+                continue;
+            }
+            String k = key(card);
+            if (io.github.youqing.sts1solver.mirror.MirrorRegistry.supports(k)) {
+                continue;
+            }
+            if (reportedMissingMirrors.add(k)) {
+                Trace.warn("MIRROR MISS: " + k + " 没有镜像 -> 搜索会把这张牌当成打不出");
+            }
+        }
+    }
+
     private static int playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
+        reportMissingMirrors(player);
         // ① 回合翻页 = 旧计划作废（跨回合的抽牌只是预测，不能硬套）
         int turnNow = AbstractDungeon.actionManager == null
                 ? planTurn : AbstractDungeon.actionManager.turn;
