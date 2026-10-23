@@ -1430,3 +1430,60 @@ public boolean canUse() { return false; }                       // 不能主动�
 - 剩下 30+ 张药水（生成类/选择类/被动类各有各的形态）；
 - `BlockPotionInsertion`（把药水插进已解路线）、`PotionChoiceContinuation`（药水开出的选牌）；
 - 估值策略（见 §25.4）。
+
+## 26. 保留策略第一批：排序第三键 + 边界多样化（A｜蓝本源码，2026-10-23）
+
+> 蓝本 `Retention` 族实际规模：9 文件约 1.3 万行（比交接文档记的 5060 大）。
+> 按依赖拆批：批 1 = 边界多样化、批 2 = 排序第三键、批 3 = Pareto cohort、
+> 批 4 = 药水配额、批 5 = 承诺代表、批 6 = OrderedMutation（依赖 NoveltySearch）。
+> 本节记录已完成的批 1 + 批 2。
+
+### 26.1 排序第三键 `offensiveProgressValue`（批 2）
+
+蓝本 `CompareBeamRankOrder`（`BeamRetentionPolicy.cs:20-41`）三键：
+`beamRankScore 降 → actionCount 升 → offensiveProgressValue 降`。前两键已有，第三键补齐。
+
+量的来源（`CombatBeamSolver.StateEvaluation.cs:448-451`）：
+
+```
+offensiveProgress = 力量潜力 + 延迟伤害 + 反应伤害 + (活牌里有全身撞击 ? max(0, 格挡) : 0)
+```
+
+STS1 Ironclad 逐项对应（`BeamSolver.offensiveProgressOf`）：
+
+| 项 | 蓝本 | 我们的对应 |
+|---|---|---|
+| 力量潜力 | `StrategicEffectModel.cs:499` `Damage(力量 × (AttackHits ?? AttackPlays), enemyHp)` | 力量 × attackHits（可负，无 clamp） |
+| AttackHits | `CardMechanismFacts.cs:44-55`（无飞刀主干 = `ceil(命中段数 × 可达牌数 / 活牌数)`） | 同公式，命中段数查表：双持打击 2、回旋飞剑 3，其余 1（X 费动态段数按 1 保守） |
+| 可达牌数 | `StrategicEffectModel.cs:306-322` 投影（`SetupValueHorizonTurns=16`） | 同公式 |
+| 延迟伤害 | 敌人 poison/demise/doom（:427-443） | 恒 0 —— 铁甲战士无施加源 |
+| 反应伤害 | `SleightOfFlesh`（:444-446） | 恒 0 —— STS2 特有 |
+| 全身撞击 | 活牌有 `BodySlam` → 加当前格挡（:447,451） | 活牌（手+抽+弃，:124-128 顺序）有 `Body Slam`(+ 同） |
+
+`totalAttackValue` 我们用牌面伤害和（蓝本 `CardChoiceSupport.CardValue` 含效果价值，
+语义同向，只影响 remainingTurns 的粗估精度）。**不进分数** —— 只做 beam 排序第三键
+与多样化分组键，与 score 里的成长项（LatentSetup / RetainedAttackGrowth）不重复计价。
+
+### 26.2 边界多样化 `DiversifyOrdinaryBeamBoundary`（批 1）
+
+蓝本 `BeamRetentionPolicy.cs:47-165`，唯一调用点 :1704（beam 剪枝入口，截断之后）。
+语义：在 rankedPool 尾部定位「最后一个已入选的普通席位」（boundary），以主键
+（`beamRankScore` + `actionCount`）向两边扩出并列段，然后：
+
+1. 段内按**已用药水数**分桶（`SearchNode.potionsUsed`，路线中 USE_POTION 计数）；
+2. 每桶「部分入选」（1 < 入选 < 桶大小）时，按 offensiveProgress **降序分组、轮转占位**
+   —— 高推进组的代表（含被截掉的）换进席位，单一推进值不再垄断并列段；
+3. 段内出现「已打赢」节点（`IsCompleteVictory`）→ 整体放弃（终局交给最终排序策略）。
+
+我们的实现挂在 `prune` 截断之后；required 传空集（还没有策略强制保留）、
+`finalQualityFirst=false`（这条路径只服务 beam 剪枝）。
+
+**刻意不搬**：`OrderOrdinaryBeamTacticalCohorts` 战术重排 —— 依赖
+`ZeroCostPlayableCount` / `ReachableHandValue` / `HandCount` 三个快照量，未建模；
+`includeSingleProgressGroup` 实验开关（BaseScoreOnly 专用）。
+
+### 26.3 验证
+
+- 新增 `BeamRetentionPolicyTest` 5 条：推进量计算（力量×命中段数+BodySlam 格挡 = 25 的手工推演）、
+  无力量/无撞击 = 0、排序第三键、轮转（[B,A,D] 手工推演）、分桶隔离。
+- 全量 221 条通过（216 旧 + 5 新），现有搜索行为测试无一受影响。

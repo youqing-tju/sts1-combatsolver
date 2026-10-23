@@ -638,12 +638,99 @@ public final class BeamSolver {
         postCombatRelicHeal = io.github.youqing.sts1solver.mirror.PostCombatRelicHeal.of(root.relics);
     }
 
-    /** 建节点：一次算出基础分（定路线）和排序分（定剪枝）。 */
+    /** 建节点：一次算出基础分（定路线）、排序分（定剪枝）和攻击推进量 / 用药数。 */
     private SearchNode nodeOf(SimState state, PlanAction action, SearchNode parent, int depth,
                               String cardKey) {
         Score score = Score.of(state, scoreRoot, depth);
+        int potionsUsed = (parent != null ? parent.potionsUsed : 0)
+                + (action != null && action.kind == PlanAction.Kind.USE_POTION ? 1 : 0);
         return new SearchNode(state, action, parent, depth, score.baseTotal(), score.total(),
-                cardKey);
+                cardKey, offensiveProgressOf(state), potionsUsed);
+    }
+
+    /**
+     * 蓝本 {@code Snapshot.OffensiveProgressValue}（{@code CombatBeamSolver.StateEvaluation.cs:448-451}）：
+     * <pre>
+     * offensiveProgress = 力量潜力 + 延迟伤害 + 反应伤害 + (活牌里有全身撞击 ? max(0, 格挡) : 0)
+     * </pre>
+     * 逐项的 STS1 Ironclad 对应：
+     * <ul>
+     *   <li>**力量潜力**（{@code StrategicEffectModel.cs:499}）：
+     *       {@code 力量 × (AttackHits ?? AttackPlays)}，单位「点敌方血」。
+     *       {@code AttackHits} = {@code EstimatedAttackHits}（{@code CardMechanismFacts.cs:44-55}），
+     *       无飞刀项退化成 {@code ceil(命中段数 × 可达牌数 / 活牌数)}；
+     *       命中段数查表（{@code CardMechanismFacts.cs:14-19}）对应 STS1：
+     *       双持打击 = 2 段、回旋飞剑 = 3 段，其余 1 段。</li>
+     *   <li>**延迟伤害**（敌人身上的 poison / demise / doom，:427-443）：铁甲战士没有施加源，恒 0。</li>
+     *   <li>**反应伤害**（{@code SleightOfFlesh}，:444-446）：STS2 特有能力，恒 0。</li>
+     *   <li>**全身撞击**（:447,451）：活牌（手牌 + 抽牌堆 + 弃牌堆，:124-128）里有 Body Slam
+     *       就把当前格挡计入 —— 打出去伤害 = 格挡，是已兑现的攻击推进。</li>
+     * </ul>
+     * 只做 beam 排序第三键（{@code CompareBeamRankOrder}）与边界多样化的分组键，**不进分数**。
+     */
+    static int offensiveProgressOf(SimState s) {
+        int liveCards = s.hand.size() + s.draw.size() + s.discard.size();
+        int deckSize = Math.max(1, liveCards);
+        int attackHitCount = 0;
+        int totalAttackValue = 0;
+        boolean hasBodySlam = false;
+        // liveCards = 弃牌堆 + 抽牌堆 + 手牌（StateEvaluation.cs:124-128 的固定顺序）
+        for (int pile = 0; pile < 3; pile++) {
+            List<SimCard> cards = pile == 0 ? s.discard : pile == 1 ? s.draw : s.hand;
+            for (SimCard c : cards) {
+                if (!c.isAttack()) {
+                    continue;
+                }
+                attackHitCount += attackHitsPerCard(c);
+                totalAttackValue += Math.max(0, c.baseDamage);
+                if (c.id.equals("Body Slam") || c.id.equals("Body Slam+")) {
+                    hasBodySlam = true;
+                }
+            }
+        }
+        // 可达牌数与剩余回合（StrategicEffectModel.cs:306-322 的投影，SetupValueHorizonTurns=16）
+        Integer strengthBoxed = s.playerPowers.get(io.github.youqing.sts1solver.mirror.DamageCalc.STRENGTH);
+        int strength = strengthBoxed == null ? 0 : strengthBoxed;
+        if (attackHitCount == 0 && !hasBodySlam) {
+            return 0;   // 没有攻击推进来源，直接 0（省掉下面的投影算术）
+        }
+        int enemyHp = 0;
+        for (SimMonster m : s.monsters) {
+            enemyHp += Math.max(0, m.hp);
+        }
+        int cardsPerTurn = Math.min(10, Math.max(1, Math.min(5, deckSize)));
+        int estimatedCycles = (int) Math.ceil((double) Math.max(1, enemyHp)
+                / Math.max(1, totalAttackValue));
+        int remainingTurns = Math.max(1, Math.min(16,
+                estimatedCycles * Math.max(1, (int) Math.ceil(deckSize / 5.0))));
+        int reachableCards = liveCards == 0
+                ? 0
+                : Math.min(deckSize * 2, remainingTurns * cardsPerTurn);
+        // EstimatedAttackHits 的无飞刀主干（CardMechanismFacts.cs:48-54）：
+        // actions = reachableCards，ordinaryDeckSize = deckSize
+        int attackHits = reachableCards <= 0
+                ? 0
+                : (int) Math.ceil((double) attackHitCount * reachableCards / deckSize);
+        // 蓝本 Damage(amount × (AttackHits ?? AttackPlays), enemyHp) 无 clamp —— 负力量保留负值
+        int strengthPotential = strength * attackHits;
+        int bodySlamBlock = hasBodySlam ? Math.max(0, s.block) : 0;
+        return strengthPotential + bodySlamBlock;
+    }
+
+    /**
+     * 每张攻击牌的命中段数（蓝本 {@code CardMechanismFacts.AttackHits} 查表的 STS1 对应，
+     * {@code CardMechanismFacts.cs:14-19}）。STS1 铁甲战士的固定多段牌只有两张；
+     * X 费多段（旋风斩/穿刺）段数动态，蓝本对动态段数读 {@code Repeat} 变量，
+     * 我们没有静态段数，按 1 段保守估算（低估，不虚高）。
+     */
+    private static int attackHitsPerCard(SimCard c) {
+        if (c.id.equals("Twin Strike") || c.id.equals("Twin Strike+")) {
+            return 2;
+        }
+        if (c.id.equals("Sword Boomerang") || c.id.equals("Sword Boomerang+")) {
+            return 3;
+        }
+        return 1;
     }
 
     private static boolean sameAction(SearchNode a, SearchNode b) {
@@ -1002,7 +1089,7 @@ public final class BeamSolver {
         expandTurnLayer(node, out, out, cardBranchLimit);
     }
 
-    private List<SearchNode> prune(List<SearchNode> candidates, int width) {
+    List<SearchNode> prune(List<SearchNode> candidates, int width) {
         Map<String, SearchNode> byState = new LinkedHashMap<String, SearchNode>();
         for (SearchNode node : candidates) {
             String key = node.state.fingerprint();
@@ -1015,19 +1102,171 @@ public final class BeamSolver {
             }
         }
         List<SearchNode> unique = new ArrayList<SearchNode>(byState.values());
-        // 剪枝排序 = 蓝本 CompareBeamRankOrder（BeamRetentionPolicy.cs:27-39）：
+        // 剪枝排序 = 蓝本 CompareBeamRankOrder（BeamRetentionPolicy.cs:20-41）：
         //   ① beamRankScore 降序（含手头资源，只决定谁能活到下一层）
         //   ② actionCount 升序（同样好时，少走一步更好）
-        //   ③ offensiveProgressValue 降序（攻击推进量，未搬 —— 我们没有这个量）
+        //   ③ offensiveProgressValue 降序（已兑现的攻击推进量，2026-10-23 补齐）
         // ①相同才看 ②，所以合成一个 Comparator 而不是两次 sort。
         unique.sort(new java.util.Comparator<SearchNode>() {
             @Override
             public int compare(SearchNode a, SearchNode b) {
                 int c = Long.compare(b.rank, a.rank);
-                return c != 0 ? c : Integer.compare(a.depth, b.depth);
+                if (c != 0) {
+                    return c;
+                }
+                c = Integer.compare(a.depth, b.depth);
+                return c != 0 ? c : Integer.compare(b.offensiveProgress, a.offensiveProgress);
             }
         });
-        return unique.size() <= width ? unique : new ArrayList<SearchNode>(unique.subList(0, width));
+        // 蓝本 DiversifyOrdinaryBeamBoundary（BeamRetentionPolicy.cs:47-165，调用点 :1704）：
+        // 截断之后，在「主键（rank+actionCount）并列」的边界段里按药水数分桶、
+        // 按攻击推进量分组轮转占位 —— 防止 beam 尾部被同质路线占满（多样性塌掉搜索会卡死）。
+        // required（策略强制保留）与 finalQualityFirst 我们还没有，传空集 / false。
+        List<SearchNode> selected = unique.size() <= width
+                ? unique
+                : new ArrayList<SearchNode>(unique.subList(0, width));
+        diversifyOrdinaryBeamBoundary(unique, selected,
+                java.util.Collections.<SearchNode>emptySet(), false);
+        return selected;
+    }
+
+    /**
+     * 蓝本 {@code DiversifyOrdinaryBeamBoundary}（{@code BeamRetentionPolicy.cs:47-165}）。
+     *
+     * <p>前提：{@code rankedPool} 是全量按分数排好序的候选（截断前），{@code selected} 是
+     * 截断后的 beam。在 rankedPool 的**尾部**找最后一个已入选的普通席位（boundary），
+     * 以它的主键（rank + actionCount）向两边扩出并列段 [start, end)，然后：
+     *
+     * <ol>
+     *   <li>段内候选按 {@link SearchNode#potionsUsed} 分桶；</li>
+     *   <li>每桶若「部分入选」（1 &lt; 入选数 &lt; 桶大小），按 {@link SearchNode#offensiveProgress}
+     *       降序分组、**轮转**（round-robin）取代表回填入选席位 ——
+     *       让不同攻击推进状态的路线都能在 beam 尾部占一席，而不是被单一推进值垄断；</li>
+     *   <li>段内出现「已打赢」的节点 → 整体放弃（终局路线完全交给最终排序策略管，蓝本 :106-108）。</li>
+     * </ol>
+     *
+     * <p>刻意不搬（依赖的量我们还没有，见 {@code mechanics-reference} 对应小节）：
+     * {@code OrderOrdinaryBeamTacticalCohorts} 的战术重排（需要 ZeroCostPlayableCount /
+     * ReachableHandValue / HandCount 三个快照量）与 {@code includeSingleProgressGroup}
+     * 实验开关（BaseScoreOnly 专用）。蓝本的 required 保留分支也不在本函数职责内。
+     */
+    static void diversifyOrdinaryBeamBoundary(List<SearchNode> rankedPool,
+                                                      List<SearchNode> selected,
+                                                      java.util.Set<SearchNode> required,
+                                                      boolean finalQualityFirst) {
+        if (finalQualityFirst || selected.size() >= rankedPool.size()) {
+            return;
+        }
+        java.util.Set<SearchNode> requiredSet =
+                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<SearchNode, Boolean>());
+        requiredSet.addAll(required);
+        // 按**引用**定位入选席位（蓝本 ReferenceEqualityComparer）
+        Map<SearchNode, Integer> selectedPositions =
+                new java.util.IdentityHashMap<SearchNode, Integer>();
+        for (int index = 0; index < selected.size(); index++) {
+            selectedPositions.put(selected.get(index), index);
+        }
+
+        // 定位「原排序里最后一个普通幸存者」，不是最后一个入选槽位（蓝本 :62-72 注释）
+        int boundary = rankedPool.size() - 1;
+        while (boundary >= 0
+                && (requiredSet.contains(rankedPool.get(boundary))
+                || !selectedPositions.containsKey(rankedPool.get(boundary)))) {
+            boundary--;
+        }
+        if (boundary < 0) {
+            return;
+        }
+        SearchNode boundaryValue = rankedPool.get(boundary);
+        // 主键 = beamRankScore + actionCount（蓝本 SamePrimary，:74-78）
+        java.util.function.BiPredicate<SearchNode, SearchNode> samePrimary = (a, b) ->
+                a.rank == b.rank && a.depth == b.depth;
+
+        int end = boundary + 1;
+        while (end < rankedPool.size() && samePrimary.test(rankedPool.get(end), boundaryValue)) {
+            end++;
+        }
+        if (end == boundary + 1) {
+            return;     // 边界右侧没有同主键候选：没有「被截掉的同分路线」需要轮转
+        }
+        int start = boundary;
+        while (start > 0 && samePrimary.test(rankedPool.get(start - 1), boundaryValue)) {
+            start--;
+        }
+
+        // 段内按药水使用数分桶（蓝本 :101-117）
+        Map<Integer, List<SearchNode>> byPotionCount = new LinkedHashMap<Integer, List<SearchNode>>();
+        for (int index = start; index < end; index++) {
+            SearchNode candidate = rankedPool.get(index);
+            // 蓝本 describe 的 Victory = IsCompleteVictory（actionCount>0 && 怪全灭
+            // && !playerDead && 投影血>0）；段内出现 → 整体放弃（蓝本 :106-108）
+            if (candidate.depth > 0
+                    && SearchNode.noAliveMonster(candidate.state)
+                    && candidate.state.hp > 0
+                    && Score.projectedHpOf(candidate.state) > 0) {
+                return;
+            }
+            if (requiredSet.contains(candidate)) {
+                continue;
+            }
+            List<SearchNode> bucket = byPotionCount.get(candidate.potionsUsed);
+            if (bucket == null) {
+                bucket = new ArrayList<SearchNode>();
+                byPotionCount.put(candidate.potionsUsed, bucket);
+            }
+            bucket.add(candidate);
+        }
+
+        for (List<SearchNode> bucket : byPotionCount.values()) {
+            List<Integer> slots = new ArrayList<Integer>();
+            for (SearchNode candidate : bucket) {
+                Integer slot = selectedPositions.get(candidate);
+                if (slot != null) {
+                    slots.add(slot);
+                }
+            }
+            // 只有「部分入选」的桶才需要再平衡（全没进 / 全进了都不用动）
+            if (slots.size() <= 1 || slots.size() == bucket.size()) {
+                continue;
+            }
+
+            // 按攻击推进量降序分组（蓝本 :130-134）；单一分组直接跳过
+            Map<Integer, List<SearchNode>> progressGroups = new LinkedHashMap<Integer, List<SearchNode>>();
+            for (SearchNode candidate : bucket) {
+                List<SearchNode> group = progressGroups.get(candidate.offensiveProgress);
+                if (group == null) {
+                    group = new ArrayList<SearchNode>();
+                    progressGroups.put(candidate.offensiveProgress, group);
+                }
+                group.add(candidate);
+            }
+            if (progressGroups.size() <= 1) {
+                continue;
+            }
+            List<List<SearchNode>> groups = new ArrayList<List<SearchNode>>(progressGroups.values());
+            groups.sort(new java.util.Comparator<List<SearchNode>>() {
+                @Override
+                public int compare(List<SearchNode> a, List<SearchNode> b) {
+                    return Integer.compare(b.get(0).offensiveProgress, a.get(0).offensiveProgress);
+                }
+            });
+
+            // 轮转取代表回填席位（蓝本 :151-163）：进度不同的路线轮流占位
+            List<SearchNode> replacements = new ArrayList<SearchNode>(slots.size());
+            for (int round = 0; replacements.size() < slots.size(); round++) {
+                for (List<SearchNode> group : groups) {
+                    if (round < group.size()) {
+                        replacements.add(group.get(round));
+                    }
+                    if (replacements.size() == slots.size()) {
+                        break;
+                    }
+                }
+            }
+            for (int index = 0; index < slots.size(); index++) {
+                selected.set(slots.get(index), replacements.get(index));
+            }
+        }
     }
 
     /**

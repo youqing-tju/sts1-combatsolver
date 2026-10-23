@@ -25,6 +25,17 @@ public final class SearchNode {
     public final long rank;
     /** 这一步打的牌（{@code id+} 形式）；{@code END_TURN} 时为 null。 */
     public final String cardKey;
+    /**
+     * 蓝本 {@code Snapshot.OffensiveProgressValue}（{@code StateEvaluation.cs:448-451}）：
+     * 当前状态里**已兑现的攻击推进量**（力量潜力 + 全身撞击的格挡），单位「点敌方血」。
+     * 只做 beam 排序第三键（{@code CompareBeamRankOrder}）和边界多样化的分组键，不进分数。
+     */
+    public final int offensiveProgress;
+    /**
+     * 蓝本 {@code SearchNode.PotionCount}：走到本节点为止路线中**已使用的药水数**。
+     * 边界多样化按它分桶（防 beam 被同质路线占满）。
+     */
+    public final int potionsUsed;
 
     public SearchNode(SimState state, PlanAction action, SearchNode parent, int depth, long score) {
         this(state, action, parent, depth, score, score, null);
@@ -37,6 +48,11 @@ public final class SearchNode {
 
     public SearchNode(SimState state, PlanAction action, SearchNode parent, int depth, long score,
                       long rank, String cardKey) {
+        this(state, action, parent, depth, score, rank, cardKey, 0, 0);
+    }
+
+    public SearchNode(SimState state, PlanAction action, SearchNode parent, int depth, long score,
+                      long rank, String cardKey, int offensiveProgress, int potionsUsed) {
         this.state = state;
         this.action = action;
         this.parent = parent;
@@ -44,6 +60,8 @@ public final class SearchNode {
         this.score = score;
         this.rank = rank;
         this.cardKey = cardKey;
+        this.offensiveProgress = offensiveProgress;
+        this.potionsUsed = potionsUsed;
     }
 
     /** 从根到本节点的第一个动作（执行层只有这一步是真的要做的）。 */

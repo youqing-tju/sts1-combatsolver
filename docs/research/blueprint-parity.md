@@ -52,7 +52,7 @@ read_when:
 | `ExpansionExecutor.cs` / `ParallelExpansion.cs`（并行展开） | 单线程 | ❌ 未做（结果不变，只影响速度） |
 | `CyclePlanning.cs` / `CycleReplay` / `CycleRegionRetention`（循环检测与区域保留） | `TranspositionTable`（按指纹去重） | 🔶 部分：只有去重，没有循环区域机制 |
 | `NoveltySearch.cs` / `Bfws*`（新颖度搜索） | — | ❌ 未做 |
-| `Retention.cs` / `RetentionJobs.cs` / `BeamRetentionPolicy.*`（保留策略族：路由 / 有序变异 / 泳道） | `prune`（按 rank 排序取前 N） | 🔶 部分：只有最简单的「按 rank 取前 N」 |
+| `Retention.cs` / `RetentionJobs.cs` / `BeamRetentionPolicy.*`（保留策略族：路由 / 有序变异 / 泳道） | `prune`（按 rank 排序取前 N） | 🔶 部分：排序三键已补齐（`CompareBeamRankOrder` 第三键 `offensiveProgress`，2026-10-23）+ **边界多样化** `DiversifyOrdinaryBeamBoundary` 已搬（beam 尾部按药水桶 × 推进组轮转占位）；Pareto cohort 前排保留 / 药水配额 / 承诺代表 / 有序变异 / 泳道路由未做。`OrderOrdinaryBeamTacticalCohorts` 的战术重排刻意不搬（依赖 ZeroCostPlayableCount / ReachableHandValue / HandCount 三个快照量，未建模） |
 | `CrossTurnPlanning.cs` / `RoundTransition.cs`（跨回合调度证据 / 回合推进） | `endTurnOf` + `CombatFlow.endTurn` | 🔶 部分：回合推进有，调度证据没有 |
 | `BeamPortfolioSelector.cs` / `BeamWidthPortfolio*.cs`（多宽度组合） | — | ❌ 未做 |
 | `ContextualRankingModel.cs`（上下文排序模型） | — | ❌ 未做 |
