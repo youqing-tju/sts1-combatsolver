@@ -40,6 +40,20 @@ public final class SimState {
     public int act;
     public int floor;
     public int ascension;
+    /**
+     * 这场战斗是不是**幕末 Boss 房**（{@code AbstractRoom.RoomType.BOSS}）。
+     *
+     * <p>蓝本用它决定「按回合层分节点预算时给几层」：
+     * {@code reservedTurnLayers = roomType == Boss ? BossEnemyStrengthSuppressionHorizon(8)
+     *                                            : StandardEnemyStrengthSuppressionHorizon(4)}
+     * （{@code CombatBeamSolver.Phases.cs:1428-1432}）。
+     *
+     * <p>注意蓝本还有另一个 boss 概念 {@code _isActEndingBoss}，那个来自
+     * {@code BossHpRelief != None}，指的是「打完这场会回血（幕末 80% 回复）」——
+     * **STS1 没有这个机制**，所以那一路分支（持续成长 cap 32 / 虚弱与力量削减 horizon 加倍）
+     * 在 STS1 永远走标准档，我们没有实现。
+     */
+    public boolean boss;
     /** 玩家回合序号（对应 GameActionManager.turn），意图学习表按它索引。 */
     public int turn = 1;
 
@@ -87,6 +101,14 @@ public final class SimState {
         s.act = AbstractDungeon.actNum;
         s.floor = AbstractDungeon.floorNum;
         s.ascension = AbstractDungeon.ascensionLevel;
+        try {
+            // STS1 的 AbstractRoom 没有 roomType 字段，房间类型就是具体类；
+            // 幕末 Boss 房 = MonsterRoomBoss（等价于 AbstractRoom.RoomType.BOSS 的语义）
+            s.boss = AbstractDungeon.getCurrRoom()
+                    instanceof com.megacrit.cardcrawl.rooms.MonsterRoomBoss;
+        } catch (Throwable ignored) {
+            s.boss = false;
+        }
         try {
             s.turn = Math.max(1, AbstractDungeon.actionManager.turn);
         } catch (Throwable ignored) {
@@ -231,6 +253,7 @@ public final class SimState {
         c.act = act;
         c.floor = floor;
         c.ascension = ascension;
+        c.boss = boss;
         c.turn = turn;
         c.gold = gold;
         c.hp = hp;
@@ -266,6 +289,7 @@ public final class SimState {
         cmp(out, "act", act, o.act);
         cmp(out, "floor", floor, o.floor);
         cmp(out, "ascension", ascension, o.ascension);
+        cmp(out, "boss", boss, o.boss);
         cmp(out, "hp", hp, o.hp);
         cmp(out, "maxHp", maxHp, o.maxHp);
         cmp(out, "block", block, o.block);
@@ -322,6 +346,12 @@ public final class SimState {
     }
 
     private static void cmp(List<String> out, String path, int a, int b) {
+        if (a != b) {
+            out.add(path + ": " + a + " vs " + b);
+        }
+    }
+
+    private static void cmp(List<String> out, String path, boolean a, boolean b) {
         if (a != b) {
             out.add(path + ": " + a + " vs " + b);
         }

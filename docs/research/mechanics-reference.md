@@ -788,3 +788,52 @@ Beam 项 A/B 的四组数字也完全一致 —— 说明在现有场面上新�
 
 测试：128 条全绿。`blocksWhenAttackingWouldGetUsKilled` 的数值按新口径重设过
 （原场景两条路都会死，且「早死」反而分低，见 17.2）。
+
+
+## 18. Boss 分档：蓝本有**两个** boss 概念，只有一个能搬
+
+搞清楚这一点花了点时间，因为二者名字很像但触发源完全不同。
+
+| 概念 | 蓝本判定 | 影响 | STS1 能不能搬 |
+|---|---|---|---|
+| `_isActEndingBoss` | `BossHpRelief != None`，即**打完这场会回血**（幕末清完回 80% 伤害） | 持续成长 cap 4→32 / 值 150,000→50,000；虚弱「每层省 1 血」→2；力量削减 horizon 4→8；`useLatentSetup` 直接启用；`FutureResourceBeamValue` 只在 Boss 档生效 | ❌ **搬不了**：STS1 打完 Boss 不回血（只给奖励、进下一幕），`BossHpRelief` 永远是 `None` |
+| `reservedTurnLayers` | `root.EncounterRoomType == RoomType.Boss ? 8 : 4`（真实房间类型） | 按回合层分节点预算时的**分母**：前 4（Boss 8）层每层分 `剩余/剩余层数`，之后分母兜底为 1 | ✅ 已搬 |
+
+所以「Boss 档」在我们的实现里**只影响每层节点预算的分母**，不碰估值权重。
+估值那一侧的 boss 分支在 STS1 永远走标准档，我们没有实现（也不该实现）。
+
+### 18.1 实现
+
+- `SimState.boss` 新字段，`capture()` 里用
+  `AbstractDungeon.getCurrRoom() instanceof MonsterRoomBoss` 判定。
+  STS1 的 `AbstractRoom` **没有 `roomType` 字段**（反编译确认：只有 `phase`），
+  房间类型就是具体类，`MonsterRoomBoss` 等价于 `RoomType.BOSS` 的语义。
+- `copy()` / `diff()` 一并带上（A1 克隆对拍要能查到这个字段）。
+- `BeamSolver.searchToDepth` 的分母改成
+  `max(1, (boss ? 8 : 4) - turn)`，循环上界仍是 `depth`（最多几个回合层）。
+
+### 18.2 实测
+
+`ScoreAbTest.bossReservedLayers`（双教徒，宽度 60，最多 16 回合）：
+
+| boss | 节点上限 | 推进回合层 | 展开 | ms |
+|---|---|---|---|---|
+| false | 2,000 | 12 | 6,097 | 117 |
+| false | 10,000 | 15 | 3,326 | 58 |
+| true | 2,000 | 12 | 6,097 | 130 |
+| true | 10,000 | 15 | 3,326 | 56 |
+
+**没有差别** —— 因为这两个场面在 3 千多节点就把树搜完了，每层预算根本没咬住。
+分母的差别只在「节点上限真的成为瓶颈」的大场面（Boss 战、牌多、分支宽）才体现出来。
+这一项属于**结构性对齐**：把蓝本的预算分配公式摆正，等真实 Boss 战再验证收益。
+
+### 18.3 蓝本里仍然没有对应物、因此**刻意不实现**的
+
+写在这里防止以后有人当成漏项：
+
+- `LatentSetup` 的 STS1 能力牌分值表（蓝本按 STS2 卡逐个给分）
+- 药水全套（`PotionStrategicCost` / `OptionalPotionCount` / `SmartRequiredHpSaved`）
+- 遗物计数估值（`RelicCounterEvaluation`，我们的计数遗物是**真的在仿真里触发**的）
+- 局外收益（`GrowthRewards` / `LongTermResourceValue` / `UnrecoveredLoot`）
+- 被偷资源（`TheftEncounterStrategy`）、复活遗物（`DeathSave*`）
+- `ContextualRankingModel` / `NoveltySearch` / `BeamPortfolio`（多策略组合，M4 之后再谈）

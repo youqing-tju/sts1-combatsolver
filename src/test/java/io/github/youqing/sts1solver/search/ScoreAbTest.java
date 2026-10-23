@@ -148,6 +148,25 @@ class ScoreAbTest {
         }
     }
 
+    /** Boss 房把「保留回合层数」从 4 抬到 8：看每层节点预算变小后覆盖有什么变化。 */
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "离线实验（gradle test -Pexperiments 才跑）")
+    @Test
+    void bossReservedLayers() {
+        System.out.println("[ab] ===== Boss 房保留层数（4 → 8） =====");
+        System.out.println("[ab] boss | 节点上限 | 场面 | 回合层 | 展开 | ms");
+        for (boolean boss : new boolean[]{false, true}) {
+            for (int limit : new int[]{2_000, 10_000}) {
+                SimState s = twoCultists();
+                s.boss = boss;
+                CombatFlow.endTurn(s, 3, 5);
+                BeamSolver solver = new BeamSolver(3, 5, 60, 16, limit, 32);
+                solver.bestFirstAction(s, Long.MAX_VALUE);
+                System.out.printf("[ab] %s | %6d | 双教徒 | %2d | %6d | %4d%n",
+                        boss, limit, solver.lastDepth, solver.lastNodes, solver.lastMillis);
+            }
+        }
+    }
+
     /** 带「能力牌 + 成长攻击」的牌组：验证 Beam 项与「掉血二次计价」的交互。 */
     @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "离线实验（gradle test -Pexperiments 才跑）")
     @Test

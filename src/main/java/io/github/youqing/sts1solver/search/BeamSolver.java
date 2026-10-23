@@ -113,6 +113,22 @@ public final class BeamSolver {
     public static final int MIN_TURN_LAYER_NODES = 500;
 
     /**
+     * 「保留回合层数」—— 把剩余节点预算按「还要给几层留额度」均分时用的分母。
+     *
+     * <p>蓝本 {@code CombatBeamSolver.Phases.cs:1428-1432}：
+     * {@code reservedTurnLayers = _earlyTurnScoutDepth > 0 ? _earlyTurnScoutDepth
+     *   : root.EncounterRoomType == RoomType.Boss ? BossEnemyStrengthSuppressionHorizon(8)
+     *   : StandardEnemyStrengthSuppressionHorizon(4)}，
+     * 之后 {@code remainingReservedLayers = max(1, reservedTurnLayers - searchedTurnLayers)}。
+     *
+     * <p>也就是说：前 4（Boss 战 8）个回合每层分 {@code 剩余/剩余层数}，
+     * 超过之后分母兜底为 1 —— 剩下的节点全给后面的回合。我们照抄，
+     * 但**循环上界**仍由 {@link #depth}（最多几个回合层）兜着，蓝本没有这个上界。
+     */
+    public static final int STANDARD_RESERVED_TURN_LAYERS = 4;
+    public static final int BOSS_RESERVED_TURN_LAYERS = 8;
+
+    /**
      * 单个回合最多展开多少层「出牌」。蓝本没有这个常量，它靠回合层节点预算兜住；
      * 我们留一个硬上限，防止 0 费引擎在**不限节点**的场景（单测）里把内存跑爆。
      */
@@ -310,8 +326,10 @@ public final class BeamSolver {
             }
 
             // 本层节点预算：蓝本 MinimumTurnLayerExpandedNodes 兜底，
-            // 剩下的额度按「还要搜几个回合」均分 —— 一层吃不掉整份预算
-            int remainingTurns = Math.max(1, maxTurns - turn);
+            // 剩下的额度按「还要给几个保留回合层留」均分 —— 一层吃不掉整份预算。
+            // 保留层数固定 4（Boss 房 8），超过之后分母兜底为 1（蓝本 remainingReservedLayers 同口径）。
+            int reservedLayers = root.boss ? BOSS_RESERVED_TURN_LAYERS : STANDARD_RESERVED_TURN_LAYERS;
+            int remainingTurns = Math.max(1, reservedLayers - turn);
             int layerBudget = Integer.MAX_VALUE;
             if (limit > 0) {
                 int remainingNodes = Math.max(1, limit - expanded);
