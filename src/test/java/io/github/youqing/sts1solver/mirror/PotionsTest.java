@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
+import io.github.youqing.sts1solver.sim.CombatFlow;
 import io.github.youqing.sts1solver.sim.SimCard;
 import io.github.youqing.sts1solver.sim.SimMonster;
 import io.github.youqing.sts1solver.sim.SimState;
@@ -458,6 +459,25 @@ class PotionsTest {
 
         assertEquals(2, s.block, "5 - 3");
         assertEquals(30, s.hp, "格挡吃满，不掉血");
+    }
+
+
+    /**
+     * 装甲（{@code PlatedArmorPower}）：回合末加 N 格挡，每次受伤掉 1 层。
+     * Spheric Guardian 等 Act 2 怪有。
+     */
+    @Test
+    void platedArmorGainsBlockAtEndOfTurnAndTicksDownOnHit() {
+        SimState s = fight();
+        s.monsters.get(0).powers.put("Plated Armor", 3);
+        s.monsters.get(0).intentDmg = 0;
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(3, s.monsters.get(0).block, "回合末加 3 格挡");
+
+        DamageCalc.hitAndReturnDealt(s.monsters.get(0), 5);
+        assertEquals(2, s.monsters.get(0).powers.get("Plated Armor").intValue(), "受伤掉 1 层");
     }
 
 }

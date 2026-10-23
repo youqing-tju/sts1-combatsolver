@@ -57,6 +57,18 @@ public final class CombatFlow {
             }
         }
 
+        // ④.5 怪物自己的回合末能力（原版 atEndOfTurnPreEndTurnCards(isPlayer=false)）
+        // PlatedArmorPower → GainBlockAction(owner, owner, amount)：回合末加 amount 格挡
+        for (SimMonster m : state.monsters) {
+            if (m.hp <= 0) {
+                continue;
+            }
+            Integer plated = m.powers.get("Plated Armor");
+            if (plated != null && plated > 0) {
+                m.block += plated;
+            }
+        }
+
         // ⑤ 敌人打完，剩余格挡清零（壁垒除外）
         if (power(state, "Barricade") <= 0) {
             state.block = 0;

@@ -100,6 +100,7 @@ public final class DamageCalc {
             target.hp = 0;
         }
         tickFlight(target);
+        tickPlatedArmor(target, damage);
         return remaining;
     }
 
@@ -108,6 +109,16 @@ public final class DamageCalc {
 
     /** 荆棘（{@code ThornsPower}）：受击反弹 {@code amount} 点给攻击者。 */
     public static final String THORNS = "Thorns";
+
+    /**
+     * 装甲（{@code PlatedArmorPower}）：回合末加 {@code amount} 格挡，
+     * 每次受伤掉 1 层（{@code wasHPLost}）。
+     *
+     * <p>原版 {@code wasHPLost} 的判据是 {@code info.owner != null && info.owner != owner
+     * && type != HP_LOSS && type != THORNS && damageAmount > 0} ——
+     * 也就是**只有普通攻击**掉层。我们这条路径只有普通攻击，所以恒过。
+     */
+    public static final String PLATED_ARMOR = "Plated Armor";
 
     /**
      * 飞行减伤（{@code FlightPower.calculateDamageTakenAmount}）：
@@ -123,6 +134,28 @@ public final class DamageCalc {
             return damage;
         }
         return (int) (damage / 2.0f);
+    }
+
+    /**
+     * 打中一次后递减装甲层数（{@code PlatedArmorPower.wasHPLost}）。
+     *
+     * <p>原版判据里有一个 {@code damageAmount > 0}（0 伤不掉层），
+     * 以及「有攻击者、非 THORNS/HP_LOSS」—— 我们这条路径只有普通攻击，恒过。
+     */
+    private static void tickPlatedArmor(SimMonster target, int damage) {
+        if (damage <= 0) {
+            return;
+        }
+        Integer plated = target.powers.get(PLATED_ARMOR);
+        if (plated == null || plated <= 0) {
+            return;
+        }
+        int left = plated - 1;
+        if (left <= 0) {
+            target.powers.remove(PLATED_ARMOR);
+        } else {
+            target.powers.put(PLATED_ARMOR, left);
+        }
     }
 
     /**
