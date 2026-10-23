@@ -38,6 +38,31 @@ class HooksTest {
         return s;
     }
 
+    /**
+     * 回合开始抽牌时抽牌堆空 => **必须把弃牌堆洗回来**。
+     *
+     * <p>回归测试：2026-10-23 实机事故 —— 这里原来直接 return，
+     * 模型里第 3 回合起手牌永远是空的，整场路线的后半段全是「结束回合」，
+     * 自动战斗于是站着不动被打死。
+     */
+    @Test
+    void reshufflesDiscardWhenDrawPileRunsOut() {
+        SimState s = new SimState();
+        s.hp = 80;
+        s.maxHp = 80;
+        s.energy = 3;
+        s.monsters.add(new SimMonster("AcidSlime_S", 40, 40, 0,
+                Collections.<String, Integer>emptyMap()));
+        s.draw.add(new SimCard("Strike_R", false, 1));
+        s.discard.add(new SimCard("Defend_R", false, 1));
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(2, s.hand.size(), "1 张抽牌堆 + 1 张洗回来的弃牌堆");
+        assertEquals(0, s.draw.size());
+        assertEquals(0, s.discard.size());
+    }
+
     // ---------------------------------------------------------------- 回合末
 
     /** MetallicizePower.atEndOfTurnPreEndTurnCards → GainBlockAction(裸加，不吃敏捷)。 */

@@ -81,13 +81,23 @@ public final class CombatFlow {
         state.hp = Math.max(0, state.hp - remaining);
     }
 
+    /**
+     * 回合开始的抽牌。
+     *
+     * <p>🔴 抽牌堆空了必须**洗回弃牌堆**（复刻 {@code EmptyDeckShuffleAction}，消耗 1 次 shuffleRng）。
+     * 以前这里是直接 return —— 结果第 3 回合以后模型里的手牌永远是空的，
+     * 整场路线的后半段全是「结束回合」，执行层就照着空打，AI 站着被打死（2026-10-23 实机事故）。
+     */
     private static void draw(SimState state, int count) {
         for (int i = 0; i < count; i++) {
             if (state.hand.size() >= HAND_LIMIT) {
                 return;
             }
             if (state.draw.isEmpty()) {
-                return;   // 洗牌未建模：抽牌堆空了就不再抽，估值会偏保守
+                io.github.youqing.sts1solver.mirror.Effects.reshuffleDiscardIntoDraw(state);
+                if (state.draw.isEmpty()) {
+                    return;    // 弃牌堆也空了，真的没牌可抽
+                }
             }
             state.hand.add(state.draw.remove(state.draw.size() - 1));
         }

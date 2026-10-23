@@ -113,6 +113,8 @@ public final class AutoPilot {
         stuckStreak = 0;
         io.github.youqing.sts1solver.search.AsyncSearch.reset();
         plan = null;
+        planTurn = -1;
+        planSummary = "";
         framesWaitingForPlan = 0;
         Trace.info("AUTO state reset (combat boundary)");
     }
@@ -276,8 +278,19 @@ public final class AutoPilot {
     /** 计划里的这一步执行不了（手牌对不上/被禁）→ 丢掉计划重算。 */
     private static final int OUTCOME_REPLAN = 4;
 
-    /** 当前正在执行的整场战斗计划（蓝本的「路线」）。 */
+    /**
+     * 当前正在执行的计划（蓝本的「路线」）。
+     *
+     * <p>⚠️ **只信任本回合的那部分**：路线是跨回合算出来的，但影子对「下一回合抽到什么」
+     * 只是预测。实测 2026-10-23：抽牌堆空了模型不知道洗回，第 3 回合起手牌永远为空，
+     * 路线后半段全是「结束回合」，执行层就跟着空过，AI 站着被打死。
+     * 所以回合翻页就丢掉旧计划重算 —— 蓝本同样是在回合开始时（PlayerTurnSetup）重新规划。
+     */
     private static java.util.ArrayDeque<io.github.youqing.sts1solver.search.RouteStep> plan;
+    /** 计划是按哪一回合的局面算的；回合变了就作废。 */
+    private static int planTurn = -1;
+    /** 上一次规划的统计，给面板显示（蓝本也有「已查阅 N 条世界线 / 耗时」这一行）。 */
+    private static String planSummary = "";
     /** 等规划结果的帧数；超时就退回逐张兜底，避免整场卡在等搜索上。 */
     private static int framesWaitingForPlan;
     private static final int PLAN_WAIT_LIMIT = 1800;   // 30 秒
@@ -290,7 +303,14 @@ public final class AutoPilot {
      * 这是为了把「时间预算」真正用起来 —— 蓝本是几百万条世界线，主线程给不了那个时间。
      */
     private static int playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
-        // ① 有计划就照计划走（蓝本的「冻结路线 / 执行本回合」）
+        // ① 回合翻页 = 旧计划作废（跨回合的抽牌只是预测，不能硬套）
+        int turnNow = AbstractDungeon.actionManager == null
+                ? planTurn : AbstractDungeon.actionManager.turn;
+        if (plan != null && !plan.isEmpty() && turnNow != planTurn) {
+            Trace.info("PLAN dropped: turn " + planTurn + " -> " + turnNow + ", replanning");
+            plan = null;
+        }
+        // ② 有计划就照计划走（蓝本的「冻结路线 / 执行本回合」）
         if (plan != null && !plan.isEmpty()) {
             int outcome = executePlannedStep(player, attackTarget);
             if (outcome != OUTCOME_REPLAN) {
@@ -299,7 +319,7 @@ public final class AutoPilot {
             plan = null;      // 计划失效（手牌对不上/被拒），丢掉重算
         }
 
-        // ② 没有计划：等后台整场规划的結果，没有就提交一次
+        // ③ 没有计划：等后台整场规划的结果，没有就提交一次
         io.github.youqing.sts1solver.search.AsyncSearch.Result result = pollValidated();
         if (result == null) {
             if (!io.github.youqing.sts1solver.search.AsyncSearch.busy()) {
@@ -333,6 +353,8 @@ public final class AutoPilot {
         }
         plan = new java.util.ArrayDeque<io.github.youqing.sts1solver.search.RouteStep>(
                 result.steps);
+        planTurn = turnNow;
+        planSummary = summarizePlan(result);
         Trace.info("PLAN ready: " + result.steps.size() + " steps, depth " + result.depth
                 + ", " + result.nodes + " nodes / " + result.states + " states, "
                 + result.millis + " ms");
@@ -445,6 +467,25 @@ public final class AutoPilot {
                 + (mirrored ? "  (mirrored, diff)" : "  (unmirrored, record)"));
         cooldown = 6;
     }
+
+    /** 一行路线统计，照蓝本的「已查阅 N 条世界线（M 条/s）」的意思来。 */
+    private static String summarizePlan(io.github.youqing.sts1solver.search.AsyncSearch.Result r) {
+        int turns = 0;
+        for (io.github.youqing.sts1solver.search.RouteStep step : r.steps) {
+            if (step.endTurn) {
+                turns++;
+            }
+        }
+        long perSecond = r.millis <= 0 ? r.nodes : r.nodes * 1000L / r.millis;
+        return "route " + turns + " turns · " + r.steps.size() + " steps · "
+                + r.nodes + " lines (" + perSecond + "/s) · " + r.millis + " ms";
+    }
+
+    /** 面板用的路线统计行；还没规划时返回 null。 */
+    public static String planSummaryLine() {
+        return planSummary;
+    }
+
 
     /**
      * 当前计划的摘要（按回合分组），给面板显示用。
