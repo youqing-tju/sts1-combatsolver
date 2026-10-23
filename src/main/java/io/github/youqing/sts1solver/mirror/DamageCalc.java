@@ -66,7 +66,7 @@ public final class DamageCalc {
 
     /** 同上，但返回**实际扣掉的血量**（吸血类卡牌需要）。 */
     public static int hitAndReturnDealt(SimMonster target, int damage) {
-        int remaining = damage;
+        int remaining = flightAdjusted(target, damage);
         if (target.block > 0) {
             int absorbed = Math.min(target.block, remaining);
             target.block -= absorbed;
@@ -76,7 +76,48 @@ public final class DamageCalc {
         if (target.hp < 0) {
             target.hp = 0;
         }
+        tickFlight(target);
         return remaining;
+    }
+
+    /** 飞行（{@code FlightPower}）：普通攻击伤害减半，HP_LOSS / THORNS 不减。 */
+    public static final String FLIGHT = "Flight";
+
+    /**
+     * 飞行减伤（{@code FlightPower.calculateDamageTakenAmount}）：
+     * {@code type == HP_LOSS || type == THORNS ? dmg : dmg / 2.0f}，
+     * 最后 {@code f2i}（向零截断）。
+     *
+     * <p>我们只在**普通攻击**这条路径上调用，所以恒走减半分支；
+     * 自伤/荆棘那两条不经过这里。
+     */
+    private static int flightAdjusted(SimMonster target, int damage) {
+        Integer flight = target.powers.get(FLIGHT);
+        if (flight == null || flight <= 0) {
+            return damage;
+        }
+        return (int) (damage / 2.0f);
+    }
+
+    /**
+     * 打中一次后递减飞行层数（{@code FlightPower.onAttacked}）。
+     *
+     * <p>原版只在 {@code info.owner != null}（有攻击者）时递减 —— 自伤/荆棘不掉层。
+     * 还有一个「减伤后伤害 < 当前血量」的边界判据（{@code willKill}），
+     * 只影响「刚好打死」的那一下；这里简化成每次普通攻击命中掉 1 层，
+     * 差异只在边界（打死不打死都掉层），已记进 docs §26。
+     */
+    private static void tickFlight(SimMonster target) {
+        Integer flight = target.powers.get(FLIGHT);
+        if (flight == null || flight <= 0) {
+            return;
+        }
+        int left = flight - 1;
+        if (left <= 0) {
+            target.powers.remove(FLIGHT);
+        } else {
+            target.powers.put(FLIGHT, left);
+        }
     }
 
     /** 力量按倍率生效（重刃：力量 ×3/×5）。 */

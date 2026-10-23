@@ -404,4 +404,32 @@ class PotionsTest {
         assertTrue(s.deathSaveUsed);
         assertEquals(2, s.deathSaveUseCount);
     }
+    // ------------------------------------------------------------ 怪物能力
+
+    /**
+     * 飞行（{@code FlightPower}）：普通攻击伤害减半（向零截断），每被命中一次掉 1 层。
+     *
+     * <p>Act 2 的 Byrd / Darkling 都有，是**我们打它**的伤害修正 —— 不建模的话
+     * 搜索会高估自己的输出，以为能一回合打死结果打不死。
+     */
+    @Test
+    void flightHalvesAttackDamageAndTicksDown() {
+        SimState s = fight();
+        SimMonster byrd = s.monsters.get(0);
+        byrd.hp = 40;
+        byrd.powers.put("Flight", 2);
+
+        DamageCalc.hitAndReturnDealt(byrd, 21);   // 21 / 2 = 10.5 -> 10
+
+        assertEquals(30, byrd.hp, "40 - 10");
+        assertEquals(1, byrd.powers.get("Flight").intValue(), "掉 1 层");
+
+        DamageCalc.hitAndReturnDealt(byrd, 10);
+        assertEquals(25, byrd.hp, "5 / 2 = 2.5 -> 2");
+        assertFalse(byrd.powers.containsKey("Flight"), "第 2 层掉完就没了");
+
+        DamageCalc.hitAndReturnDealt(byrd, 10);
+        assertEquals(15, byrd.hp, "没飞行了，全额 10");
+    }
+
 }
