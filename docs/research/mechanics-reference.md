@@ -1007,3 +1007,39 @@ PLAN ready: 56 steps, depth 20 turns, 7504/120000 nodes (6%, tree exhausted) / 1
 ```
 
 `tree exhausted` = 这份预算够用了；`node limit hit` = 是预算把它掐断的，才需要考虑加宽。
+
+
+## 22. 搬 `ConsiderCurrentTurnCandidate`（执行层答案的选择顺序）
+
+### 22.1 蓝本原文（`CombatBeamSolver.Phases.cs`）
+
+- `FindCurrentTurnBoundary(node)`（:313）：从节点往上走，找到 `Outcome.Turn == _startTurnNumber`
+  的那个祖先，也就是「结束本回合前的那一步」。
+- `ConsiderCurrentTurnCandidate(node)`（:372）：把边界节点登记成候选，判据是
+  `actionCount > 0 && 走到回合边界 && !playerDead && projectedPlayerHp > 0`
+  （`IsCurrentTurnCandidate`，:2458）。比当前候选好就替换（`SolverInterimResultOrdering.IsBetter`）。
+- 采用（:2218）：`adoptedNode = currentBestNode ?? currentTurnCandidateNode`，
+  `finalPool = [adopted]`。
+
+也就是说 `ApplyCurrentTurn` 的答案优先级是：
+**完整胜利 → 本回合能安全走完的最好那条 → 其余**。
+
+### 22.2 我们原来的做法
+
+`best = bestTerminal ?? 前沿里最好的叶子`。前沿叶子可能是**回合中途**的状态，
+它被选中纯粹因为中途分高，并不保证「这一回合能平安过完」。
+
+### 22.3 现在
+
+```java
+SearchNode best = bestTerminal != null ? bestTerminal
+        : (currentTurnCandidate != null ? currentTurnCandidate : bestOf(frontier));
+```
+
+`currentTurnCandidate` 在**第 0 个回合层收尾时**登记（对应蓝本的 `_startTurnNumber`）：
+遍历该层 `ended` 里的每个节点，取它的父节点（= 结束回合前的那一步）作为边界，
+筛掉 `hp<=0` 与 `projectedPlayerHp<=0`（`Score.projectedHpOf`），
+按 `better()` 取最好的一条。
+
+两个回归场景结果不变（双教徒 10 回合/26 血、单厚怪 21 回合/64 血）—— 因为这两个场景
+都能搜到完整胜利，第一优先级就已经命中。

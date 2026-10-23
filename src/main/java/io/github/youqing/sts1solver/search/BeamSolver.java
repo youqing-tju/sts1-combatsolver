@@ -324,6 +324,10 @@ public final class BeamSolver {
         frontier.add(nodeOf(root.copy(), null, null, 0, null));
         // 打到战斗结束的路线只留**最好的一条**：每个叶子都攥着一份完整状态，不能无脑攒
         SearchNode bestTerminal = null;
+        // 蓝本 ConsiderCurrentTurnCandidate：**本回合能安全走完**的路线里最好的那条。
+        // ApplyCurrentTurn 的答案优先级是 `currentBestNode ?? currentTurnCandidateNode`
+        // （Phases.cs:2218 `adoptedNode = currentBestNode ?? currentTurnCandidateNode`）。
+        SearchNode currentTurnCandidate = null;
         boolean outOfTime = false;
 
         for (int turn = 0; turn < maxTurns && !frontier.isEmpty(); turn++) {
@@ -394,6 +398,24 @@ public final class BeamSolver {
             for (SearchNode node : active) {
                 ended.add(endTurnOf(node));
             }
+            // 蓝本 ConsiderCurrentTurnCandidate（Phases.cs:372）：
+            // 只在**本回合**（= 起点回合）登记，判据是
+            // `actionCount > 0 && 走到回合边界 && !playerDead && projectedPlayerHp > 0`，
+            // 边界节点就是「结束回合前的那一步」。
+            if (turn == 0) {
+                for (SearchNode endedNode : ended) {
+                    SearchNode boundary = endedNode.parent;
+                    if (boundary == null || boundary.depth == 0) {
+                        continue;
+                    }
+                    if (boundary.state.hp <= 0 || Score.projectedHpOf(boundary.state) <= 0) {
+                        continue;
+                    }
+                    if (currentTurnCandidate == null || better(boundary, currentTurnCandidate)) {
+                        currentTurnCandidate = boundary;
+                    }
+                }
+            }
             frontier = prune(ended, width);
             turnsDone = turn + 1;
         }
@@ -402,12 +424,11 @@ public final class BeamSolver {
         // 加宽会跑多轮，深度取「跑得最深的那一轮」——没跑完的那轮不该把面板数字拉低
         lastDepth = Math.max(lastDepth, turnsDone);
 
-        SearchNode best = bestTerminal;
-        for (SearchNode node : frontier) {
-            if (best == null || better(node, best)) {
-                best = node;
-            }
-        }
+        // 蓝本 adoptedNode = currentBestNode ?? currentTurnCandidateNode：
+        // ① 找到完整胜利就交它；② 否则交「本回合能安全走完」里最好的那条；
+        // ③ 两者都没有（例如第一回合就走死了）才退回前沿里最好的叶子。
+        SearchNode best = bestTerminal != null ? bestTerminal
+                : (currentTurnCandidate != null ? currentTurnCandidate : bestOf(frontier));
 
         SearchNode bestRollout = null;
         if (useRollout) {
@@ -446,6 +467,17 @@ public final class BeamSolver {
         if (best != null) {
             lastRoute = routeOf(best);
             lastSteps = stepsOf(best);
+        }
+        return best;
+    }
+
+    /** 前沿里按最终排序最好的一个。 */
+    private SearchNode bestOf(List<SearchNode> nodes) {
+        SearchNode best = null;
+        for (SearchNode node : nodes) {
+            if (best == null || better(node, best)) {
+                best = node;
+            }
         }
         return best;
     }
