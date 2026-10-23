@@ -900,8 +900,18 @@ public final class BeamSolver {
             }
         }
         List<SearchNode> unique = new ArrayList<SearchNode>(byState.values());
-        // 剪枝按 Beam 排序分（含手头资源），最终选路线才按基础分
-        unique.sort((a, b) -> Long.compare(b.rank, a.rank));
+        // 剪枝排序 = 蓝本 CompareBeamRankOrder（BeamRetentionPolicy.cs:27-39）：
+        //   ① beamRankScore 降序（含手头资源，只决定谁能活到下一层）
+        //   ② actionCount 升序（同样好时，少走一步更好）
+        //   ③ offensiveProgressValue 降序（攻击推进量，未搬 —— 我们没有这个量）
+        // ①相同才看 ②，所以合成一个 Comparator 而不是两次 sort。
+        unique.sort(new java.util.Comparator<SearchNode>() {
+            @Override
+            public int compare(SearchNode a, SearchNode b) {
+                int c = Long.compare(b.rank, a.rank);
+                return c != 0 ? c : Integer.compare(a.depth, b.depth);
+            }
+        });
         return unique.size() <= width ? unique : new ArrayList<SearchNode>(unique.subList(0, width));
     }
 
