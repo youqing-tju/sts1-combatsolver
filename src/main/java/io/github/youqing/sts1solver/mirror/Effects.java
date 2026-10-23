@@ -652,11 +652,12 @@ public final class Effects {
                 String id = AttackPool.idAt(index);
                 int cost = upgraded ? AttackPool.upgradedCostAt(index) : AttackPool.costAt(index);
                 int dmg = upgraded ? AttackPool.upgradedDamageAt(index) : AttackPool.damageAt(index);
-                // setCostForTurn(0)：本回合免费
-                state.hand.add(new SimCard(id, upgraded, 0, dmg));
                 if (cost < 0) {
                     // X 费牌本回合仍是 X，交给 XEffect 处理
-                    state.hand.set(state.hand.size() - 1, new SimCard(id, upgraded, -1, dmg));
+                    state.hand.add(new SimCard(id, upgraded, -1, dmg));
+                } else {
+                    // setCostForTurn(0)：**只管本回合**，回合结束回落到原费用
+                    state.hand.add(new SimCard(id, upgraded, cost, dmg, "ATTACK", 0));
                 }
             }
 
@@ -676,11 +677,11 @@ public final class Effects {
                     // 原版每张都重新走一遍 returnTrulyRandomColorlessCardInCombat：
                     // 重建候选列表 → rng.random(size - 1)。列表长度参与取值，所以不能预排下标。
                     SimCard c = io.github.youqing.sts1solver.sim.PoolCatalog
-                            .randomColorlessCard(state, freeThisTurn ? 0 : -1);
+                            .randomColorlessCard(state, -1);
                     if (c == null) {
                         return;
                     }
-                    state.hand.add(c);
+                    state.hand.add(freeThisTurn ? c.withCostForTurn(0) : c);
                 }
             }
 
@@ -875,7 +876,9 @@ public final class Effects {
                 }
                 int pick = (choiceIndex >= 0 && choiceIndex < choices.size()) ? choiceIndex : 0;
                 SimCard chosen = choices.get(pick);
-                state.hand.add(new SimCard(chosen.id, false, 0, chosen.baseDamage));
+                // 本回合 0 费：改 costForTurn 而不是 cost
+                state.hand.add(new SimCard(chosen.id, false, chosen.cost, chosen.baseDamage,
+                        chosen.type, 0));
             }
 
             @Override
@@ -923,11 +926,12 @@ public final class Effects {
             public void applyWithX(SimState state, int targetIndex, SimCard played, int x) {
                 for (int i = 0; i < x; i++) {
                     SimCard c = io.github.youqing.sts1solver.sim.PoolCatalog
-                            .randomColorlessCard(state, 0);
+                            .randomColorlessCard(state, -1);
                     if (c == null) {
                         return;
                     }
-                    state.hand.add(c);
+                    // 本回合 0 费
+                    state.hand.add(c.withCostForTurn(0));
                 }
             }
 
@@ -967,21 +971,28 @@ public final class Effects {
     }
 
     /** 把手牌费用降到不超过 limit（启蒙 Enlightenment：全部降到 1）。 */
-    public static Effect reduceHandCostsTo(final int limit) {
+    /**
+     * 手牌费用降到上限（启蒙 Enlightenment）。
+     *
+     * <p>⚖️ 升级态不同：原版是「**本回合**降到 1」，{@code Enlightenment+} 是「**本场**降到 1」。
+     * 所以这里要区分改 {@code costForTurn} 还是 {@code cost}。
+     */
+    public static Effect reduceHandCostsTo(final int limit, final boolean wholeCombat) {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 for (int i = 0; i < state.hand.size(); i++) {
                     SimCard c = state.hand.get(i);
-                    if (c.cost > limit) {
-                        state.hand.set(i, c.withCost(limit));
+                    if (c.effectiveCost() > limit) {
+                        state.hand.set(i, wholeCombat ? c.withCost(limit)
+                                : c.withCostForTurn(limit));
                     }
                 }
             }
 
             @Override
             public String toString() {
-                return "handCost<=" + limit;
+                return "handCost<=" + limit + (wholeCombat ? "(combat)" : "(turn)");
             }
         };
     }

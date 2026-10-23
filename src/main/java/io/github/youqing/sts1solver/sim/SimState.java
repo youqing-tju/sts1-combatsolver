@@ -161,8 +161,11 @@ public final class SimState {
             return;
         }
         for (AbstractCard c : group.group) {
+            // 原版把「本回合费用」放在 costForTurn 里，捕获时要一起带上，
+            // 否则影子会把一张临时 0 费的牌当成永久 0 费（或反过来）
+            int costForTurn = c.costForTurn != c.cost ? c.costForTurn : -1;
             into.add(new SimCard(c.cardID, c.upgraded, c.cost, c.baseDamage,
-                    c.type == null ? "" : c.type.name()));
+                    c.type == null ? "" : c.type.name(), costForTurn));
         }
     }
 

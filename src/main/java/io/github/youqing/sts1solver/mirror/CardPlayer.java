@@ -72,7 +72,8 @@ public final class CardPlayer {
             throw new ActionRejected("attack blocked by Entangled: " + card.key());
         }
         // 动态费用（浴血奋战：本场每损失一次 HP，费用 -1，最低 0）
-        int effectiveCost = card.cost;
+        // 本回合费用优先（地狱之刃/发现/转化 给的 0 费只管这一回合）
+        int effectiveCost = card.effectiveCost();
         if (mirror.costDropsWithHpLoss && effectiveCost > 0) {
             effectiveCost = Math.max(0, effectiveCost - state.hpLossCount);
         }

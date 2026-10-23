@@ -38,6 +38,12 @@ public final class CombatFlow {
         state.discard.addAll(state.hand);
         state.hand.clear();
 
+        // ②.5 「本回合 0 费」到期（原版 costForTurn 在回合结束恢复成 cost）
+        clearCostForTurn(state.hand);
+        clearCostForTurn(state.draw);
+        clearCostForTurn(state.discard);
+        clearCostForTurn(state.exhaust);
+
         // ③ 弃手牌之后：燃烧 / 炸弹 / 欧米伽
         Hooks.firePhase(state, HookPhase.END_OF_TURN);
 
@@ -69,6 +75,15 @@ public final class CombatFlow {
         state.energy = energyPerTurn;
         draw(state, handSize);
         Hooks.firePhase(state, HookPhase.START_OF_TURN_POST_DRAW);
+    }
+
+    private static void clearCostForTurn(java.util.List<SimCard> pile) {
+        for (int i = 0; i < pile.size(); i++) {
+            SimCard c = pile.get(i);
+            if (c.costForTurn >= 0) {
+                pile.set(i, c.clearCostForTurn());
+            }
+        }
     }
 
     private static void hitPlayer(SimState state, int damage) {

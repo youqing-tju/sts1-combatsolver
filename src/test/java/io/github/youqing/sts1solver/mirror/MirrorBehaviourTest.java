@@ -36,6 +36,38 @@ class MirrorBehaviourTest {
         return rng == null ? -1 : rng.counter();
     }
 
+    // -------------------------------------------------------------- 本回合费用
+
+    /**
+     * 地狱之刃开出来的攻击牌是「**本回合** 0 费」——回合结束要恢复原价。
+     *
+     * <p>回归：早先把 0 直接写进 {@code cost}，模型里那张牌永久免费（2026-10-23 用户报的）。
+     */
+    @Test
+    void infernalBladeAttackIsFreeOnlyThisTurn() {
+        SimState s = fight();
+        s.hand.add(new SimCard("Infernal Blade", false, 1));
+
+        CardPlayer.play(s, 0, -1);
+
+        SimCard generated = s.hand.get(s.hand.size() - 1);
+        assertEquals(0, generated.effectiveCost(), "本回合免费");
+        org.junit.jupiter.api.Assertions.assertTrue(generated.cost > 0,
+                "原费用要留着，回合结束才能回落");
+        assertEquals(1, s.exhaust.size(), "地狱之刃本身消耗");
+
+        io.github.youqing.sts1solver.sim.CombatFlow.endTurn(s, 3, 5);
+
+        // 抽牌堆是空的，endTurn 会把它洗回去再抽上来 —— 手牌和弃牌堆都要找
+        SimCard afterTurn = findById(s.hand, generated.key());
+        if (afterTurn == null) {
+            afterTurn = findById(s.discard, generated.key());
+        }
+        org.junit.jupiter.api.Assertions.assertNotNull(afterTurn, "回合结束后牌还在场");
+        assertEquals(-1, afterTurn.costForTurn, "临时免费到期");
+        assertEquals(afterTurn.cost, afterTurn.effectiveCost());
+    }
+
     // -------------------------------------------------------------- 深呼吸 / 结茧 / 发现 / 净化
 
     /** Deep Breath：弃牌堆洗回抽牌堆（1 次 randomLong）+ 洗抽牌堆（1 次）+ 抽 1 张。 */
@@ -101,6 +133,15 @@ class MirrorBehaviourTest {
         assertEquals(1, s.hand.size(), "3 张里消耗 2 张");
         assertEquals("Defend_R", s.hand.get(0).id);
         assertEquals(3, s.exhaust.size(), "2 张 + 净化自身");
+    }
+
+    private static SimCard findById(java.util.List<SimCard> pile, String key) {
+        for (SimCard c : pile) {
+            if (c.key().equals(key)) {
+                return c;
+            }
+        }
+        return null;
     }
 
     private static int shuffleCounter(SimState s) {

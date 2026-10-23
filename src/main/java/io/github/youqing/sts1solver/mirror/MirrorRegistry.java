@@ -113,8 +113,9 @@ public final class MirrorRegistry {
         register("Carnage+", Effects.damage(28));
 
         // 连击：2 伤 x4
-        register("Pummel", Effects.damageTimes(4, 2));
-        register("Pummel+", Effects.damageTimes(5, 2));
+        // 卡面写了 Exhaust，之前误用 register
+        registerExhaust("Pummel", Effects.damageTimes(4, 2));
+        registerExhaust("Pummel+", Effects.damageTimes(5, 2));
 
         // 灼烧打击：12 伤（多次升级的成长曲线未建模，只支持 0/1 次升级）
         register("Searing Blow", Effects.damage(12));
@@ -137,8 +138,9 @@ public final class MirrorRegistry {
                 Effects.powerOnTarget(DamageCalc.VULNERABLE, 2)));
 
         // 威吓：全体虚弱
+        // 升级只加层数，消耗标记不变
         registerExhaust("Intimidate", Effects.powerOnAll(DamageCalc.WEAKENED, 1));
-        register("Intimidate+", Effects.powerOnAll(DamageCalc.WEAKENED, 2));
+        registerExhaust("Intimidate+", Effects.powerOnAll(DamageCalc.WEAKENED, 2));
 
         // 冲击波：全体虚弱 + 易伤
         registerExhaust("Shockwave", Arrays.asList(
@@ -155,7 +157,7 @@ public final class MirrorRegistry {
         // 壁垒 / 重击 / 自伤 / 回能
         register("Entrench", Effects.doubleBlock());
         register("Body Slam", Effects.damageEqualToBlock());
-        register("Limit Break", Effects.doubleStrength());
+        registerExhaust("Limit Break", Effects.doubleStrength());
         register("Heavy Blade", Effects.damageWithStrengthMult(14, 3));
         register("Heavy Blade+", Effects.damageWithStrengthMult(14, 5));
 
@@ -173,8 +175,8 @@ public final class MirrorRegistry {
         register("Hemokinesis+", Arrays.asList(Effects.damage(20), Effects.loseHp(2)));
 
         // 收割：全体 4 伤 + 按实际伤害回血
-        register("Reaper", Effects.damageAllAndHeal(4));
-        register("Reaper+", Effects.damageAllAndHeal(5));
+        registerExhaust("Reaper", Effects.damageAllAndHeal(4));
+        registerExhaust("Reaper+", Effects.damageAllAndHeal(5));
 
         // 硬撑：15 格挡 + 塞 2 张伤口进手牌
         register("Power Through", Arrays.asList(
@@ -283,8 +285,8 @@ public final class MirrorRegistry {
 
         // ---- 第八批：条件/收益类 ---------------------------------------------
         // 啃食：10/12 伤，击杀则最大生命 +3/+4
-        register("Feed", Effects.damageAndMaxHpOnKill(10, 3));
-        register("Feed+", Effects.damageAndMaxHpOnKill(12, 4));
+        registerExhaust("Feed", Effects.damageAndMaxHpOnKill(10, 3));
+        registerExhaust("Feed+", Effects.damageAndMaxHpOnKill(12, 4));
 
         // 观察弱点：目标本回合意图为攻击时 +3/+4 力量
         register("Spot Weakness", Effects.strengthIfEnemyAttacks(3));
@@ -406,8 +408,9 @@ public final class MirrorRegistry {
         register("Rampage+", Effects.damageEqualToCardBase());
 
         // 地狱之刃：随机一张铁甲战士攻击牌加入手牌，本回合 0 费（升级版给升级牌）
-        register("Infernal Blade", Effects.addRandomAttackToHand(false));
-        register("Infernal Blade+", Effects.addRandomAttackToHand(true));
+        // 地狱之刃：卡面写了 Exhaust，之前误用 register（进弃牌堆而不是消耗堆）
+        registerExhaust("Infernal Blade", Effects.addRandomAttackToHand(false));
+        registerExhaust("Infernal Blade+", Effects.addRandomAttackToHand(true));
 
         // ---- 第十二批：无色牌（文本取自游戏内 localization/eng/cards.json） --------
         // 神化：升级所有牌堆里的每一张牌，消耗
@@ -449,8 +452,9 @@ public final class MirrorRegistry {
         register("Forethought+", Effects.putChosenOnBottom());
 
         // 启蒙：手牌费用全部降到 1
-        register("Enlightenment", Effects.reduceHandCostsTo(1));
-        register("Enlightenment+", Effects.reduceHandCostsTo(1));
+        // 启蒙：原版「本回合降到 1」，升级版「本场降到 1」
+        register("Enlightenment", Effects.reduceHandCostsTo(1, false));
+        register("Enlightenment+", Effects.reduceHandCostsTo(1, true));
 
         // 疯狂：随机一张手牌费用归零，消耗
         registerExhaust("Madness", Effects.freeRandomHandCard());

@@ -27,6 +27,15 @@ public final class SimCard {
      */
     public final String type;
 
+    /**
+     * 「本回合」费用（对应原版 {@code AbstractCard.costForTurn}）；{@code -1} = 没有临时改动。
+     *
+     * <p>🔴 必须和 {@link #cost} 分开：地狱之刃 / 发现 / 转化 给的是「**本回合** 0 费」，
+     * 回合结束就恢复；而蛹 / 蜕变 / 疯狂 是「**本场** 0 费」，那才是改 {@code cost}。
+     * 早先一律写进 {@code cost}，模型里那张牌就永久免费了（2026-10-23 报的问题）。
+     */
+    public final int costForTurn;
+
     public SimCard(String id, boolean upgraded, int cost) {
         this(id, upgraded, cost, -1, "");
     }
@@ -36,11 +45,17 @@ public final class SimCard {
     }
 
     public SimCard(String id, boolean upgraded, int cost, int baseDamage, String type) {
+        this(id, upgraded, cost, baseDamage, type, -1);
+    }
+
+    public SimCard(String id, boolean upgraded, int cost, int baseDamage, String type,
+                   int costForTurn) {
         this.id = id;
         this.upgraded = upgraded;
         this.cost = cost;
         this.baseDamage = baseDamage;
         this.type = type == null ? "" : type;
+        this.costForTurn = costForTurn;
     }
 
     /** Stable key used by fingerprints and the mirror registry: {@code Strike_R+}. */
@@ -56,13 +71,30 @@ public final class SimCard {
         return "SKILL".equals(type);
     }
 
+    /** 改**永久**费用（本场 0 费 / 永久降费）。 */
     public SimCard withCost(int newCost) {
-        return new SimCard(id, upgraded, newCost, baseDamage, type);
+        return new SimCard(id, upgraded, newCost, baseDamage, type, costForTurn);
+    }
+
+    /** 只改**本回合**费用（{@code AbstractCard.setCostForTurn}）。 */
+    public SimCard withCostForTurn(int newCostForTurn) {
+        return new SimCard(id, upgraded, cost, baseDamage, type, newCostForTurn);
+    }
+
+    /** 回合结束：临时费用失效。 */
+    public SimCard clearCostForTurn() {
+        return costForTurn < 0 ? this
+                : new SimCard(id, upgraded, cost, baseDamage, type, -1);
+    }
+
+    /** 真正出这张牌要付多少能量。-1 = X 费，-2 = 打不出。 */
+    public int effectiveCost() {
+        return costForTurn >= 0 ? costForTurn : cost;
     }
 
     @Override
     public String toString() {
-        return key() + "(" + cost + ")";
+        return key() + "(" + effectiveCost() + ")";
     }
 
     @Override
