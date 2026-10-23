@@ -1057,6 +1057,29 @@ SearchNode best = bestTerminal != null ? bestTerminal
 两个回归场景结果不变（双教徒 10 回合/26 血、单厚怪 21 回合/64 血）—— 因为这两个场景
 都能搜到完整胜利，第一优先级就已经命中。
 
+### 22.4 早停为什么不搬（2026-10-23 用户拍板）
+
+**结论：搜索保持整场战斗规划，不做「候选一出现就 break」。**
+
+蓝本实况（逐行核实）：
+
+- 三个早停检查点 —— `BeforeNoveltyParent`（`Phases.cs:1445`）、playDepth 迭代开头（`:1554`）、
+  回合层收尾（`:2154`）—— 条件全部是
+  `_interaction.CurrentTakeoverRequest?.Kind == ApplyCurrentTurn && (currentBestNode != null || currentTurnCandidateNode != null)`。
+  **前提是请求存在**，即用户点了面板上的「执行本回合」按钮（按钮入口
+  `PlayerTurnSetupPatches.cs:374`，日志 `UI_ACTION action=turn_setup_apply_current_turn`）。
+- **没有请求时搜索跑满整场**：主循环照常推进所有回合层，`RefreshCurrentTurnPreview` /
+  `PublishRoutePreview`（`Phases.cs:412 / 2121`）持续发布整条路线的预览。
+- `AdoptRoute`（用户点「采纳路线」按钮，`PlayerTurnSetupPatches.cs:397`）= 拿面板上显示的
+  整条路线作为种子冻结执行 —— 两种执行模式都建立在**整场规划**之上。
+
+我们的结构差异：AutoPilot 没有「搜索后台常驻 + 用户随时点按钮接管」的交互形态 ——
+回合开始提交一次搜索，**等的就是整场规划**（实测百 ms 级，不存在「等不及」），
+拿到结果后只执行本回合动作、下回合重搜。提前收工反而拿不到整场路线。
+
+改动：`blueprint-parity.md` §2 该行、§3 执行层行、§4 待办第 2 项 —— 状态改为「不搬」。
+本节记录判定依据。
+
 
 ## 23. 死亡豁免：蜥蜴尾巴（A｜蓝本源码 + STS1 字节码，2026-10-23）
 
