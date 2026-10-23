@@ -48,6 +48,11 @@ public final class DamageCalc {
 
     /** Block gained from a skill card. */
     public static int blockAmount(SimState state, int base) {
+        // NoBlockPower.modifyBlockLast 直接 return 0.0f —— 有它就完全不能获得格挡
+        Integer noBlock = state.playerPowers.get(NO_BLOCK);
+        if (noBlock != null && noBlock > 0) {
+            return 0;
+        }
         int amount = base + power(state, DEXTERITY);
         if (power(state, FRAIL) > 0) {
             amount = (int) Math.floor(amount * 0.75f);
@@ -85,6 +90,27 @@ public final class DamageCalc {
             return;
         }
         io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(state, thorns);
+    }
+
+    /**
+     * 烈焰屏障（{@code FlameBarrierPower.onAttacked}）：玩家**受击时**反弹
+     * {@code amount} 点给攻击者。
+     *
+     * <p>原版判据 {@code info.owner != null && type != THORNS && type != HP_LOSS
+     * && info.owner != owner} —— 与荆棘同口径（只有普通攻击触发，自伤/荆棘不触发）。
+     *
+     * <p>这是**玩家的能力**，所以挂在 {@code hitPlayer} 上，不是打怪那条路径。
+     * 反弹走怪物的格挡/血量。
+     */
+    public static void applyFlameBarrier(SimState state, SimMonster attacker) {
+        if (attacker == null || attacker.hp <= 0) {
+            return;
+        }
+        Integer flame = state.playerPowers.get(FLAME_BARRIER);
+        if (flame == null || flame <= 0) {
+            return;
+        }
+        hitAndReturnDealt(attacker, flame);
     }
 
     /** 同上，但返回**实际扣掉的血量**（吸血类卡牌需要）。 */
@@ -152,6 +178,10 @@ public final class DamageCalc {
     public static final String FLIGHT = "Flight";
     /** 无实体：所有伤害上限 1（{@code IntangiblePower}）。 */
     public static final String INTANGIBLE = "Intangible";
+    /** 不能获得格挡（{@code NoBlockPower.modifyBlockLast} 直接返回 0）。 */
+    public static final String NO_BLOCK = "No Block";
+    /** 烈焰屏障：受击时反弹 {@code amount} 点给攻击者（{@code FlameBarrierPower}）。 */
+    public static final String FLAME_BARRIER = "Flame Barrier";
 
     /** 荆棘（{@code ThornsPower}）：受击反弹 {@code amount} 点给攻击者。 */
     public static final String THORNS = "Thorns";

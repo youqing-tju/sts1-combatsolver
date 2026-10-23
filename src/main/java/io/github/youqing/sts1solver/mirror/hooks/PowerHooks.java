@@ -129,6 +129,17 @@ public final class PowerHooks {
         });
 
         // ---- 回合初 -------------------------------------------------------------
+        // BerserkPower.atStartOfTurn → GainEnergyAction(amount)。
+        // 🔴 不能挂 START_OF_TURN：那个阶段在 CombatFlow 的 `energy = energyPerTurn` **之前**，
+        //    加的会被回能覆盖掉。原版是 action 入队、回能之后才结算，
+        //    所以挂在回能之后的 START_OF_TURN_POST_DRAW（抽牌不耗能量，效果等价）。
+        reg("Berserk", HookPhase.START_OF_TURN_POST_DRAW, new Handler() {
+            @Override
+            public void fire(SimState state, int amount, HookContext ctx) {
+                state.energy += amount;
+            }
+        });
+
         // DemonFormPower.atStartOfTurnPostDraw → ApplyPowerAction(owner, owner, Strength, amount)
         reg("Demon Form", HookPhase.START_OF_TURN_POST_DRAW, new Handler() {
             @Override

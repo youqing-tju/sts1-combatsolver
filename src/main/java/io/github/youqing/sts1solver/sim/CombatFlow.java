@@ -53,7 +53,7 @@ public final class CombatFlow {
         // 这正是 BeamSolverTest 抓到的问题。
         for (SimMonster m : state.monsters) {
             if (m.hp > 0 && m.intentDmg > 0) {
-                hitPlayer(state, m.intentDmg);
+                hitPlayer(state, m.intentDmg, m);
             }
         }
 
@@ -113,6 +113,16 @@ public final class CombatFlow {
 
     /** 公开：荆棘反伤、药水伤害等外部路径要走同一套（格挡吸收 + 死亡豁免）。 */
     public static void hitPlayer(SimState state, int damage) {
+        hitPlayer(state, damage, null);
+    }
+
+    /**
+     * 打玩家。{@code attacker} 是出手的怪（{@code null} = 无攻击者，如药水/自伤）。
+     *
+     * <p>带攻击者时要结算**烈焰屏障**（{@code FlameBarrierPower.onAttacked}）：
+     * 玩家受击时反弹 {@code amount} 点给攻击者。
+     */
+    public static void hitPlayer(SimState state, int damage, io.github.youqing.sts1solver.sim.SimMonster attacker) {
         // 无实体：所有伤害上限 1（IntangiblePower.atDamageFinalReceive），
         // 在**最终伤害**上生效、扣格挡之前 —— 所以 1 点伤害仍会被格挡完全吸收
         int remaining = io.github.youqing.sts1solver.mirror.DamageCalc
@@ -125,6 +135,10 @@ public final class CombatFlow {
         state.hp = Math.max(0, state.hp - remaining);
         // 致死时先问一次性救命遗物（蜥蜴尾巴）：会改变后续所有路线的可行性
         io.github.youqing.sts1solver.mirror.DeathSaveRelic.applyIfLethal(state);
+        // 烈焰屏障：受击反弹（只有普通攻击触发，所以走攻击者那条）
+        if (attacker != null) {
+            io.github.youqing.sts1solver.mirror.DamageCalc.applyFlameBarrier(state, attacker);
+        }
     }
 
     /**
