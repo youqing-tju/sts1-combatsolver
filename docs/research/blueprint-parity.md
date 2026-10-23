@@ -88,7 +88,14 @@ read_when:
    我们 AutoPilot 对应 FullAuto —— 同构性逐行核实：`StartDeployment`（:2799）的
    `DeployCurrentTurn` 只部署 `action.Turn == StartTurnNumber` 的动作、
    `DeploymentDrift` / `PlanExhausted` 重搜对应我们的指纹校验丢弃重算。
-3. `Retention` / `BeamRetentionPolicy` 保留策略族（我们只有「按 rank 取前 N」）。
+3. **`Retention` / `BeamRetentionPolicy` 保留策略族** —— **批 1+2 已搬**（排序第三键
+   `offensiveProgress` + 边界多样化，2026-10-23，`mechanics-reference` §26）。
+   剩余批次与依赖：**批 3 Pareto cohort**（支配判据依赖 40+ 快照量，其中
+   LongTermResourceValue / RelicCounters.SatisfiedMask / ReplayPotentialValue /
+   Osty/Stars/Sandpit 等未建模 —— 自选子集做支配 = 自创语义，先补量再搬）；
+   **批 4 药水配额**（依赖 `PotionStrategicCost` 药水战略成本，未建模）；
+   **批 5 承诺代表**（依赖 PowerCardValuation 模型族）；**批 6 OrderedMutation**
+   （依赖 NoveltySearch，对照表第 5 项）。
 4. `Expansion.Opening` + `_earlyTurnScoutDepth`。
 5. `NoveltySearch` / `BeamPortfolioSelector`（多轮搜索）。
 6. `ExpansionExecutor` 并行展开（只提速，不改结果）。
