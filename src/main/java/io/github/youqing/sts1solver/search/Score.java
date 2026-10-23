@@ -330,6 +330,27 @@ public final class Score {
         return total;
     }
 
+    /**
+     * 蓝本 {@code ProjectedPlayerHp}：敌人按当前意图打完，我还剩多少血。
+     * 战斗已经结束（死了 / 没敌人了）就直接是当前血量 —— 蓝本 {@code won → threat = (CurrentHp, 0, 0)}。
+     */
+    public static int projectedHpOf(SimState state) {
+        int alive = 0;
+        int incoming = 0;
+        for (SimMonster m : state.monsters) {
+            if (m.hp > 0) {
+                alive++;
+                if (m.intentDmg > 0) {
+                    incoming += m.intentDmg;
+                }
+            }
+        }
+        if (state.hp <= 0 || alive == 0) {
+            return state.hp;
+        }
+        return state.hp - Math.max(0, incoming - state.block);
+    }
+
     /** 把当前状态当作「路线起点」来估值（单测/面板/回退决策用）。 */
     public static Score of(SimState state) {
         return of(state, new Root(state), 0);

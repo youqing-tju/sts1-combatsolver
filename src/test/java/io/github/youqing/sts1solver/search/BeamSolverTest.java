@@ -52,12 +52,29 @@ class BeamSolverTest {
         assertEquals(0, action.cardIndex, "空场无压力时应先开恶魔形态");
     }
 
+    /**
+     * 攻击会送命、防御能活下来 —— 必须防。
+     *
+     * <p>判据落在蓝本 `FinalPlanOrdering` 的 `Survives` 键上：
+     * {@code !PlayerDead && ProjectedPlayerHp > 0}，也就是**投影血量**，不是当前血量。
+     *
+     * <p>⚠️ 2026-10-23 调过这组数值，两次都踩到坑：
+     * <ol>
+     *   <li>原来的「意图 20、血 10、格挡 5」其实**两条路都会死**（挡完还挨 15），
+     *       旧实现靠基础分里的死亡连续化选了防御；蓝本的最终排序里没有这一项。</li>
+     *   <li>改成「意图 13」后，防御这条**拖到第二回合才死、总共挨了 21 点**，
+     *       而攻击这条第一回合就死、只挨 13 点 —— `StrategicHpDeficit` 记的是累计掉血，
+     *       于是「早死」反而分更低。这是蓝本的口径（死路之间不比优劣），不是 bug。</li>
+     * </ol>
+     * 所以最终把怪物血量降到 8：防御线第二回合就能打死对面（真赢），攻击线当场送命。
+     * 这样断言的是「赢 &gt; 输」，而不是两个死法谁好看。
+     */
     @Test
     void blocksWhenAttackingWouldGetUsKilled() {
-        // 手牌：[Strike_R, Defend_R]；怪意图 20 点，血只有 30
-        SimState s = state(30, 12, "Strike_R", "Defend_R");
+        // 手牌：[Strike_R, Defend_R]；怪 8 血、意图 13，我 10 血、能量只够做一件事
+        SimState s = state(8, 13, "Strike_R", "Defend_R");
         s.hp = 10;
-        s.energy = 1;   // 能量只够做一件事，攻击与防御互斥
+        s.energy = 1;
         PlanAction action = new BeamSolver(3, 5, 8, 5).bestFirstAction(s);
 
         assertNotNull(action);

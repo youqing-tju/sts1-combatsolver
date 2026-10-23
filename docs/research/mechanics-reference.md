@@ -738,3 +738,53 @@ Defragment/Hotfix 6 / Demon Form·CreativeAi 5 / LightningRod 4 / Thunder 3 / Ma
 
 要完全对齐，下一步该把 `ActEndingBossPolicy.StrategicHpDeficit` + `FinalPlanOrdering` 的
 比较键搬到我们的 `better()` 里。这是目前与蓝本差得最大的一块。
+
+
+## 17. 最终路线排序改成蓝本的 `FinalPlanOrdering` 词典序
+
+### 17.1 蓝本那一串比较键（`FinalPlanOrdering.cs:253-271`，17 条）
+
+```
+Won 降序 → (!Won && !Survives) 升序 → DeathSaveUseCount 升序 → 被偷资源 升序
+→ StrategicHpDeficit 升序 → GrowthHpCredit 降序 → GrowthRewardCount 降序
+→ CombatEndedTurn 升序 → PolicyHpDeficit 升序 → HealthResourceCost 升序
+→ LongTermResourceValue 降序 → AngerCopiesGenerated 降序 → BoundaryRank
+→ OptionalPotionCount → StrategicSold → EnemyHp 升序 → Score 降序 → ActionCount 升序
+```
+
+我们搬得动的是「有 STS1 对应物」的这六条，**顺序不变**：
+
+| 键 | 蓝本 | 我们的实现 |
+|---|---|---|
+| `Won` 降序 | 打赢优先 | 同 |
+| `(!Won && !Survives)` 升序 | `Survives = !PlayerDead && ProjectedPlayerHp > 0` | 同（用 `Score.projectedHpOf`） |
+| 复活次数 / 被偷资源 | 有 | **未建模**（无复活遗物、无偷窃遭遇） |
+| `StrategicHpDeficit` 升序 | `累计掉血 + 最大生命亏空 - 回血` | 同（净掉血 + 最大生命亏空，下界=开局缺的血） |
+| `CombatEndedTurn` 升序 | 赢的路线看第几回合结束 | 同（没结束 = ∞） |
+| 成长/药水/局外收益等 9 条 | 有 | **未建模** |
+| `EnemyHp` 升序 | 敌方剩血少优先 | 同 |
+| `Score` 降序 | 基础分 | 同 |
+| `ActionCount` 升序 | 动作少优先 | 同（= 搜索深度） |
+
+**为什么不再拿基础分当主键**：基础分里的血量项是**投影血量**（一阶前瞻），
+而最终路线该看真实结果；`StrategicHpDeficit` 才是蓝本衡量「这条路线赔了多少血」的轴。
+
+### 17.2 两个必须知道的口径
+
+1. **`Survives` 看的是投影血量**，不是当前血量。少了这一条，
+   「这一步走进去会被打死」的节点会被当成还活着（第一次跑测试就红在这里）。
+2. **死路之间不比优劣。** `StrategicHpDeficit` 记的是**累计**掉血，所以两条都必死的路线里，
+   「早死」的那条反而掉血更少、排得更前。蓝本同样如此（死路不进 `Won` 分支，
+   后续键只按数值排）。这是口径，不是 bug；判定「会不会死」靠的是 `Survives`。
+
+### 17.3 实测
+
+默认配置下两个回归场景结果不变（双教徒 10 回合/26 血、单厚怪 21 回合/64 血），
+Beam 项 A/B 的四组数字也完全一致 —— 说明在现有场面上新排序与旧排序同序，
+属于**结构性对齐**而不是行为改动。改动的价值在：
+- 主键从「投影血量 + 掉血」换成蓝本的「战略血量赤字」；
+- 新增「同样结果下结束得早的优先」；
+- `Survives` 用投影血量，堵住「走进必死」这一类。
+
+测试：128 条全绿。`blocksWhenAttackingWouldGetUsKilled` 的数值按新口径重设过
+（原场景两条路都会死，且「早死」反而分低，见 17.2）。

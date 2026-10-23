@@ -261,7 +261,7 @@ public final class BeamSolver {
         return node != null && node.state.hp > 0 && SearchNode.noAliveMonster(node.state);
     }
 
-    private static boolean isStrictlyBetter(SearchNode candidate, SearchNode selected) {
+    private boolean isStrictlyBetter(SearchNode candidate, SearchNode selected) {
         return candidate != null && (selected == null || better(candidate, selected));
     }
 
@@ -532,17 +532,89 @@ public final class BeamSolver {
     }
 
     /**
-     * 先比基础分（蓝本 {@code SimulationSnapshot.Score}：血 / 敌方血 / 胜负），
-     * 再比 Beam 排序分，最后优先「更早收场」的那条路线。
+     * 最终路线排序 —— 照蓝本 {@code CombatBeamSolver.FinalPlanOrdering.cs:253-271} 的词典序。
+     *
+     * <p>蓝本那一串比较键有 17 条，我们只搬得动其中有 STS1 对应物的前几条（顺序不变）：
+     *
+     * <pre>
+     * Won 降序                        → 打赢的优先
+     * (!Won &amp;&amp; !Survives) 升序        → 没赢的话，活着的优先（Survives = 活着**且投影血量 &gt; 0**）
+     * DeathSaveUseCount 升序          → 未建模（无复活遗物）
+     * 被偷资源 升序                    → 未建模
+     * StrategicHpDeficit 升序          → ★ 主键：战略血量赤字越小越好
+     * GrowthHpCredit / GrowthReward   → 未建模（局外收益）
+     * CombatEndedTurn 升序             → ★ 结束得越早越好（没结束 = ∞）
+     * PolicyHpDeficit / 药水 / …       → 未建模
+     * EnemyHp 升序                     → ★ 敌方剩血越少越好
+     * Score 降序                       → ★ 基础分
+     * ActionCount 升序                 → ★ 动作越少越好
+     * </pre>
+     *
+     * <p>为什么不再直接用基础分当主键：基础分里的血量项是**投影血量**（一阶前瞻），
+     * 而最终路线该看**真实结果**；`StrategicHpDeficit` 才是蓝本用来衡量「这条路线赔了多少血」的轴，
+     * 它把「掉的血」和「最大生命亏空」加在一起，且回血已经抵掉。
      */
-    private static boolean better(SearchNode candidate, SearchNode incumbent) {
+    private boolean better(SearchNode candidate, SearchNode incumbent) {
+        boolean candidateWon = isCompleteVictory(candidate);
+        boolean incumbentWon = isCompleteVictory(incumbent);
+        if (candidateWon != incumbentWon) {
+            return candidateWon;
+        }
+        boolean candidateAlive = candidate.state.hp > 0 && Score.projectedHpOf(candidate.state) > 0;
+        boolean incumbentAlive = incumbent.state.hp > 0 && Score.projectedHpOf(incumbent.state) > 0;
+        if (candidateAlive != incumbentAlive) {
+            return candidateAlive;
+        }
+        int candidateDeficit = strategicHpDeficit(candidate);
+        int incumbentDeficit = strategicHpDeficit(incumbent);
+        if (candidateDeficit != incumbentDeficit) {
+            return candidateDeficit < incumbentDeficit;
+        }
+        int candidateEnded = combatEndedTurn(candidate);
+        int incumbentEnded = combatEndedTurn(incumbent);
+        if (candidateEnded != incumbentEnded) {
+            return candidateEnded < incumbentEnded;
+        }
+        int candidateEnemyHp = aliveEnemyHp(candidate.state);
+        int incumbentEnemyHp = aliveEnemyHp(incumbent.state);
+        if (candidateEnemyHp != incumbentEnemyHp) {
+            return candidateEnemyHp < incumbentEnemyHp;
+        }
         if (candidate.score != incumbent.score) {
             return candidate.score > incumbent.score;
         }
-        if (candidate.rank != incumbent.rank) {
-            return candidate.rank > incumbent.rank;
-        }
         return candidate.depth < incumbent.depth;
+    }
+
+    /**
+     * 蓝本 {@code ActEndingBossPolicy.StrategicHpDeficit}（{@code BossHpRelief.None} 档）：
+     * {@code 累计掉血 + 最大生命亏空 - 回血}。
+     *
+     * <p>蓝本记的是「累计未格挡伤害」和「累计回血」，两者相减就是**净掉血**，
+     * 所以我们直接用 {@code 起点血量 - 当前血量}，不必逐步累计。
+     * 下界取「开局就缺的血」：血最多回满，不可能靠多打几回合把这一项刷成负的。
+     */
+    private int strategicHpDeficit(SearchNode node) {
+        int netLost = rootHp - node.state.hp;
+        int floor = rootHp - rootMaxHp;          // 开局本来就缺的血，回血最多补到这里
+        int maxHpDeficit = Math.max(0, rootMaxHp - node.state.maxHp);
+        return Math.max(netLost, floor) + maxHpDeficit;
+    }
+
+    /** 蓝本 {@code CombatEndedTurn}：这场战斗在第几回合结束；没结束 = ∞。 */
+    private static int combatEndedTurn(SearchNode node) {
+        return node.terminal() ? node.state.turn : Integer.MAX_VALUE;
+    }
+
+    /** 还活着的敌人的有效血量合计（蓝本 {@code Features.EnemyHp}）。 */
+    private static int aliveEnemyHp(SimState state) {
+        int total = 0;
+        for (SimMonster m : state.monsters) {
+            if (m.hp > 0) {
+                total += m.hp + Math.max(0, m.block);
+            }
+        }
+        return total;
     }
 
     /**
