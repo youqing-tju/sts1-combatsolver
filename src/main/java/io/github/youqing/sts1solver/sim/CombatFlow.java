@@ -76,6 +76,10 @@ public final class CombatFlow {
                 Integer str = m.powers.get("Strength");
                 m.powers.put("Strength", (str == null ? 0 : str) + ritual);
             }
+            // IntangiblePower.atEndOfTurn → amount--，到 0 移除
+            // ⚠️ 原版有 justApplied 保护（刚加上的那回合不递减），我们没记这个标志 ——
+            //    施加那回合会多递减一次，方向是**低估防御**（安全偏差）。
+            io.github.youqing.sts1solver.mirror.DamageCalc.tickIntangible(m.powers);
         }
 
         // ⑤ 敌人打完，剩余格挡清零（壁垒除外）
@@ -109,7 +113,10 @@ public final class CombatFlow {
 
     /** 公开：荆棘反伤、药水伤害等外部路径要走同一套（格挡吸收 + 死亡豁免）。 */
     public static void hitPlayer(SimState state, int damage) {
-        int remaining = damage;
+        // 无实体：所有伤害上限 1（IntangiblePower.atDamageFinalReceive），
+        // 在**最终伤害**上生效、扣格挡之前 —— 所以 1 点伤害仍会被格挡完全吸收
+        int remaining = io.github.youqing.sts1solver.mirror.DamageCalc
+                .intangibleAdjusted(state.playerPowers, damage);
         if (state.block > 0) {
             int absorbed = Math.min(state.block, remaining);
             state.block -= absorbed;

@@ -90,7 +90,7 @@ public final class DamageCalc {
     /** 同上，但返回**实际扣掉的血量**（吸血类卡牌需要）。 */
     public static int hitAndReturnDealt(SimMonster target, int damage) {
         int hpBefore = target.hp;
-        int remaining = flightAdjusted(target, damage);
+        int remaining = intangibleAdjusted(target.powers, flightAdjusted(target, damage));
         if (target.block > 0) {
             int absorbed = Math.min(target.block, remaining);
             target.block -= absorbed;
@@ -150,6 +150,8 @@ public final class DamageCalc {
 
     /** 飞行（{@code FlightPower}）：普通攻击伤害减半，HP_LOSS / THORNS 不减。 */
     public static final String FLIGHT = "Flight";
+    /** 无实体：所有伤害上限 1（{@code IntangiblePower}）。 */
+    public static final String INTANGIBLE = "Intangible";
 
     /** 荆棘（{@code ThornsPower}）：受击反弹 {@code amount} 点给攻击者。 */
     public static final String THORNS = "Thorns";
@@ -178,6 +180,48 @@ public final class DamageCalc {
             return damage;
         }
         return (int) (damage / 2.0f);
+    }
+
+    /**
+     * 无实体减伤（{@code IntangiblePower.atDamageFinalReceive}）：
+     * {@code if (dmg > 1.0f) return 1.0f; return dmg;} —— **所有伤害上限 1**。
+     *
+     * <p>在**最终收到的伤害**上生效（所有修正之后、扣格挡之前）：
+     * 所以 1 点伤害仍会被格挡完全吸收。
+     *
+     * <p>注意这是「封顶」不是「归零」：0 伤保持 0，1 伤保持 1。
+     * 玩家和怪物共用这一条（原版是同一个 power 类）。
+     */
+    public static int intangibleAdjusted(java.util.Map<String, Integer> powers, int damage) {
+        if (powers == null) {
+            return damage;
+        }
+        Integer intangible = powers.get(INTANGIBLE);
+        if (intangible == null || intangible <= 0) {
+            return damage;
+        }
+        return Math.min(damage, 1);
+    }
+
+    /**
+     * 无实体回合末递减（{@code IntangiblePower.atEndOfTurn}）：{@code amount--}，到 0 移除。
+     *
+     * <p>⚠️ 原版有 {@code justApplied} 保护（刚施加的那回合不递减），我们没记这个标志 ——
+     * 施加那回合会多递减一次。偏差方向是**低估防御**（不会让 AI 以为无实体更值钱）。
+     */
+    public static void tickIntangible(java.util.Map<String, Integer> powers) {
+        if (powers == null) {
+            return;
+        }
+        Integer intangible = powers.get(INTANGIBLE);
+        if (intangible == null || intangible <= 0) {
+            return;
+        }
+        if (intangible <= 1) {
+            powers.remove(INTANGIBLE);
+        } else {
+            powers.put(INTANGIBLE, intangible - 1);
+        }
     }
 
     /**
