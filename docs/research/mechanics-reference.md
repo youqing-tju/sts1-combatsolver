@@ -896,3 +896,39 @@ AUTO end turn (search says end)  energy=1 hand[Body Slam+(cost=0/turn=0,atk), De
 
 「未知语义显式拒绝」这条硬规则是对的（宁可打不出也不许算错），但**拒绝之后要能被看见**：
 查表 miss 在生产里不能是静默的，否则表现成「AI 变傻」，而不是「有张牌没支持」。
+
+
+## 20. 计划执行模型 = 蓝本的 `ApplyCurrentTurn`（不是自创）
+
+「跨回合能力」这个疑问最后落在执行模型上，所以把蓝本查清楚：**蓝本不自动打牌**。
+
+- `Runtime/SolverProgress.cs:3-12` 定义 `SearchTakeoverKind { ApplyCurrentTurn, AdoptRoute }`，
+  两个都是**面板按钮**发起的请求（`RequestApplyCurrentTurn()` / `RequestAdoptRoute(seed)`）。
+- `ApplyCurrentTurn`：搜到「本回合可选动作」就停，玩家执行完这一回合，**下回合重新搜**
+  （`CombatBeamSolver.Phases.cs:1445 / 1554 / 2154` 三处都是这个语义）。
+- `AdoptRoute`：整条路线冻结，带着 `RouteAdoptionSeed` 一路执行下去。
+
+我们的 `AutoPilot` 是自动打牌（蓝本没有这个东西），它采取的是 `ApplyCurrentTurn` 语义：
+**每回合重新规划、只执行本回合**。这与蓝本一致，不需要改。
+`AdoptRoute`（冻结路线）对应面板上的「采纳整条路线」按钮，属于 M4-1 面板，尚未实现。
+
+### 20.1 本轮补的两件「让故障可见」的东西
+
+1. **回归测试** `playsTheZeroCostUpgradedBodySlamInsteadOfEndingTheTurn`：
+   重现真机那一手（0 费 `Body Slam+` + 1 能量 + 10 格挡），断言「本回合计划里必须用上它」。
+   注意**不钉死顺序** —— 最优解是「先 Defend 把格挡顶到 18、再用 0 费 Body Slam 打 18」，
+   所以第一步是 Defend 也算对。钉的是「那张牌看得见、用得上」。
+2. **搜索侧拒绝日志** `SEARCH REJECT: <牌名> -> <原因>`：每次搜索、每张牌、每个原因各一条。
+   只报**语义缺失**（没有镜像 / 不支持的费用 / 目标非法），
+   「能量不够 / 被缠绕 / 下标越界」这类正常拒绝不报。
+
+   加完立刻见效：写回归测试时我把牌名写成 `"Body Slam+"` 且 `upgraded=true`（正确写法是
+   `"Body Slam"` + `upgraded=true`），日志当场打出行
+   `SEARCH REJECT: Body Slam++ -> no mirror for card Body Slam++` —— 一眼定位。
+
+### 20.2 排查真机问题的固定路径
+
+1. 先看 `PLAN ready: N steps, depth M` —— `depth` 是**回合层数**，`M` 很小或 `steps` 很短，
+   说明是搜索/预算问题。
+2. 再看 `MIRROR MISS` / `SEARCH REJECT` —— 有没有牌在模型里根本不存在。
+3. 最后看 `AUTO play X -> 目标` 的实际序列，配合 `DIFF MATCH/MISMATCH` 判断是模型错还是估值错。

@@ -82,6 +82,56 @@ class BeamSolverTest {
         assertEquals(1, action.cardIndex, "should play Defend_R (index 1) instead of Strike_R");
     }
 
+    /**
+     * 真机故障回归（2026-10-23）：手里有 0 费的 `Body Slam+` 和 1 点能量，AI 却直接结束回合。
+     *
+     * <p>根因不是估值 —— 是 `MirrorRegistry` 少了升级态 `Body Slam+`，
+     * 查不到就 `ActionRejected`，搜索分支被静默跳过，那张牌在 AI 眼里不存在。
+     * 日志原话：`AUTO end turn (search says end) energy=1 hand[Body Slam+(cost=0,turn=0,atk), ...]`
+     *
+     * <p>这条测试钉住两件事：① 升级态必须能查表（{@code MirrorCoverageTest} 兜全局）；
+     * ② 打得出就必须打 —— 0 费、伤害等于格挡，没有理由留着。
+     */
+    @Test
+    void playsTheZeroCostUpgradedBodySlamInsteadOfEndingTheTurn() {
+        SimState s = new SimState();
+        s.hp = 30;
+        s.maxHp = 80;
+        s.energy = 1;
+        s.block = 10;       // Body Slam 的伤害 = 当前格挡
+        s.hand.add(new SimCard("Body Slam", true, 0, 0, "ATTACK"));   // key = "Body Slam+"
+        s.hand.add(new SimCard("Defend_R", true, 1, 0, "SKILL"));
+        for (int i = 0; i < 8; i++) {
+            s.draw.add(new SimCard("Strike_R", false, 1));
+        }
+        SimMonster m = new SimMonster("TestMonster", 40, 40, 0,
+                Collections.<String, Integer>emptyMap());
+        m.intentDmg = 10;
+        s.monsters.add(m);
+
+        BeamSolver solver = new BeamSolver(3, 5, 8, 5);
+        PlanAction action = solver.bestFirstAction(s);
+
+        assertNotNull(action);
+        assertTrue(io.github.youqing.sts1solver.mirror.MirrorRegistry.supports("Body Slam+"),
+                "升级态必须有镜像，否则搜索看不见这张牌");
+        assertEquals(PlanAction.Kind.PLAY_CARD, action.kind, "不该直接结束回合");
+
+        // 顺序不钉死：最优解是「先 Defend 加格挡、再用 0 费 Body Slam 打 18 点」，
+        // 所以第一步是 Defend 也算对。钉住的是「本回合的计划里必须用上这张 0 费牌」。
+        boolean plannedBodySlam = false;
+        for (RouteStep step : solver.lastSteps) {
+            if (step.endTurn) {
+                break;                      // 只看本回合
+            }
+            if ("Body Slam+".equals(step.cardKey)) {
+                plannedBodySlam = true;
+            }
+        }
+        assertTrue(plannedBodySlam, "本回合的计划里必须用上 0 费的 Body Slam+，实际路线："
+                + solver.lastSteps);
+    }
+
     @Test
     void terminalValuePrefersTheStateWhereCombatIsOver() {
         BeamSolver solver = new BeamSolver(3, 5, 4, 3);

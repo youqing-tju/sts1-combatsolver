@@ -72,6 +72,9 @@ public final class BeamSolver {
     public boolean hitNodeLimit;
     /** 最后一轮是不是被时间掐断的（蓝本 {@code ResultScope != SearchCompletion}：掐断就不再加宽）。 */
     public boolean lastPassCutShort;
+
+    /** 上一次搜索里已经报过的「语义缺失」拒绝（每次搜索清空，避免刷屏）。 */
+    private final java.util.Set<String> reportedRejects = new java.util.HashSet<String>();
     /**
      * ⚠️ 非蓝本实现，已默认关闭。
      *
@@ -294,6 +297,7 @@ public final class BeamSolver {
         lastWidth = width;
         hitNodeLimit = false;       // 每一轮单独判断「这一轮是不是被节点上限截断」
         lastPassCutShort = false;
+        reportedRejects.clear();    // 每次搜索把「打不出的原因」重新报一遍
         int turnsDone = 0;
         int expanded = 0;           // 本轮展开数（节点帽按轮算，蓝本每一趟都是新的 _run）
 
@@ -464,12 +468,42 @@ public final class BeamSolver {
         try {
             CardPlayer.play(copy, cardIndex, targetIndex, choiceIndex);
         } catch (ActionRejected rejected) {
+            reportReject(state, cardIndex, rejected.getMessage());
             return null;
         } catch (Throwable t) {
+            reportReject(state, cardIndex, String.valueOf(t));
             return null;
         }
         return nodeOf(copy, PlanAction.play(cardIndex, targetIndex, choiceIndex), node,
                 node.depth + 1, state.hand.get(cardIndex).key());
+    }
+
+    /**
+     * 把「这张牌为什么打不出」里**属于语义缺失**的那几种报一次（每次搜索每张牌每原因一条）。
+     *
+     * <p>为什么要专门报：搜索里「打不出」是静默跳过的 —— 分支直接不生成。
+     * 如果没有日志，覆盖缺口的表现就是「AI 手里有牌却结束回合」，只能靠人肉对日志。
+     * 2026-10-23 就是这样埋了一整天（升级态镜像缺失）。
+     *
+     * <p>只报语义类：没有镜像 / 不支持的费用 / 目标非法。
+     * 「能量不够」「被缠绕」「手牌下标越界」是正常拒绝，不报。
+     */
+    private void reportReject(SimState state, int cardIndex, String message) {
+        if (message == null) {
+            return;
+        }
+        boolean semantic = message.startsWith("no mirror")
+                || message.startsWith("unsupported cost")
+                || message.startsWith("effect needs");
+        if (!semantic) {
+            return;
+        }
+        String cardKey = cardIndex >= 0 && cardIndex < state.hand.size()
+                ? state.hand.get(cardIndex).key() : "?";
+        String line = cardKey + " -> " + message;
+        if (reportedRejects.add(line)) {
+            Trace.warn("SEARCH REJECT: " + line);
+        }
     }
 
     /** 结束回合并推进到下一回合（蓝本 {@code BuildAcceptedEndTurnNodes} 的简化版）。 */
