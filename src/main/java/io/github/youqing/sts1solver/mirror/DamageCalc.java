@@ -101,7 +101,27 @@ public final class DamageCalc {
         }
         tickFlight(target);
         tickPlatedArmor(target, damage);
+        tickAngry(target, damage);
         return remaining;
+    }
+
+    /**
+     * 愤怒（{@code AngryPower.onAttacked}）：受击时 +amount 点力量。
+     *
+     * <p>原版判据：{@code info.owner != null && damageAmount > 0
+     * && type != HP_LOSS && type != THORNS} —— 也就是**只有普通攻击**触发。
+     * 0 伤不触发（和装甲同一条）。
+     */
+    private static void tickAngry(SimMonster target, int damage) {
+        if (damage <= 0) {
+            return;
+        }
+        Integer angry = target.powers.get("Angry");
+        if (angry == null || angry <= 0) {
+            return;
+        }
+        Integer str = target.powers.get("Strength");
+        target.powers.put("Strength", (str == null ? 0 : str) + angry);
     }
 
     /** 飞行（{@code FlightPower}）：普通攻击伤害减半，HP_LOSS / THORNS 不减。 */

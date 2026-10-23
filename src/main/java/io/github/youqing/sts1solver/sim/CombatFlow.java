@@ -47,20 +47,6 @@ public final class CombatFlow {
         // ③ 弃手牌之后：燃烧 / 炸弹 / 欧米伽
         Hooks.firePhase(state, HookPhase.END_OF_TURN);
 
-        // ③.5 怪物在**玩家回合末**的能力（原版 atEndOfTurn(isPlayer=true)）
-        // RitualPower → ApplyPowerAction(owner, owner, StrengthPower(amount))：
-        // Cultist / Darkling 等每回合结束加 amount 点力量
-        for (SimMonster m : state.monsters) {
-            if (m.hp <= 0) {
-                continue;
-            }
-            Integer ritual = m.powers.get("Ritual");
-            if (ritual != null && ritual > 0) {
-                Integer str = m.powers.get("Strength");
-                m.powers.put("Strength", (str == null ? 0 : str) + ritual);
-            }
-        }
-
         // ④ 敌方行动
         // 🔴 顺序很重要：**先让格挡吸收敌方伤害，再清空格挡**。
         // 反过来写（先清后打）会让格挡完全失效 —— 搜索于是永远不防御，
@@ -71,15 +57,24 @@ public final class CombatFlow {
             }
         }
 
-        // ④.5 怪物自己的回合末能力（原版 atEndOfTurnPreEndTurnCards(isPlayer=false)）
-        // PlatedArmorPower → GainBlockAction(owner, owner, amount)：回合末加 amount 格挡
+        // ④.5 怪物自己的回合末能力（原版 atEndOfTurnPreEndTurnCards / atEndOfRound）
         for (SimMonster m : state.monsters) {
             if (m.hp <= 0) {
                 continue;
             }
+            // PlatedArmorPower.atEndOfTurnPreEndTurnCards → GainBlockAction(owner, owner, amount)
             Integer plated = m.powers.get("Plated Armor");
             if (plated != null && plated > 0) {
                 m.block += plated;
+            }
+            // RitualPower.atEndOfRound → ApplyPowerAction(owner, owner, StrengthPower(amount))
+            // 🔴 字节码核实：怪物的仪式是 atEndOfRound（玩家+怪物都行动完之后），
+            //    不是 atEndOfTurn —— 后者是玩家仪式用的（onPlayer=true 时才触发）。
+            //    Cultist 等越拖越强就是靠这条。
+            Integer ritual = m.powers.get("Ritual");
+            if (ritual != null && ritual > 0) {
+                Integer str = m.powers.get("Strength");
+                m.powers.put("Strength", (str == null ? 0 : str) + ritual);
             }
         }
 

@@ -515,4 +515,19 @@ class PotionsTest {
         assertEquals(2, s.monsters.get(0).powers.get("Strength").intValue());
     }
 
+
+    /** 愤怒（{@code AngryPower}）：受击时 +N 点力量。 */
+    @Test
+    void angryGivesStrengthWhenAttacked() {
+        SimState s = fight();
+        SimMonster m = s.monsters.get(0);
+        m.powers.put("Angry", 1);
+
+        DamageCalc.hitAndReturnDealt(m, 5);
+        assertEquals(1, m.powers.get("Strength").intValue(), "受击 +1 力量");
+
+        DamageCalc.hitAndReturnDealt(m, 5);
+        assertEquals(2, m.powers.get("Strength").intValue(), "再受击再 +1");
+    }
+
 }
