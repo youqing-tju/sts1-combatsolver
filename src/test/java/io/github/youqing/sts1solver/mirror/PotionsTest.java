@@ -502,4 +502,17 @@ class PotionsTest {
         assertEquals(3, m.powers.get("Vulnerable").intValue());
     }
 
+
+    /** 仪式（{@code RitualPower}）：**玩家回合末**给怪加 N 点力量。 */
+    @Test
+    void ritualGivesStrengthAtEndOfPlayerTurn() {
+        SimState s = fight();
+        s.monsters.get(0).powers.put("Ritual", 2);
+        s.monsters.get(0).intentDmg = 0;
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(2, s.monsters.get(0).powers.get("Strength").intValue());
+    }
+
 }
