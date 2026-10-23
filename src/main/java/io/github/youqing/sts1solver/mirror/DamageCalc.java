@@ -89,6 +89,7 @@ public final class DamageCalc {
 
     /** 同上，但返回**实际扣掉的血量**（吸血类卡牌需要）。 */
     public static int hitAndReturnDealt(SimMonster target, int damage) {
+        int hpBefore = target.hp;
         int remaining = flightAdjusted(target, damage);
         if (target.block > 0) {
             int absorbed = Math.min(target.block, remaining);
@@ -102,7 +103,30 @@ public final class DamageCalc {
         tickFlight(target);
         tickPlatedArmor(target, damage);
         tickAngry(target, damage);
+        tickCurlUp(target, damage, hpBefore);
         return remaining;
+    }
+
+    /**
+     * 蜷缩（{@code CurlUpPower.onAttacked}）：受伤时加 {@code amount} 格挡，**只触发一次**。
+     *
+     * <p>原版判据：{@code !triggered && damageAmount < owner.currentHealth
+     * && damageAmount > 0 && info.owner != null && info.type == NORMAL}
+     * —— 也就是**没打死、且是普通攻击**才蜷缩。虱虫（Louse）有。
+     *
+     * <p>{@code triggered} 在我们这里是「把 Curl Up 从 powers 里移除」来表达
+     * （一次性能力用完即弃，和飞行/装甲的层数制不同）。
+     */
+    private static void tickCurlUp(SimMonster target, int damage, int hpBefore) {
+        if (damage <= 0 || damage >= hpBefore) {
+            return;
+        }
+        Integer curl = target.powers.get("Curl Up");
+        if (curl == null || curl <= 0) {
+            return;
+        }
+        target.block += curl;
+        target.powers.remove("Curl Up");
     }
 
     /**

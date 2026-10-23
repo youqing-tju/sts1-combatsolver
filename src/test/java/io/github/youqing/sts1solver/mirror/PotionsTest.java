@@ -530,4 +530,21 @@ class PotionsTest {
         assertEquals(2, m.powers.get("Strength").intValue(), "再受击再 +1");
     }
 
+
+    /** 蜷缩（{@code CurlUpPower}）：受伤加格挡，**只一次**，打死不触发。 */
+    @Test
+    void curlUpGrantsBlockOnceAndNotWhenKilled() {
+        SimState s = fight();
+        SimMonster m = s.monsters.get(0);
+        m.hp = 40;
+        m.powers.put("Curl Up", 6);
+
+        DamageCalc.hitAndReturnDealt(m, 5);
+        assertEquals(6, m.block, "蜷缩加 6 格挡");
+        assertFalse(m.powers.containsKey("Curl Up"), "一次性，用完即弃");
+
+        DamageCalc.hitAndReturnDealt(m, 5);
+        assertEquals(1, m.block, "第二次打 5 伤，格挡吃掉 5 → 剩 1；不再触发蜷缩");
+    }
+
 }
