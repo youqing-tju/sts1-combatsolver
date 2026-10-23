@@ -59,9 +59,32 @@ public final class DamageCalc {
      * Applies damage to a monster: block soaks first, the rest hits HP.
      * Dead monsters are removed afterwards (the game keeps them during the death
      * animation, so expect a difference if you diff mid-animation).
+     *
+     * <p>打完还要结算**荆棘反伤**（{@code ThornsPower.onAttacked}）：
+     * 有攻击者、且不是 THORNS/HP_LOSS 类型时，把 {@code amount} 点伤害反弹给攻击者。
+     * 反伤走玩家的格挡/血量，会触发死亡豁免。
      */
     public static void hit(SimState state, SimMonster target, int damage) {
         hitAndReturnDealt(target, damage);
+        applyThorns(state, target);
+    }
+
+    /**
+     * 荆棘反伤（{@code ThornsPower.onAttacked}）。
+     *
+     * <p>原版判据是 {@code info.owner != null && info.owner != owner
+     * && type != THORNS && type != HP_LOSS} —— 也就是**只有普通攻击**会触发反伤，
+     * 荆棘打荆棘、自伤都不反。我们这条路径只有普通攻击（自伤走 {@code Effects.loseHp}、
+     * 药水走 THORNS 类型），所以恒过。
+     *
+     * <p>反伤也走 {@code hitPlayer}（吃玩家格挡），所以会触发死亡豁免。
+     */
+    private static void applyThorns(SimState state, SimMonster target) {
+        Integer thorns = target.powers.get(THORNS);
+        if (thorns == null || thorns <= 0) {
+            return;
+        }
+        io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(state, thorns);
     }
 
     /** 同上，但返回**实际扣掉的血量**（吸血类卡牌需要）。 */
@@ -82,6 +105,9 @@ public final class DamageCalc {
 
     /** 飞行（{@code FlightPower}）：普通攻击伤害减半，HP_LOSS / THORNS 不减。 */
     public static final String FLIGHT = "Flight";
+
+    /** 荆棘（{@code ThornsPower}）：受击反弹 {@code amount} 点给攻击者。 */
+    public static final String THORNS = "Thorns";
 
     /**
      * 飞行减伤（{@code FlightPower.calculateDamageTakenAmount}）：

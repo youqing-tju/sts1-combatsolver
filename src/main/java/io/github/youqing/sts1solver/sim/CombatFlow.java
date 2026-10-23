@@ -86,7 +86,8 @@ public final class CombatFlow {
         }
     }
 
-    private static void hitPlayer(SimState state, int damage) {
+    /** 公开：荆棘反伤、药水伤害等外部路径要走同一套（格挡吸收 + 死亡豁免）。 */
+    public static void hitPlayer(SimState state, int damage) {
         int remaining = damage;
         if (state.block > 0) {
             int absorbed = Math.min(state.block, remaining);

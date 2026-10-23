@@ -432,4 +432,32 @@ class PotionsTest {
         assertEquals(15, byrd.hp, "没飞行了，全额 10");
     }
 
+
+    /** 荆棘（{@code ThornsPower}）：打它一下，它反 amount 点给我们。 */
+    @Test
+    void thornsReflectsDamageToTheAttacker() {
+        SimState s = fight();
+        s.hp = 30;
+        s.monsters.get(0).powers.put("Thorns", 3);
+
+        DamageCalc.hit(s, s.monsters.get(0), 20);
+
+        assertEquals(20, s.monsters.get(0).hp, "怪掉 20");
+        assertEquals(27, s.hp, "玩家被反 3 点");
+    }
+
+    /** 荆棘反伤走玩家格挡。 */
+    @Test
+    void thornsIsSoakedByPlayerBlock() {
+        SimState s = fight();
+        s.hp = 30;
+        s.block = 5;
+        s.monsters.get(0).powers.put("Thorns", 3);
+
+        DamageCalc.hit(s, s.monsters.get(0), 20);
+
+        assertEquals(2, s.block, "5 - 3");
+        assertEquals(30, s.hp, "格挡吃满，不掉血");
+    }
+
 }
