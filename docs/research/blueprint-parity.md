@@ -43,7 +43,7 @@ read_when:
 | `AcceptExpandedChild` 分流（同回合 → plays，跨回合/终局 → ended） | `expandTurnLayer` + `route()` | ✅ |
 | `EscalateSearchWhenNoVictory`（Beam+节点帽+分支一起 ×2，最多 2 次，封顶 512/100，耗时预估，严格改善才采纳） | `bestFirstAction` 的加宽循环 | ✅ |
 | `ConsiderCompleteVictory`（完整胜利登记） | `bestTerminal` + `better()` | ✅ |
-| `ConsiderCurrentTurnCandidate` + `adoptedNode = currentBestNode ?? currentTurnCandidateNode`（`Phases.cs:372 / 2218`） | `currentTurnCandidate` + 三档选择顺序 | ✅ 选择顺序已复刻。**早停不搬**（2026-10-23 用户拍板）：蓝本的三个早停检查点（`Phases.cs:1445 / 1554 / 2154`）全部以「用户点了接管按钮」为前提（`_interaction.CurrentTakeoverRequest`），无请求时搜索跑满整场战斗并持续发布路线预览；我们 AutoPilot 回合开始提交一次搜索、等整场规划再执行本回合，不存在「等不及点按钮」的场景，提前收工反而拿不到整场路线 |
+| `ConsiderCurrentTurnCandidate` + `adoptedNode = currentBestNode ?? currentTurnCandidateNode`（`Phases.cs:372 / 2218`） | `currentTurnCandidate` + 三档选择顺序 | ✅ 选择顺序已复刻。**早停不搬**（2026-10-23 考证修正）：早停是**手动面板模式**的「立即交付」——用户点「执行本回合」按钮后，后台搜索在三个检查点（`Phases.cs:1445 / 1554 / 2154`）看到接管请求就提前收工，交付 `currentBestNode ?? currentTurnCandidateNode`。**FullAuto（全自动）不点这个按钮**（`SolverController.cs:1485 SetFullAuto` → 每回合 `AutoTurnStart` 自动重搜），等得起；我们的 AutoPilot 对应的就是 FullAuto（同构性见 §3 执行层行），不走早停路径 |
 | `_earlyTurnScoutDepth`（开局侦察层数） | — | ❌ 未做 |
 | `IncrementalVerificationMaxTurns = 32` | — | ❌ 未做（验证模式上限） |
 | `acceptableBattleHpLossReached`（打到达标战损就停） | — | ⛔ 不适用：需要跨战斗血量目标 |
@@ -63,7 +63,7 @@ read_when:
 
 | 蓝本 | 我们的 | 状态 |
 |---|---|---|
-| `SearchTakeoverKind.ApplyCurrentTurn`（搜到本回合候选就停，下回合重搜） | `AutoPilot` 每回合重规划 | ✅ 执行语义一致：蓝本**搜索永远规划整场战斗**（`PublishRoutePreview` 持续发布），执行时只取本回合动作；我们同构。早停属用户交互路径，不搬（判定见 §2 `ConsiderCurrentTurnCandidate` 行） |
+| `SearchTakeoverKind.ApplyCurrentTurn`（搜到本回合候选就停，下回合重搜） | `AutoPilot` 每回合重规划 | ✅ 同构于蓝本 **FullAuto 模式**（`SolverController.cs:1485 SetFullAuto` → 每回合 `AutoTurnStart` 自动重搜 → `StartDeployment`（:2799）的 `DeployCurrentTurn` **只部署 `action.Turn == StartTurnNumber` 的动作**）；漂移重搜对应我们的指纹校验丢弃（`DeploymentDrift` / `PlanExhausted`）。手动面板的早停不搬（判定见 §2 `ConsiderCurrentTurnCandidate` 行） |
 | `SearchTakeoverKind.AdoptRoute`（冻结整条路线） | — | ❌ 未做（面板按钮，属 M4-1） |
 | `SolverProgress`（面板进度：世界线 / 回合层 / play_depth） | `SolverPanel` | 🔶 部分：有节点/深度/路线，没有 play_depth 与分阶段进度 |
 
@@ -78,12 +78,16 @@ read_when:
 按蓝本 `CombatSearchCoordinator.SolveCore` 的流水线顺序：
 
 1. ~~`ConsiderCurrentTurnCandidate`~~ → **已搬**（选择顺序）。
-2. ~~`ApplyCurrentTurn` 的早停（`Phases.cs:1445 / 1554 / 2154`）~~ → **不搬**（2026-10-23 用户拍板）。
-   依据：蓝本搜索平时**跑满整场战斗**（`CombatSearchCoordinator` 持续搜、`PublishRoutePreview` 持续发布）；
-   早停 = 用户点「执行本回合」按钮后的交互响应，三个检查点全部以
-   `_interaction.CurrentTakeoverRequest` 存在为前提（按钮入口 `PlayerTurnSetupPatches.cs:374 / 397`）。
-   我们 AutoPilot = 回合开始提交一次搜索、等整场规划、执行本回合 —— 没有「搜索后台常驻 + 用户随时接管」
-   的交互形态，提前收工反而拿不到整场路线。
+2. ~~`ApplyCurrentTurn` 的早停（`Phases.cs:1445 / 1554 / 2154`）~~ → **不搬**（2026-10-23 考证修正，
+   依据记入 `mechanics-reference` §22.4）。
+   早停 = **手动面板模式**的「立即交付」：用户点「执行本回合」按钮（`PlayerTurnSetupPatches.cs:374`）后，
+   后台搜索在三个检查点看到接管请求（`_interaction.CurrentTakeoverRequest`）就提前收工，
+   交付 `currentBestNode ?? currentTurnCandidateNode`（整场胜利优先，其次本回合候选）。
+   **FullAuto 不走这条路径**：`SolverController.cs:1485 SetFullAuto` 起全自动后每回合
+   `AutoTurnStart` 自动重搜（:1558 `PrepareAutomaticSearchForTurn`），等得起；
+   我们 AutoPilot 对应 FullAuto —— 同构性逐行核实：`StartDeployment`（:2799）的
+   `DeployCurrentTurn` 只部署 `action.Turn == StartTurnNumber` 的动作、
+   `DeploymentDrift` / `PlanExhausted` 重搜对应我们的指纹校验丢弃重算。
 3. `Retention` / `BeamRetentionPolicy` 保留策略族（我们只有「按 rank 取前 N」）。
 4. `Expansion.Opening` + `_earlyTurnScoutDepth`。
 5. `NoveltySearch` / `BeamPortfolioSelector`（多轮搜索）。

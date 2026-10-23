@@ -911,18 +911,25 @@ AUTO end turn (search says end)  energy=1 hand[Body Slam+(cost=0/turn=0,atk), De
 查表 miss 在生产里不能是静默的，否则表现成「AI 变傻」，而不是「有张牌没支持」。
 
 
-## 20. 计划执行模型 = 蓝本的 `ApplyCurrentTurn`（不是自创）
+## 20. 计划执行模型 = 蓝本的 FullAuto（2026-10-23 考证修正）
 
-「跨回合能力」这个疑问最后落在执行模型上，所以把蓝本查清楚：**蓝本不自动打牌**。
+> ⚠️ 本节第一版写「蓝本不自动打牌」——**错了**。蓝本有全自动模式（`SearchReason.FullAuto`），
+> 我们的 AutoPilot 就是它的对应物。原始考证修正记入 §22.4。
 
 - `Runtime/SolverProgress.cs:3-12` 定义 `SearchTakeoverKind { ApplyCurrentTurn, AdoptRoute }`，
-  两个都是**面板按钮**发起的请求（`RequestApplyCurrentTurn()` / `RequestAdoptRoute(seed)`）。
-- `ApplyCurrentTurn`：搜到「本回合可选动作」就停，玩家执行完这一回合，**下回合重新搜**
-  （`CombatBeamSolver.Phases.cs:1445 / 1554 / 2154` 三处都是这个语义）。
-- `AdoptRoute`：整条路线冻结，带着 `RouteAdoptionSeed` 一路执行下去。
+  这两个是**手动面板按钮**发起的请求（`RequestApplyCurrentTurn()` / `RequestAdoptRoute(seed)`，
+  `PlayerTurnSetupPatches.cs:374 / 397`）—— 手动模式的「立即交付」路径，含早停。
+- **全自动模式**：`SolverController.cs:1485 SetFullAuto` → 每回合
+  `PrepareAutomaticSearchForTurn`（:1558）→ `SearchReason.AutoTurnStart` 自动重搜；
+  部署 `StartDeployment`（:2799）→ `DeployCurrentTurn` **只执行 `action.Turn == StartTurnNumber`
+  的动作**（手里是整场路线，执行只取本回合）；
+  漂移 → `DeploymentDrift` 重搜、本回合计划用完 → `PlanExhausted` 重搜。
+- 搜索触发原因全集（`SolverController.cs:20-28`）：
+  `SearchReason { Manual, AutoTurnStart, Deploy, FullAuto, DeploymentDrift, PlanExhausted }`。
 
-我们的 `AutoPilot` 是自动打牌（蓝本没有这个东西），它采取的是 `ApplyCurrentTurn` 语义：
-**每回合重新规划、只执行本回合**。这与蓝本一致，不需要改。
+我们的 `AutoPilot` 采取 FullAuto 同构语义：**每回合重新规划、只执行本回合、
+指纹校验不符丢弃重算**（对应 DeploymentDrift / PlanExhausted）。这与蓝本一致，不需要改。
+手动模式的 `ApplyCurrentTurn` 早停不搬（判定见 §22.4）；
 `AdoptRoute`（冻结路线）对应面板上的「采纳整条路线」按钮，属于 M4-1 面板，尚未实现。
 
 ### 20.1 本轮补的两件「让故障可见」的东西
@@ -1057,28 +1064,55 @@ SearchNode best = bestTerminal != null ? bestTerminal
 两个回归场景结果不变（双教徒 10 回合/26 血、单厚怪 21 回合/64 血）—— 因为这两个场景
 都能搜到完整胜利，第一优先级就已经命中。
 
-### 22.4 早停为什么不搬（2026-10-23 用户拍板）
+### 22.4 早停为什么不搬（2026-10-23 考证修正）
+
+> ⚠️ 本节第一版把早停定性为「无请求时搜索跑满整场 + 我们拿不到整场路线」——**理由有错，结论不变**。
+> 错在：早停手里有整场胜利时交付的就是整场路线（`currentBestNode` 优先）；
+> 真正的理由是**早停只挂在手动面板路径上，FullAuto（我们的对应物）不点那个按钮**。
 
 **结论：搜索保持整场战斗规划，不做「候选一出现就 break」。**
 
-蓝本实况（逐行核实）：
+#### 早停的准确定义
 
-- 三个早停检查点 —— `BeforeNoveltyParent`（`Phases.cs:1445`）、playDepth 迭代开头（`:1554`）、
+- 三个检查点 —— `BeforeNoveltyParent`（`Phases.cs:1445`）、playDepth 迭代开头（`:1554`）、
   回合层收尾（`:2154`）—— 条件全部是
   `_interaction.CurrentTakeoverRequest?.Kind == ApplyCurrentTurn && (currentBestNode != null || currentTurnCandidateNode != null)`。
-  **前提是请求存在**，即用户点了面板上的「执行本回合」按钮（按钮入口
-  `PlayerTurnSetupPatches.cs:374`，日志 `UI_ACTION action=turn_setup_apply_current_turn`）。
-- **没有请求时搜索跑满整场**：主循环照常推进所有回合层，`RefreshCurrentTurnPreview` /
-  `PublishRoutePreview`（`Phases.cs:412 / 2121`）持续发布整条路线的预览。
-- `AdoptRoute`（用户点「采纳路线」按钮，`PlayerTurnSetupPatches.cs:397`）= 拿面板上显示的
-  整条路线作为种子冻结执行 —— 两种执行模式都建立在**整场规划**之上。
+- 触发入口是**手动面板按钮**「执行本回合」（`PlayerTurnSetupPatches.cs:374`，
+  日志 `UI_ACTION action=turn_setup_apply_current_turn`；`SearchInteractionState.RequestApplyCurrentTurn`
+  写入 `_takeoverRequest`，`SolverProgress.cs:85-103`）。
+- 命中后 `adoptionReached = true; timeBudgetReached = true; break` —— 提前收工，
+  交付 `adoptedNode = currentBestNode ?? currentTurnCandidateNode`（:2218）：
+  **整场胜利路线优先，其次「本回合能安全走完」的候选**。
+  两个候选的判据不同：`SolverInterimResultOrdering.IsCompleteVictory`（`SolverInterimResultOrdering.cs:5`）
+  要求 `allEnemiesDead`（整场打完）；`IsCurrentTurnCandidate`（`Phases.cs:2458`）只要求走到回合边界。
 
-我们的结构差异：AutoPilot 没有「搜索后台常驻 + 用户随时点按钮接管」的交互形态 ——
-回合开始提交一次搜索，**等的就是整场规划**（实测百 ms 级，不存在「等不及」），
-拿到结果后只执行本回合动作、下回合重搜。提前收工反而拿不到整场路线。
+#### 我们对应的是 FullAuto，不是手动按钮
 
-改动：`blueprint-parity.md` §2 该行、§3 执行层行、§4 待办第 2 项 —— 状态改为「不搬」。
-本节记录判定依据。
+蓝本执行层有 6 种搜索触发原因（`SolverController.cs:20-28`）：
+`SearchReason { Manual, AutoTurnStart, Deploy, FullAuto, DeploymentDrift, PlanExhausted }`。
+
+- **`SetFullAuto`**（`SolverController.cs:1485`）：开全自动 → 已有最新结果直接部署
+  （:1549 `LatestStamp == current`），否则 `RequestSearch(FullAuto)`（:1555）。
+- **每回合自动重搜**：`PrepareAutomaticSearchForTurn`（:1558）→ `SearchReason.AutoTurnStart`。
+- **部署只执行本回合**（决定性证据，`StartDeployment` :2799-2827）：
+  `DeployCurrentTurn(...)` 只部署 `action.Turn == result.StartTurnNumber` 的动作
+  —— **手里是整场路线，执行只取本回合**。
+- **漂移重搜**：执行中状态漂移 → `DeploymentDrift`；本回合计划用完 → `PlanExhausted`
+  （`StartDeployment` 里 `hasCurrentTurnPlan == false` → `RequestSearch(PlanExhausted)`，:2805-2816）。
+
+我们的 AutoPilot 与 FullAuto **逐项同构**：每回合重搜（= AutoTurnStart）、只执行本回合
+（= DeployCurrentTurn 的回合过滤）、指纹校验不符丢弃重算（= DeploymentDrift / PlanExhausted）。
+区别只在触发方式（我们全自动无面板）。
+
+#### 为什么 FullAuto 不需要早停
+
+早停服务的场景是「用户手动打牌、等不了 120 秒预算」——点按钮后立即拿现有最好答案。
+FullAuto 的搜索周期里有大量空窗（敌人回合 + 玩家看牌期间），**等得起**；
+且我们实测树穷尽、预算用不完（§21），「等完」与「早停」拿到的是同一个
+`adoptedNode`（三档选择顺序已在 §22.3 复刻）。
+
+改动：`blueprint-parity.md` §2 该行、§3 执行层行、§4 待办第 2 项 —— 状态维持「不搬」，理由修正。
+本节记录判定依据与 FullAuto 同构性考证。
 
 
 ## 23. 死亡豁免：蜥蜴尾巴（A｜蓝本源码 + STS1 字节码，2026-10-23）
