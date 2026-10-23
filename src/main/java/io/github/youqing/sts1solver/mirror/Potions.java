@@ -55,6 +55,11 @@ public final class Potions {
     public static final String FRUIT_JUICE = "Fruit Juice";
     public static final String HEART_OF_IRON = "Heart of Iron";
     public static final String LIQUID_BRONZE = "Liquid Bronze";
+    /** 三选一发现（走 {@code DiscoveryAction}）。ID **都无空格**。 */
+    public static final String POWER_POTION = "PowerPotion";
+    public static final String ATTACK_POTION = "AttackPotion";
+    public static final String SKILL_POTION = "SkillPotion";
+    public static final String COLORLESS_POTION = "ColorlessPotion";
 
     /**
      * 火药水伤害（{@code FirePotion.getPotency} → {@code bipush 20}）。
@@ -126,11 +131,31 @@ public final class Potions {
     }
 
     /**
+     * 这张药水用掉后要**开选牌**吗（原版 {@code DiscoveryAction} 会开三选一界面）。
+     *
+     * <p>对应蓝本 {@code PotionChoiceSupport.RequiresChoice} —— 药水引发的选牌
+     * 是动作的一部分，搜索要为每个候选各展开一条分支。
+     */
+    public static boolean needsChoice(String potionId) {
+        return POWER_POTION.equals(potionId)
+                || ATTACK_POTION.equals(potionId)
+                || SKILL_POTION.equals(potionId)
+                || COLORLESS_POTION.equals(potionId);
+    }
+
+    /** 不需要选牌的药水（绝大多数）。 */
+    public static boolean use(SimState state, String potionId, int targetIndex) {
+        return use(state, potionId, targetIndex, -1);
+    }
+
+    /**
      * 打出一张主动药水。返回 {@code true} 表示成功消耗。
      *
      * <p>顺序照原版 {@code AbstractPotion.use(target)}：
      * 先算效果，再 {@code TopPanel.destroyPotion(slot)} 清槽位。
      * 这里由调用方负责清槽（{@code BeamSolver.potionNode} 在动作里做）。
+     *
+     * @param choiceIndex 三选一药水（{@link #needsChoice}）选第几张候选，其余传 {@code -1}
      *
      * <h2>伤害管线（火药水 / 爆炸药水）</h2>
      *
@@ -145,7 +170,7 @@ public final class Potions {
      * {@code if (getCurrRoom().phase == RoomPhase.COMBAT)} —— 非战斗用是空效果。
      * 我们只在战斗里调这里，所以恒过，但**这一条要记住**：将来接非战斗路径时不能漏。
      */
-    public static boolean use(SimState state, String potionId, int targetIndex) {
+    public static boolean use(SimState state, String potionId, int targetIndex, int choiceIndex) {
         if (FAIRY_POTION.equals(potionId)) {
             return false;                       // 被动药水，不能主动用
         }
@@ -232,8 +257,33 @@ public final class Potions {
                     amount(state.playerPowers.get("Thorns")) + LIQUID_BRONZE_AMOUNT);
             return true;
         }
+        // 三选一发现：原版 new DiscoveryAction(CardType, 1)（无色那张是 (true, 1) 的重载）。
+        // 效果 = 生成 3 张互不相同的该类型牌，选 1 张进手牌、本回合 0 费
+        // —— 与「发现」卡同一套逻辑，只是类型过滤不同。
+        String discoveryType = discoveryTypeOf(potionId);
+        if (discoveryType != null) {
+            Effects.discovery(discoveryType).applyWithChoice(state, targetIndex, null, choiceIndex);
+            return true;
+        }
         // 未知药水：显式拒绝，不静默算错（D2 风险点）
         throw new ActionRejected("Potion " + potionId + " -> no mirror");
+    }
+
+    /** 三选一药水对应的牌类型；不是三选一返回 {@code null}。 */
+    private static String discoveryTypeOf(String potionId) {
+        if (POWER_POTION.equals(potionId)) {
+            return "POWER";
+        }
+        if (ATTACK_POTION.equals(potionId)) {
+            return "ATTACK";
+        }
+        if (SKILL_POTION.equals(potionId)) {
+            return "SKILL";
+        }
+        if (COLORLESS_POTION.equals(potionId)) {
+            return "COLORLESS";
+        }
+        return null;
     }
 
     /**

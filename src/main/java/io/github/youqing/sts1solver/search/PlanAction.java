@@ -44,6 +44,11 @@ public final class PlanAction {
         return new PlanAction(Kind.USE_POTION, slotIndex, targetIndex, -1);
     }
 
+    /** 同上，但带三选一的选项（药水开的选牌界面）。 */
+    public static PlanAction potion(int slotIndex, int targetIndex, int choiceIndex) {
+        return new PlanAction(Kind.USE_POTION, slotIndex, targetIndex, choiceIndex);
+    }
+
     public static PlanAction endTurn() {
         return new PlanAction(Kind.END_TURN, -1, -1, -1);
     }

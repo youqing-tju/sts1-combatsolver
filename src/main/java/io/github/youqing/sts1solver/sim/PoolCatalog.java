@@ -139,7 +139,9 @@ public final class PoolCatalog {
             pick = candidates.size() - 1;
         }
         Entry chosen = candidates.get(pick);
-        return new SimCard(chosen.id, false, chosen.cost, chosen.damage);
+        // 🔴 必须带 type：随机生成的牌（发现/三选一药水/变形等）如果 type 为空，
+        // 估值里的能力牌计数、攻击总量、牌库杂质全会算错。
+        return new SimCard(chosen.id, false, chosen.cost, chosen.damage, chosen.type);
     }
 
     /** 等价于 {@code returnTrulyRandomColorlessCardInCombat()}。 */

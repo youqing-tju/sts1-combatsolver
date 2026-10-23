@@ -538,9 +538,11 @@ public final class BeamSolver {
      * <p>对应蓝本 {@code PlanActionKind.UsePotion}：药水是和打牌同级的一等动作，
      * 不是「没牌可打才喝药」。被 {@link io.github.youqing.sts1solver.mirror.Potions#canUse}
      * 挡下的（瓶中仙子）自动跳过 —— 那是被动药水，玩家点不动。
+     *
+     * @param choiceIndex 三选一药水选第几张（0..2），其余药水传 {@code -1}
      */
     private SearchNode potionNode(SimState state, int slotIndex, int targetIndex,
-                                  SearchNode node) {
+                                  int choiceIndex, SearchNode node) {
         String potionId = state.potions.get(slotIndex);
         if (potionId == null
                 || !io.github.youqing.sts1solver.mirror.Potions.canUse(potionId)) {
@@ -549,7 +551,7 @@ public final class BeamSolver {
         SimState copy = state.copy();
         try {
             boolean used = io.github.youqing.sts1solver.mirror.Potions.use(
-                    copy, potionId, targetIndex);
+                    copy, potionId, targetIndex, choiceIndex);
             if (!used) {
                 return null;
             }
@@ -561,7 +563,7 @@ public final class BeamSolver {
             return null;
         }
         copy.potions.set(slotIndex, null);       // 原版 TopPanel.destroyPotion(slot)
-        return nodeOf(copy, PlanAction.potion(slotIndex, targetIndex), node,
+        return nodeOf(copy, PlanAction.potion(slotIndex, targetIndex, choiceIndex), node,
                 node.depth + 1, potionId);
     }
 
@@ -846,21 +848,30 @@ public final class BeamSolver {
                     || !io.github.youqing.sts1solver.mirror.Potions.canUse(potionId)) {
                 continue;
             }
-            if (io.github.youqing.sts1solver.mirror.Potions.needsTarget(potionId)) {
-                for (int t = 0; t < state.monsters.size(); t++) {
+            // 三选一药水：候选固定 3 张，各展开一条（蓝本 PotionChoiceSupport 的 CardChoiceSpec）
+            int choiceCount = io.github.youqing.sts1solver.mirror.Potions.needsChoice(potionId)
+                    ? 3 : 1;
+            boolean targeted = io.github.youqing.sts1solver.mirror.Potions.needsTarget(potionId);
+            for (int c = 0; c < choiceCount; c++) {
+                if (targeted) {
+                    for (int t = 0; t < state.monsters.size(); t++) {
+                        if (branchLimit > 0 && produced >= branchLimit) {
+                            break;
+                        }
+                        if (state.monsters.get(t).hp <= 0) {
+                            continue;
+                        }
+                        if (route(potionNode(state, slot, t, c, node), plays, ended)) {
+                            produced++;
+                        }
+                    }
+                } else {
                     if (branchLimit > 0 && produced >= branchLimit) {
                         break;
                     }
-                    if (state.monsters.get(t).hp <= 0) {
-                        continue;
-                    }
-                    if (route(potionNode(state, slot, t, node), plays, ended)) {
+                    if (route(potionNode(state, slot, -1, c, node), plays, ended)) {
                         produced++;
                     }
-                }
-            } else {
-                if (route(potionNode(state, slot, -1, node), plays, ended)) {
-                    produced++;
                 }
             }
         }

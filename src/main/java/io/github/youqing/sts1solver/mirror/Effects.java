@@ -849,8 +849,24 @@ public final class Effects {
      * {@code while (list.size() != 3) { c = returnTrulyRandomCardInCombat(type);
      * 去重后 list.add(c.makeCopy()); }} —— 去重按 {@code cardID}，重复就再抽，
      * 所以 RNG 消耗次数不固定。
+     *
+     * <p>无差别版（原版 {@code Discovery} 卡用）。
      */
-    public static Effect discovery() {
+    public static ChoiceEffect discovery() {
+        return discovery(null);
+    }
+
+    /**
+     * 带类型过滤的发现（原版 {@code DiscoveryAction(CardType, amount)}）。
+     *
+     * <p>{@code PowerPotion} / {@code AttackPotion} / {@code SkillPotion} /
+     * {@code ColorlessPotion} 都走这条路，只是 {@code CardType} 不同；
+     * 无色那张用 {@code generateColorlessCardChoices()}，我们按
+     * {@code PoolCatalog.randomCombatCard(state, "COLORLESS")} 等价处理。
+     *
+     * @param cardType {@code "POWER"/"ATTACK"/"SKILL"/"COLORLESS"}，{@code null} = 不限
+     */
+    public static ChoiceEffect discovery(final String cardType) {
         return new ChoiceEffect() {
             @Override
             public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
@@ -858,7 +874,7 @@ public final class Effects {
                 int guard = 0;
                 while (choices.size() < 3 && guard++ < 64) {
                     SimCard c = io.github.youqing.sts1solver.sim.PoolCatalog
-                            .randomCombatCard(state, null);
+                            .randomCombatCard(state, cardType);
                     if (c == null) {
                         return;
                     }
@@ -884,7 +900,7 @@ public final class Effects {
 
             @Override
             public String toString() {
-                return "choose1of3";
+                return "choose1of3(" + cardType + ")";
             }
         };
     }

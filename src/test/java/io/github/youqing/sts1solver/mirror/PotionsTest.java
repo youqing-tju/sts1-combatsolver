@@ -190,6 +190,60 @@ class PotionsTest {
         assertEquals(3, s.playerPowers.get("Thorns"));
     }
 
+    // -------------------------------------------- 第三批：三选一发现类
+
+    @Test
+    void discoveryPotionsRequireAChoice() {
+        assertTrue(Potions.needsChoice(Potions.POWER_POTION));
+        assertTrue(Potions.needsChoice(Potions.ATTACK_POTION));
+        assertTrue(Potions.needsChoice(Potions.SKILL_POTION));
+        assertTrue(Potions.needsChoice(Potions.COLORLESS_POTION));
+        assertFalse(Potions.needsChoice(Potions.FIRE_POTION), "火药水不选牌");
+    }
+
+    /** 四张三选一的 ID **都无空格**（javap 核实），和 Fire Potion 那批不同。 */
+    @Test
+    void discoveryPotionIdsHaveNoSpace() {
+        assertEquals("PowerPotion", Potions.POWER_POTION);
+        assertEquals("AttackPotion", Potions.ATTACK_POTION);
+        assertEquals("SkillPotion", Potions.SKILL_POTION);
+        assertEquals("ColorlessPotion", Potions.COLORLESS_POTION);
+    }
+
+    /** 能力药水走 {@code DiscoveryAction(CardType.POWER, 1)}：三张候选选一张进手牌。 */
+    @Test
+    void powerPotionPutsOnePowerCardInHand() {
+        SimState s = fight();
+        int before = s.hand.size();
+
+        assertTrue(Potions.use(s, Potions.POWER_POTION, -1, 1));
+
+        assertEquals(before + 1, s.hand.size(), "只进手牌 1 张");
+        assertEquals("POWER", s.hand.get(s.hand.size() - 1).type, "能力牌");
+    }
+
+    @Test
+    void attackPotionPutsOneAttackCardInHand() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.ATTACK_POTION, -1, 0));
+        assertEquals(1, s.hand.size());
+        assertEquals("ATTACK", s.hand.get(0).type);
+    }
+
+    /** 选第几张候选由 {@code choiceIndex} 决定，越界时退回 0（与「发现」卡同语义）。 */
+    @Test
+    void discoveryChoiceIndexIsHonoured() {
+        SimState s1 = fight();
+        Potions.use(s1, Potions.ATTACK_POTION, -1, 0);
+        SimState s2 = fight();
+        Potions.use(s2, Potions.ATTACK_POTION, -1, 2);
+        SimState s3 = fight();
+        Potions.use(s3, Potions.ATTACK_POTION, -1, 99);   // 越界 → 0
+
+        assertEquals(s1.hand.get(0).id, s3.hand.get(0).id,
+                "越界的 choiceIndex 退回 0，和第 0 张一致");
+    }
+
     /** 瓶中仙子的 {@code canUse() == false}：不能主动喝。 */
     @Test
     void fairyPotionCannotBeUsedManually() {
