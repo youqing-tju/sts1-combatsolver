@@ -554,10 +554,11 @@ public final class AutoPilot {
             }
             io.github.youqing.sts1solver.config.SolverConfig.Budget budget =
                     io.github.youqing.sts1solver.config.SolverConfig.budget();
-            // 整场战斗规划：深度 60 ply（≈15 回合）+ 蓝本同款节点/分支/时间上限
+            // 整场战斗规划：最多推进 16 个**回合层**（≈ 蓝本 SetupValueHorizonTurns）+
+            // 蓝本同款节点/分支/时间上限。搜索内部按回合均分节点预算，一层吃不掉整份。
             io.github.youqing.sts1solver.search.AsyncSearch.submit(snapshot,
                     snapshot.fingerprint(), CombatCapture.baseEnergy(), player.gameHandSize,
-                    budget.beamWidth, 60, budget.timeMillis,
+                    budget.beamWidth, 16, budget.timeMillis,
                     budget.nodeLimit, budget.cardBranches);
         } catch (Throwable t) {
             Trace.warn("submit search failed: " + t);

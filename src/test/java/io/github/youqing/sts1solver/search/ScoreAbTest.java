@@ -16,8 +16,8 @@ import java.util.Collections;
  * （5ms/60ms/300ms 三档的差异大半是机器负载噪声，还出现过「预算越大越早死」的假象）。
  * 这里改成固定「宽度 × 深度」，同一个输入必然给出同一个输出，A/B 才有意义。
  *
- * <p>跑法：临时去掉 {@code @Disabled}，或
- * {@code gradle test --tests "*ScoreAbTest*" -i} 后看日志里的 {@code [ab]} 行。
+ * <p>跑法：{@code gradle test -Pexperiments -i}，然后看日志里的 {@code [ab]} 行
+ * （CI 不传 {@code -Pexperiments} 就不会跑）。
  */
 class ScoreAbTest {
 
@@ -108,7 +108,7 @@ class ScoreAbTest {
                 turns, Math.max(0, s.hp), nodes, s.hp > 0 ? "存活" : "DEAD");
     }
 
-    @org.junit.jupiter.api.Disabled("离线实验（约 30 秒）：旧估值 vs 蓝本线性加权，别进 CI")
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "离线实验（gradle test -Pexperiments 才跑）")
     @Test
     void deterministicTable() {
         int[][] shapes = {{20, 20}, {60, 60}, {120, 80}};
@@ -135,7 +135,41 @@ class ScoreAbTest {
         }
     }
 
-    @org.junit.jupiter.api.Disabled("离线实验：能量 Beam 分 / 掉血二次计价 的开关扫")
+    /** 宽度扫：树在宽度 60 就搜完了，加宽还有没有收益？ */
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "离线实验（gradle test -Pexperiments 才跑）")
+    @Test
+    void widthSweep() {
+        System.out.println("[ab] ===== 宽度扫（最多 16 回合，节点上限 20 万） =====");
+        System.out.println("[ab] 宽度 | 场面 | 回合 | 血量 | 节点 | 存活");
+        int[] widths = {30, 60, 135, 240, 512};
+        for (int w : widths) {
+            System.out.println("[ab] " + w + " | 双教徒 | " + run(twoCultists(), w, 16));
+            System.out.println("[ab] " + w + " | 单厚怪 | " + run(bigSingle(), w, 16));
+        }
+    }
+
+    /** 回合层覆盖：给定节点预算，搜索能推进到第几个回合层、花多少毫秒。 */
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "离线实验（gradle test -Pexperiments 才跑）")
+    @Test
+    void turnLayerCoverage() {
+        System.out.println("[ab] ===== 回合层覆盖（单次决策，宽度 60，最多 16 回合） =====");
+        System.out.println("[ab] 节点上限 | 场面 | 回合层 | 展开 | 生成状态 | ms");
+        int[] limits = {2_000, 10_000, 40_000, 120_000};
+        for (int limit : limits) {
+            for (int scene = 0; scene < 2; scene++) {
+                SimState s = scene == 0 ? twoCultists() : bigSingle();
+                CombatFlow.endTurn(s, 3, 5);
+                BeamSolver solver = new BeamSolver(3, 5, 60, 16, limit, 32);
+                solver.bestFirstAction(s, Long.MAX_VALUE);
+                System.out.printf("[ab] %8d | %s | %5d | %6d | %8d | %4d%n",
+                        limit, scene == 0 ? "双教徒" : "单厚怪",
+                        solver.lastDepth, solver.lastNodes, solver.lastStates,
+                        solver.lastMillis);
+            }
+        }
+    }
+
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "离线实验（gradle test -Pexperiments 才跑）")
     @Test
     void knobSweep() {
         System.out.println("[ab] ===== 开关扫（宽度 60 x 深度 60） =====");

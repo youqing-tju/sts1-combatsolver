@@ -131,9 +131,9 @@ class SelfPlayTest {
      * 不同结果，「预算越大越早死」有一半是机器负载噪声。要看估值好坏请用
      * {@link ScoreAbTest}（固定宽度 × 深度，确定性）。
      *
-     * <p>标了 {@code @Disabled}：跑完要几十秒，不该进 CI。
+     * <p>要跑它就加 {@code -Pexperiments}（CI 不传就不会跑）。
      */
-    @org.junit.jupiter.api.Disabled("已被 ScoreAbTest 取代（时间预算不可复现）")
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "已被 ScoreAbTest 取代（时间预算不可复现），留作历史对照")
     @Test
     void moreSearchTimeHelps() {
         long[] budgets = {5, 60, 300};
@@ -194,10 +194,10 @@ class SelfPlayTest {
      *
      * <p>两条判据来自 2026-10-23 的 A/B（见 {@link ScoreAbTest}）：
      * <ul>
-     *   <li>双教徒 40+40：旧估值在宽度 60 这一档会**阵亡**，新估值剩 21 血 —— 必须活着。</li>
+     *   <li>双教徒 40+40：旧估值磨 11 回合只剩 19 血，新估值 8 回合剩 28 血 —— 必须活着且留有余量。</li>
      *   <li>单厚怪 120 血：旧估值磨 20 回合，新估值 12 回合 —— 必须 ≤ 15 回合。</li>
      * </ul>
-     * 门槛留了余量（不是贴着 21 / 12 卡），免得小改动就红。
+     * 门槛留了余量（不是贴着 28 / 12 卡），免得小改动就红。
      */
     @Test
     void deterministicSearchKeepsItsQuality() {
