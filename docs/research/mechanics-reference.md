@@ -827,16 +827,29 @@ Beam 项 A/B 的四组数字也完全一致 —— 说明在现有场面上新�
 分母的差别只在「节点上限真的成为瓶颈」的大场面（Boss 战、牌多、分支宽）才体现出来。
 这一项属于**结构性对齐**：把蓝本的预算分配公式摆正，等真实 Boss 战再验证收益。
 
-### 18.3 蓝本里仍然没有对应物、因此**刻意不实现**的
+### 18.3 未实现的清单（⚠️ 2026-10-23 更正）
 
-写在这里防止以后有人当成漏项：
+这一节原来写的是「蓝本里仍然没有对应物、因此刻意不实现」。**这个判断是错的。**
 
-- `LatentSetup` 的 STS1 能力牌分值表（蓝本按 STS2 卡逐个给分）
-- 药水全套（`PotionStrategicCost` / `OptionalPotionCount` / `SmartRequiredHpSaved`）
-- 遗物计数估值（`RelicCounterEvaluation`，我们的计数遗物是**真的在仿真里触发**的）
-- 局外收益（`GrowthRewards` / `LongTermResourceValue` / `UnrecoveredLoot`）
-- 被偷资源（`TheftEncounterStrategy`）、复活遗物（`DeathSave*`）
-- `ContextualRankingModel` / `NoveltySearch` / `BeamPortfolio`（多策略组合，M4 之后再谈）
+当时把「我们没建模」写成了「STS1 没有这个机制」。逐项核对蓝本源码后：
+
+| 项 | 之前写的 | 实际 |
+|---|---|---|
+| 药水全套（`PotionStrategicCost` / `OptionalPotionCount` / `SmartRequiredHpSaved`） | ⛔ 不适用 | ❌ **未做**：STS1 有药水（火焰/格挡/敏捷/瓶中仙子…） |
+| 复活遗物（`DeathSave*`） | ⛔ 不适用 | 🔶 **遗物侧已做**（蜥蜴尾巴，见 §23）；**瓶中仙子**属药水，等药水建模 |
+| 被偷资源（`TheftEncounterStrategy` / `UnrecoveredLoot`） | ⛔ 不适用 | ❌ **未做**：STS1 有 **Looter（掠夺者）** 偷金币逃走 |
+| 局外收益（`GrowthRewards` / `LongTermResourceValue`） | ⛔ 不适用 | 🔶 **部分**：`GrowthSource` 里就有 **Feed**（吃）；只有 `Feed` 的最大生命增长进了基础分，「成长奖励」这条独立轴未做 |
+| 遗物计数估值（`RelicCounterEvaluation`） | ⛔ 不适用 | 🔶 **部分**：战斗内计数真触发；**战后阈值回血**（`PostCombatRelicHeal`：`Meat on the Bone` / `Burning Blood`）未建模 |
+| `LatentSetup` 的 STS1 能力牌分值表 | 未做 | ❌ 未做（蓝本按 STS2 卡逐个给分；STS1 的表需要判断，暂走默认分支） |
+| `ContextualRankingModel` / `NoveltySearch` / `BeamPortfolio` | M4 之后 | ❌ 未做 |
+
+真正 **⛔ 不适用** 的只有两条（依赖的机制 STS1 确实没有）：
+
+- `ReplayPotentialValue`：依赖 STS2 的附魔重放（STS1 无双发/爆发以外的可重放卡）；
+- `BossHpRelief.ActClearHeal`：依赖「清完一幕回复 80% 伤害」，STS1 打完 Boss 不回血
+  （`RunEnding` 那一档在 STS1 是适用的，见 §18）。
+
+完整的复刻进度见 `blueprint-parity.md`。
 
 
 ## 19. 真机事故：升级态镜像缺失 → AI「像不会打仗」（2026-10-23）
@@ -1043,3 +1056,138 @@ SearchNode best = bestTerminal != null ? bestTerminal
 
 两个回归场景结果不变（双教徒 10 回合/26 血、单厚怪 21 回合/64 血）—— 因为这两个场景
 都能搜到完整胜利，第一优先级就已经命中。
+
+
+## 23. 死亡豁免：蜥蜴尾巴（A｜蓝本源码 + STS1 字节码，2026-10-23）
+
+> 这一节是上一轮「⛔ STS1 无对应机制」被用户纠正后的第一批补做项。
+> 教训写在 §18.3：**⛔ 只能用在「蓝本机制依赖的游戏机制在 STS1 确实不存在」上**。
+
+### 23.1 蓝本原文
+
+| 位置 | 内容 |
+|---|---|
+| `ActEndingBossPolicy.DeathSavePremium(hp)` | `max(0, hp) * 900 / 100` = **9 × 回血量** |
+| `ActEndingBossPolicy.DeathSaveBeamCost(hp)` | `hp + DeathSavePremium(hp)` = **10 × 回血量** |
+| `ActEndingBossPolicy.StrategicHpDeficit` | `累计掉血 + 最大生命亏空 − PersistentValue(recoveredHp − deathSaveHpRestored) + DeathSavePremium(...)` |
+| `StateEvaluation.cs:172` | `score -= DeathSaveBeamCost(deathSaveHpRestored + threat.DeathSaveHpRestored) * hpWeight` |
+| `ProjectedDeathPrevention.TryRevive` | **先** 瓶中仙子（可多次），**再** 蜥蜴尾巴（一次） |
+| `FinalPlanOrdering` 第 3 键 | `DeathSaveUseCount` 升序（排在 `Survives` 之后、`StrategicHpDeficit` 之前） |
+
+两条关键语义：
+
+1. **复活的血不算这条路线挣的。** 所以 `StrategicHpDeficit` 里先把 `deathSaveHpRestored`
+   从「有效回血」中扣掉，再单独收 9 倍溢价 —— 净效果等价于 `净掉血 + DeathSaveBeamCost`。
+2. **溢价用倍数、不用等额。** 蓝本注释写明原因：HP 不是复活唯一买到的东西，
+   两场 boss 连打时场上还压着上百点「敌方血等价物」的节奏价值，一比一溢价会输给它。
+   但 9 倍仍远低于 `VictoryBonus=1e10` / `DeathPenalty=-1e12`，
+   所以「只有死一次才能赢」的路线还是会毫不犹豫地花掉它。
+
+### 23.2 STS1 原版语义（`LizardTail.class`，javap 核实）
+
+```java
+public void onTrigger() {
+    flash();
+    addToTop(new RelicAboveCreatureAction(AbstractDungeon.player, this));
+    int healAmt = AbstractDungeon.player.maxHealth / 2;
+    if (healAmt < 1) healAmt = 1;              // 最少回 1
+    AbstractDungeon.player.heal(healAmt, true);
+    setCounter(-2);                            // → usedUp() + counter = -2
+}
+
+public void setCounter(int setCounter) {
+    if (setCounter == -2) { usedUp(); this.counter = -2; }
+}
+```
+
+由字节码得到四个可核对的结论：
+
+- 回血量 = `max(1, maxHp / 2)`（整除，**截断**）。与蓝本 `Math.Max(1, maxHp * 50/100)` 一致。
+- 是从 **0** 起 `heal`，不是「在当前血量上加」。原版 `damage()` 会先把血量夹到 0，
+  所以复活结果恒为 `50% maxHp`，与「受到多少溢出伤害」无关。
+- **`counter == -1` 是「还没用过」**（`AbstractRelic` 默认值）。`onTrigger()` 末尾
+  `setCounter(-2)` → `usedUp() + counter = -2`。
+- 触发点不在遗物自己身上，而是 **`AbstractPlayer.damage()` 的死亡分支**
+  （字节码 `952-1102`，逐句还原）：
+
+```java
+if (currentHealth < 1) {
+    if (hasRelic("Mark of the Bloom")) goto 真死;        // 960-967：整个救命分支被跳过
+    if (hasPotion("FairyPotion")) {                      // 970-1056：瓶中仙子优先
+        ... p.flash(); currentHealth = 0; p.use(this); destroyPotion(p.slot); return;
+    } else if (hasRelic("Lizard Tail")
+            && getRelic("Lizard Tail").counter == -1) {   // 1059-1083
+        currentHealth = 0;                                // 先归零，再触发
+        getRelic("Lizard Tail").onTrigger();
+        return;
+    }
+    真死：isDead = true; deathScreen = new DeathScreen(...); currentHealth = 0;
+}
+```
+
+两条容易踩错的：
+
+1. **绽放之印不是「消耗掉但不回血」，而是整段救命逻辑都不执行** —— 尾巴不会被消耗。
+2. **瓶中仙子优先，而且是 `else if`**（不是「用完仙子再用尾巴」的那种兜底）。
+
+### 23.2.1 `heal` 里还有两个改治疗量的钩子
+
+`AbstractCreature.heal(amount, showEffect)` 的结算顺序：
+
+```
+if (isEndless && hasBlight("FullBelly")) amount /= 2;   // 无尽模式，正常局不适用
+if (isDying) return;
+for (relic : player.relics)  amount = relic.onPlayerHeal(amount);
+for (power : powers)         amount = power.onHeal(amount);
+amount = min(amount, maxHealth - currentHealth);
+if (amount <= 0) return;
+currentHealth += amount;
+```
+
+- 遗物侧全库扫描（`grep -rl onPlayerHeal`）**只有两个**实现：
+  `MagicFlower`（战斗中 `round(amount * 1.5)`）与 `MarkOfTheBloom`（返回 0，但已被上面的分支挡在前面）。
+- power 侧全库扫描**没有任何实现**（只有 `AbstractPower` 的空实现）。
+
+所以蜥蜴尾巴的实际复活量是 `min(maxHp, round(max(1, maxHp/2) × (有魔法花 ? 1.5 : 1)))`。
+
+### 23.3 我们的实现
+
+| 位置 | 作用 |
+|---|---|
+| `mirror/DeathSaveRelic.applyIfLethal` | 四个前置判断（血量 / 已用 / 绽放之印 / 有尾巴）→ 算量 → `hp = min(maxHp, 量)`，记账 |
+| `mirror/DeathSaveRelic.healedAmount` | 复刻 `onPlayerHeal` 链（只有魔法花生效） |
+| `sim/CombatFlow.hitPlayer` | 怪物攻击打完玩家后调用 |
+| `mirror/Effects.loseHp` | 自伤（放血 / Offering / 血液沸腾）后调用 |
+| `mirror/hooks/PowerHooks`（`Combust`） | 回合末燃烧自伤后调用 |
+| `search/Score.baseTotal()` | `-= deathSaveBeamCost(deathSaveHpRestored) * HP` |
+| `search/BeamSolver.strategicHpDeficit()` | `+ deathSaveBeamCost(...)`（= 蓝本末两项合并后的等价式） |
+| `search/BeamSolver.better()` | `DeathSaveUseCount` 词典序键，排在 `Survives` 之后 |
+
+**为什么要在仿真里真的拦一次，而不能只在估值里减分**：原地复活会改变**后续每一条路线**的
+可行性 —— 本来必死的线变成能走。只在打分里减分，就等于让搜索「看不见」这些线。
+
+回归测试 `mirror/DeathSaveRelicTest`（8 条）：复活到 50%、没尾巴就是死、只能用一次、
+没致死不消耗、自伤路径同样触发、绽放之印整段失效且不消耗、魔法花把 40 抬到 60、
+计价对齐蓝本三个数字（`Premium(40)=360`、`BeamCost(40)=400`）。
+
+### 23.4 实机对拍的坑：`capture()` 会重置
+
+`SimState.capture()` 每回合重建快照，`deathSaveUsed` 默认 `false` —— 不补读的话，
+仿真会允许**一场战斗里复活第二次**。所以 `capture()` 里对蜥蜴尾巴单独读
+`r.counter != -1`（= 原版 `counter == -1` 才允许触发）。
+
+`deathSaveHpRestored` 则**读不回来**（游戏不记这笔账）。蓝本的 `SimulatedCombatState`
+是整场战斗持久对象，所以它记得；我们每回合重抓，历史回血量会丢。
+影响有限：`deathSaveUsed` 已经挡住了第二次使用，丢的只是「历史复活成本没计入后续回合的打分」，
+偏差方向是**低估已付出的代价**，不会让 AI 主动去送死。
+
+### 23.5 还没做
+
+- **瓶中仙子**（`Fairy in a Bottle`）：属药水，与 §18.3 的药水建模一起做。
+  接的时候注意原版是 `if (hasPotion) {...} else if (hasRelic) {...}` ——
+  **仙子优先**，不是「仙子用完再用尾巴」。
+- **死亡时清格挡**（`if (currentBlock > 0) loseBlock()`）：我们的 `hitPlayer` 是
+  「先扣格挡再扣血」，一次伤害同时打穿格挡和血量时格挡已经归零，所以这条在单段攻击下
+  不可能有残留。只有「格挡没吃满就致死」的极端情形（如自伤绕过格挡后，此前还有格挡）
+  会有差异 —— 自伤那条路径原版也不清格挡，暂记。
+- 同一段代码**同时**管着瓶中仙子与蜥蜴尾巴的先后，接药水时两件事一起改。

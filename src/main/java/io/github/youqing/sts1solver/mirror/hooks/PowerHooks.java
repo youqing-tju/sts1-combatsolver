@@ -6,6 +6,7 @@ import java.util.Map;
 import io.github.youqing.sts1solver.mirror.ActionRejected;
 import io.github.youqing.sts1solver.mirror.CardPlayer;
 import io.github.youqing.sts1solver.mirror.DamageCalc;
+import io.github.youqing.sts1solver.mirror.DeathSaveRelic;
 import io.github.youqing.sts1solver.mirror.Effects;
 import io.github.youqing.sts1solver.sim.RngStream;
 import io.github.youqing.sts1solver.sim.SimCard;
@@ -92,6 +93,7 @@ public final class PowerHooks {
             public void fire(SimState state, int amount, HookContext ctx) {
                 state.hp = Math.max(0, state.hp - COMBUST_HP_LOSS);
                 state.hpLossCount++;
+                DeathSaveRelic.applyIfLethal(state);
                 damageAll(state, amount);
             }
         });

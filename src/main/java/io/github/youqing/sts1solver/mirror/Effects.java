@@ -231,6 +231,7 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 state.hp = Math.max(0, state.hp - amount);
                 state.hpLossCount++;
+                DeathSaveRelic.applyIfLethal(state);
             }
 
             @Override

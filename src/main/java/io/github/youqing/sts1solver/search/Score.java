@@ -118,6 +118,14 @@ public final class Score {
      */
     public static final int RETAINED_GROWTH_CAP = 16;
     public static final double RETAINED_GROWTH_VALUE = 20_000d;
+    /**
+     * 一次性救命遗物（蜥蜴尾巴）用掉的**溢价**：蓝本 {@code DeathSavePremiumPercent = 900}。
+     *
+     * <p>复活回来的血不是这条路线「挣」的 —— 那是一次性、跨战斗的资源，用掉就没了。
+     * 所以基础分里先按 {@code 血量 + 溢价}（= 10 倍）扣一次（{@code DeathSaveBeamCost}），
+     * 战略血量赤字里再按 9 倍记一次（{@code DeathSavePremium}），量级远低于胜负但仍高于普通血量。
+     */
+    public static final int DEATH_SAVE_PREMIUM_PERCENT = 900;
 
     // ===================== 两个实验开关（默认 = 蓝本口径） =====================
 
@@ -251,6 +259,10 @@ public final class Score {
     public final int turns;
     /** 本场战斗开始前掉了多少血（含被回血补回来的部分）。 */
     public final int hpLost;
+    /** 救命遗物这条路线上回了多少血（蓝本 {@code DeathSaveHpRestored}）。 */
+    public final int deathSaveHpRestored;
+    /** 用掉了几次救命遗物（0/1，蓝本 {@code DeathSaveUseCount}）。 */
+    public final int deathSaveUseCount;
 
     private Score(Builder b) {
         this.aliveEnemies = b.aliveEnemies;
@@ -280,6 +292,8 @@ public final class Score {
         this.actions = b.actions;
         this.turns = b.turns;
         this.hpLost = b.hpLost;
+        this.deathSaveHpRestored = b.deathSaveHpRestored;
+        this.deathSaveUseCount = b.deathSaveUseCount;
     }
 
     /** 会「每个回合都变强」的能力：层数越打越值钱（蓝本按能力逐个估 RetentionValue，这里统一按层）。 */
@@ -366,6 +380,8 @@ public final class Score {
         b.maxHp = state.maxHp;
         b.maxHpGain = state.maxHp - root.maxHp;
         b.hpLost = Math.max(0, root.hp - state.hp);
+        b.deathSaveHpRestored = state.deathSaveHpRestored;
+        b.deathSaveUseCount = state.deathSaveUsed ? 1 : 0;
         b.block = state.block;
         b.energy = state.energy;
         b.handSize = state.hand.size();
@@ -457,6 +473,41 @@ public final class Score {
         return value == null ? 0 : value;
     }
 
+    // ===================== 死亡豁免计价（蓝本 ActEndingBossPolicy） =====================
+
+    /**
+     * 蓝本 {@code ActEndingBossPolicy.DeathSavePremium}：复活回血的**溢价**。
+     *
+     * <pre>
+     * DeathSavePremium(hp) = max(0, hp) * 900 / 100 = 9 * hp
+     * </pre>
+     *
+     * <p>用倍数而不是等额，是因为复活买到的**不只是血** —— 两场 boss 连打的战斗里，
+     * 场上还压着一百多点「敌方血等价物」的节奏价值，一比一的溢价会输给它。
+     * 但 9 倍仍远低于 {@link #VICTORY_BONUS} 和 {@link #DEATH_PENALTY}，
+     * 所以「只有死一次才能赢」的路线还是会毫不犹豫地花掉它。
+     */
+    public static int deathSavePremium(int deathSaveHpRestored) {
+        return Math.max(0, deathSaveHpRestored) * DEATH_SAVE_PREMIUM_PERCENT / 100;
+    }
+
+    /**
+     * 蓝本 {@code ActEndingBossPolicy.DeathSaveBeamCost}：在 **Beam 排序**里，一次死亡豁免的总代价。
+     *
+     * <pre>
+     * DeathSaveBeamCost(hp) = hp + DeathSavePremium(hp) = 10 * hp
+     * </pre>
+     *
+     * <p>为什么是「血量 + 溢价」而不是只有溢价：蓝本 {@code StateEvaluation.cs:163-172} 的
+     * {@code projectedHp} 里**已经含着**复活回来的那些血（节点血量就是复活后的值），
+     * 所以先把这笔血拿回来（{@code -restored}），再在上面收溢价。
+     * 两项合起来才等价于「这条路线实际付出的代价」。
+     */
+    public static int deathSaveBeamCost(int deathSaveHpRestored) {
+        int restored = Math.max(0, deathSaveHpRestored);
+        return restored + deathSavePremium(restored);
+    }
+
     // ===================== 分数 =====================
 
     /**
@@ -477,6 +528,8 @@ public final class Score {
         }
         score += maxHpGain * HP;
         score -= hpLost * HP * damageTakenWeight;
+        // 蓝本 StateEvaluation.cs:172：救命遗物回的血要连本带溢价扣回去
+        score -= deathSaveBeamCost(deathSaveHpRestored) * HP;
         if (won) {
             score += VICTORY_BONUS;
         }
@@ -533,6 +586,7 @@ public final class Score {
                 + " maxHp=" + maxHp + "(+" + maxHpGain + ")"
                 + " projHp=" + projectedHp
                 + " hpLost=" + hpLost
+                + " deathSave=" + deathSaveHpRestored + "(x" + deathSaveUseCount + ")"
                 + " enemyHp=" + enemyHp
                 + " enemyBlock=" + enemyBlock
                 + " block=" + block
@@ -583,5 +637,7 @@ public final class Score {
         int actions;
         int turns;
         int hpLost;
+        int deathSaveHpRestored;
+        int deathSaveUseCount;
     }
 }

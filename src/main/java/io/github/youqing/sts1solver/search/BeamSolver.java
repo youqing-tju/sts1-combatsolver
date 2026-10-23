@@ -668,6 +668,12 @@ public final class BeamSolver {
         if (candidateAlive != incumbentAlive) {
             return candidateAlive;
         }
+        // 蓝本 FinalPlanOrdering 的 DeathSaveUseCount 键：用掉一次性救命遗物越少越好
+        int candidateSaves = candidate.state.deathSaveUsed ? 1 : 0;
+        int incumbentSaves = incumbent.state.deathSaveUsed ? 1 : 0;
+        if (candidateSaves != incumbentSaves) {
+            return candidateSaves < incumbentSaves;
+        }
         int candidateDeficit = strategicHpDeficit(candidate);
         int incumbentDeficit = strategicHpDeficit(incumbent);
         if (candidateDeficit != incumbentDeficit) {
@@ -701,7 +707,13 @@ public final class BeamSolver {
         int netLost = rootHp - node.state.hp;
         int floor = rootHp - rootMaxHp;          // 开局本来就缺的血，回血最多补到这里
         int maxHpDeficit = Math.max(0, rootMaxHp - node.state.maxHp);
-        return Math.max(netLost, floor) + maxHpDeficit;
+        // 蓝本 StrategicHpDeficit 末两项：
+        //   - PersistentValueOfRecoveredHp(recoveredHp - deathSaveHpRestored)
+        //   + DeathSavePremium(deathSaveHpRestored)
+        // 前一项把「复活回的血」从有效回血里剔出去（它不算这条路线挣的），
+        // 后一项再收 9 倍溢价 —— 合起来等价于「净掉血 + DeathSaveBeamCost」。
+        int deathSave = Score.deathSaveBeamCost(node.state.deathSaveHpRestored);
+        return Math.max(netLost, floor) + maxHpDeficit + deathSave;
     }
 
     /** 蓝本 {@code CombatEndedTurn}：这场战斗在第几回合结束；没结束 = ∞。 */

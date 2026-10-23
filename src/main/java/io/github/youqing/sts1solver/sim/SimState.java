@@ -63,6 +63,15 @@ public final class SimState {
     public int block;
     /** 本场战斗损失 HP 的次数（浴血奋战的动态费用用）。 */
     public int hpLossCount;
+    /**
+     * 一次性救命遗物（蜥蜴尾巴）本场是否已经用掉。
+     *
+     * <p>蓝本 {@code DeathSaveUseCount}：用掉的次数在最终排序里是**越少越好**的键，
+     * 并且用掉的那部分血要在打分里扣回来再加收 9 倍溢价（{@code DeathSavePremium}）。
+     */
+    public boolean deathSaveUsed;
+    /** 救命遗物这条路线上实际回的血（蓝本 {@code DeathSaveHpRestored}）。 */
+    public int deathSaveHpRestored;
     public int energy;
 
     /**
@@ -130,6 +139,15 @@ public final class SimState {
         if (p.relics != null) {
             for (AbstractRelic r : p.relics) {
                 s.relics.put(r.relicId, r.counter);
+                // 蜥蜴尾巴本场是否已用：原版 AbstractPlayer.damage() 的判据是
+                // `hasRelic("Lizard Tail") && getRelic("Lizard Tail").counter == -1`
+                // （javap 核实，字节码 1059-1083），onTrigger() 末尾 setCounter(-2) 把它变成 -2。
+                // 不读这个字段的话，每回合重新 capture 都会把「已用」重置成「还能用」，
+                // 仿真会允许一场战斗里复活第二次。
+                if (io.github.youqing.sts1solver.mirror.DeathSaveRelic.LIZARD_TAIL
+                        .equals(r.relicId)) {
+                    s.deathSaveUsed = r.counter != -1;
+                }
             }
         }
 
@@ -260,6 +278,8 @@ public final class SimState {
         c.maxHp = maxHp;
         c.block = block;
         c.hpLossCount = hpLossCount;
+        c.deathSaveUsed = deathSaveUsed;
+        c.deathSaveHpRestored = deathSaveHpRestored;
         c.energy = energy;
 
         c.playerPowers.putAll(playerPowers);
@@ -290,6 +310,8 @@ public final class SimState {
         cmp(out, "floor", floor, o.floor);
         cmp(out, "ascension", ascension, o.ascension);
         cmp(out, "boss", boss, o.boss);
+        cmp(out, "deathSaveUsed", deathSaveUsed, o.deathSaveUsed);
+        cmp(out, "deathSaveHpRestored", deathSaveHpRestored, o.deathSaveHpRestored);
         cmp(out, "hp", hp, o.hp);
         cmp(out, "maxHp", maxHp, o.maxHp);
         cmp(out, "block", block, o.block);
@@ -457,6 +479,8 @@ public final class SimState {
           .append(",\"maxHp\":").append(maxHp)
           .append(",\"block\":").append(block)
           .append(",\"energy\":").append(energy)
+          .append(",\"deathSaveUsed\":").append(deathSaveUsed)
+          .append(",\"deathSaveHpRestored\":").append(deathSaveHpRestored)
           .append(",\"powers\":").append(mapJson(playerPowers))
           .append(",\"powerAux\":").append(mapJson(powerAux))
           .append("},\n");

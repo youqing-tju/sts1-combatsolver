@@ -94,6 +94,8 @@ public final class CombatFlow {
             remaining -= absorbed;
         }
         state.hp = Math.max(0, state.hp - remaining);
+        // 致死时先问一次性救命遗物（蜥蜴尾巴）：会改变后续所有路线的可行性
+        io.github.youqing.sts1solver.mirror.DeathSaveRelic.applyIfLethal(state);
     }
 
     /**

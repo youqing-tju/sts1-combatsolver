@@ -25,12 +25,13 @@ read_when:
 | `ActEndingBossPolicy.StrategicHpDeficit` | `BeamSolver.strategicHpDeficit` | ✅（`BossHpRelief.None` 档） |
 | `StateEvaluation.cs` `StrategicEffects` / 逐能力 RetentionValue | 按层数的近似 | 🔶 近似：没有 STS2 那张能力价值表 |
 | `LatentCardSetupValue` 逐卡分值表 | 走默认分支（能力牌 2 点） | 🔶 部分：表是 STS2 卡，不臆造 |
-| `ReplayPotentialValue`（附魔重放次数） | — | ⛔ 不适用：STS1 无附魔/重放机制 |
-| 药水估值（`PotionStrategicCost` / `SmartRequiredHpSaved`） | — | ⛔ 不适用：未建模药水 |
-| `RelicCounterEvaluation`（遗物计数估值） | — | ⛔ 不适用：我们的计数遗物在仿真里真触发 |
-| `GrowthRewards` / `LongTermResourceValue` / `UnrecoveredLoot`（局外收益） | — | ⛔ 不适用：只做战斗层 |
-| `TheftEncounterStrategy` / `DeathSave*` | — | ⛔ 不适用：STS1 无对应遭遇/遗物 |
-| `_isActEndingBoss` 分支（cap 32 / 虚弱 2 / horizon 8） | — | ⛔ 不适用：见 `mechanics-reference` §18 |
+| `ReplayPotentialValue`（附魔重放次数） | — | ⛔ 不适用：STS1 无附魔/重放机制（唯一接近的是双发/爆发，但那是「下一次打两次」，不是可重放卡） |
+| 药水估值（`PotionStrategicCost` / `SmartRequiredHpSaved`） | — | ❌ **未做**：STS1 有药水（火焰/格挡/敏捷/瓶中仙子…），我们**没建模**，不是没有 |
+| `DeathSave*`（`DeathSaveHpRestored` / `DeathSavePremium` / `DeathSaveUseCount`） | `mirror/DeathSaveRelic` + `Score.deathSaveBeamCost` + `BeamSolver.strategicHpDeficit` | 🔶 **遗物侧已做**：**蜥蜴尾巴**在仿真里真拦一次致死伤害、记回血量、进三处计价；**瓶中仙子**（药水）等药水建模后接 |
+| `GrowthRewards` / `GrowthHpCredit` / `LongTermResourceValue`（局外收益） | 只有 `Feed` 的最大生命增长进了基础分 | 🔶 **部分**：`GrowthSource` 里就有 **Feed**；我们缺的是「成长奖励」这条独立计分轴与逐来源计数 |
+| `UnrecoveredLoot` / `TheftEncounterStrategy`（被偷资源） | — | ❌ **未做**：STS1 有 **Looter（掠夺者）** 偷金币后逃走 |
+| `RelicCounterEvaluation`（遗物计数估值） | 计数遗物在仿真里真触发 | 🔶 **部分**：战斗内计数（修女/手里剑/开信刀/墨水瓶）真触发；**战后阈值回血**（`PostCombatRelicHeal`，如 `Meat on the Bone`／`Burning Blood`）未建模 |
+| `_isActEndingBoss` 分支（cap 32 / 虚弱 2 / horizon 8） | — | 🔶 **部分**：蓝本靠 `BossHpRelief` 分三档 —— `RunEnding`（最后一战，后面没战斗）在 STS1 **适用**（心脏/终幕 Boss）；`ActClearHeal`（幕末回 80 伤害）STS1 没有，那一段不适用 |
 
 ## 2. 搜索循环
 
@@ -68,15 +69,31 @@ read_when:
 
 ## 4. 下一步该按什么顺序做
 
-按蓝本 `CombatSearchCoordinator.SolveCore` 的流水线顺序，我们缺的第一项是：
+> ⚠️ 2026-10-23 更正：这一版之前把「药水 / 死亡豁免 / 局外收益 / 被偷资源 / `_isActEndingBoss`」
+> 一律记成「STS1 无对应机制」。**这是错的** —— 那是「我们没建模」，不是「游戏没有」。
+> 四项在 STS1 全都有对应物（药水、蜥蜴尾巴/瓶中仙子、Feed、掠夺者）。
+> 教训：⛔ 只能用在「蓝本机制依赖的游戏机制在 STS1 确实不存在」上（如附魔重放、幕末 80% 回血），
+> 其余一律记 ❌ 未做。
 
-1. ~~**`ConsiderCurrentTurnCandidate` + `FindCurrentTurnBoundary`**~~ → **已搬**（只搬了选择顺序，
-   早停留到下一项）。下一项：**`ApplyCurrentTurn` 的早停**
-   （`Phases.cs:1445 / 1554 / 2154`：一旦 `currentBestNode ?? currentTurnCandidateNode` 存在就 break）。
-2. `Retention` / `BeamRetentionPolicy` 的保留策略族（我们只有「按 rank 取前 N」）。
-3. `Expansion.Opening` + `_earlyTurnScoutDepth`。
-4. `NoveltySearch` / `BeamPortfolioSelector`（多轮搜索）。
-5. `ExpansionExecutor` 并行展开（只提速，不改结果）。
+按蓝本 `CombatSearchCoordinator.SolveCore` 的流水线顺序：
+
+1. ~~`ConsiderCurrentTurnCandidate`~~ → **已搬**（选择顺序）。
+2. **`ApplyCurrentTurn` 的早停**（`Phases.cs:1445 / 1554 / 2154`）。
+3. `Retention` / `BeamRetentionPolicy` 保留策略族（我们只有「按 rank 取前 N」）。
+4. `Expansion.Opening` + `_earlyTurnScoutDepth`。
+5. `NoveltySearch` / `BeamPortfolioSelector`（多轮搜索）。
+6. `ExpansionExecutor` 并行展开（只提速，不改结果）。
+
+新登记的三块缺口（都是 ❌，不是 ⛔），按「建模成本 / 对现有估值的影响」排序：
+
+7. ~~**死亡豁免（蜥蜴尾巴）**~~ → **已做**（`mirror/DeathSaveRelic`）。
+   只剩**瓶中仙子**（药水）那一半，等药水建模后接 —— 蓝本 `TryRevive` 里 fairy 优先于 lizard tail，
+   顺序要照抄。
+8. **战后阈值回血**（`PostCombatRelicHeal`：`Meat on the Bone` / `Burning Blood`）。
+9. **药水**——最大的一块：要新建动作空间（使用药水 = 一个动作，有目标与时机），
+   还会牵动 `SmartRequiredHpSaved`、`BlockPotionInsertion` 等一串策略。
+10. **局外收益**（`GrowthRewards` 逐来源计数 + `GrowthHpCredit` 轴）。
+11. **被偷资源**（`Looter` 偷金币逃走 → `UnrecoveredLoot` / `TheftEncounterStrategy`）。
 
 > ⚠️ 施工纪律：一次只搬一项，搬完在本文档把状态改成 ✅，并在 `mechanics-reference.md`
 > 记一条「照抄了哪几行、改了哪几处」。**不自己加机制、不自己出量化结论。**
