@@ -76,6 +76,120 @@ class PotionsTest {
         assertEquals(3, s.energy);
     }
 
+    // ------------------------------------------------- 第二批：直接效果类
+
+    @Test
+    void strengthPotionAddsTwoStrength() {
+        SimState s = fight();
+        s.playerPowers.put("Strength", 3);
+        assertTrue(Potions.use(s, Potions.STRENGTH_POTION, -1));
+        assertEquals(5, s.playerPowers.get("Strength"));
+    }
+
+    @Test
+    void dexterityPotionAddsTwoDexterity() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.DEXTERITY_POTION, -1));
+        assertEquals(2, s.playerPowers.get("Dexterity"));
+        // 敏捷立刻影响后续格挡量
+        assertEquals(14, DamageCalc.blockAmount(s, 12));
+    }
+
+    /** 恐惧药水是 {@code ApplyPowerAction(player, target, VulnerablePower, 3)}，要选目标。 */
+    @Test
+    void fearPotionAppliesThreeVulnerableToTheTarget() {
+        SimState s = fight();
+        SimMonster second = new SimMonster("Second", 40, 40, 0,
+                Collections.<String, Integer>emptyMap());
+        s.monsters.add(second);
+
+        assertTrue(Potions.use(s, Potions.FEAR_POTION, 1));
+
+        assertEquals(3, s.monsters.get(1).powers.get("Vulnerable"));
+        assertFalse(s.monsters.get(0).powers.containsKey("Vulnerable"), "只打选中的那只");
+    }
+
+    /** 爆炸药水对**所有活着的怪**各打 10（走易伤修正）。 */
+    @Test
+    void explosivePotionHitsEveryLivingMonster() {
+        SimState s = fight();
+        SimMonster second = new SimMonster("Second", 40, 40, 0,
+                Collections.<String, Integer>emptyMap());
+        second.powers.put("Vulnerable", 1);
+        s.monsters.add(second);
+        SimMonster dead = new SimMonster("Dead", 0, 40, 0,
+                Collections.<String, Integer>emptyMap());
+        s.monsters.add(dead);
+
+        assertTrue(Potions.use(s, Potions.EXPLOSIVE_POTION, -1));
+
+        assertEquals(30, s.monsters.get(0).hp, "40 - 10");
+        assertEquals(25, s.monsters.get(1).hp, "40 - 15（易伤 ×1.5）");
+        assertEquals(0, s.monsters.get(2).hp, "死掉的怪不再吃伤害");
+    }
+
+    /** 血药 = {@code (int)(maxHp × 0.2f)}，**向零截断**。 */
+    @Test
+    void bloodPotionHealsTwentyPercentTruncated() {
+        SimState s = fight();
+        s.maxHp = 75;       // 75 × 0.2 = 15.0
+        s.hp = 30;
+        assertTrue(Potions.use(s, Potions.BLOOD_POTION, -1));
+        assertEquals(45, s.hp);
+
+        SimState odd = fight();
+        odd.maxHp = 77;     // 77 × 0.2 = 15.4 → 15
+        odd.hp = 10;
+        Potions.use(odd, Potions.BLOOD_POTION, -1);
+        assertEquals(25, odd.hp);
+
+        // 溢出截到满血
+        SimState nearlyFull = fight();
+        nearlyFull.maxHp = 80;
+        nearlyFull.hp = 75;
+        Potions.use(nearlyFull, Potions.BLOOD_POTION, -1);
+        assertEquals(80, nearlyFull.hp);
+    }
+
+    @Test
+    void ancientPotionGrantsOneArtifact() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.ANCIENT_POTION, -1));
+        assertEquals(1, s.playerPowers.get("Artifact"));
+    }
+
+    @Test
+    void poisonPotionAppliesSixPoisonToTheTarget() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.POISON_POTION, 0));
+        assertEquals(6, s.monsters.get(0).powers.get("Poison"));
+    }
+
+    /** 果汁是永久成长：{@code increaseMaxHp(5, true)}，血量跟着一起抬。 */
+    @Test
+    void fruitJuiceRaisesMaxHpPermanently() {
+        SimState s = fight();
+        s.maxHp = 80;
+        s.hp = 30;
+        assertTrue(Potions.use(s, Potions.FRUIT_JUICE, -1));
+        assertEquals(85, s.maxHp);
+        assertEquals(35, s.hp);
+    }
+
+    @Test
+    void heartOfIronGrantsSixMetallicize() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.HEART_OF_IRON, -1));
+        assertEquals(6, s.playerPowers.get("Metallicize"));
+    }
+
+    @Test
+    void liquidBronzeGrantsThreeThorns() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.LIQUID_BRONZE, -1));
+        assertEquals(3, s.playerPowers.get("Thorns"));
+    }
+
     /** 瓶中仙子的 {@code canUse() == false}：不能主动喝。 */
     @Test
     void fairyPotionCannotBeUsedManually() {
