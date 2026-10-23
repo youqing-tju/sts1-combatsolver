@@ -1578,3 +1578,57 @@ STS1 Ironclad 逐项对应（`BeamSolver.offensiveProgressOf`）：
 - 全量 **227 条通过**（221 旧 + 6 新）。
 - ⚠️ 未覆盖：「主搜索真误判、补搜救回来」的端到端局面 —— 它依赖 beam 宽度，换宽度就不复现，
   钉不住，所以只钉采纳逻辑。
+
+## 28. 并行展开（A｜蓝本源码 + 实测，2026-10-24）
+
+### 28.1 搬了什么
+
+蓝本 `CombatBeamSolver.ParallelExpansion.cs`（1025 行）+ `ExpansionExecutor.cs`（39 行）。
+它注释里点明两条不变式，我们照抄这两条，其余（批次池 `ExpansionBatchPool`、
+模拟器所有权 `ReplayForkSeed`、内存压力闸、取消令牌、per-lane 自建线程）是蓝本
+自己那套模拟器的负担 —— 我们的影子状态是纯数据，没有对应的东西要管：
+
+1. **lane 隔离**：「每条 lane 有自己的 worker 求解器，候选只在各 lane 内物化」。
+   我们 `BeamSolver.expansionWorker()` 造 worker：共享**不可变**的打分上下文
+   （`Score.Root` / `postCombatRelicHeal` / 配置），可变状态里只有「日志去重集合」共享
+   （否则每条 lane 各刷一遍同样的 REJECT 日志）；
+2. **有序提交**：「coordinator 独占按序提交；transposition / dominance 仍按父节点原序提交」。
+   `ParallelExpansion.expandAll` 把父节点按**连续切片**分给各 lane，结果按切片序合并 ——
+   下游 `prune` 是稳定排序，候选次序不变 ⇒ 整棵树与串行同构。
+
+### 28.2 验收：逐位一致（不是「差不多」）
+
+`ParallelExpansionTest`：同一局面跑 `lanes=1` 与 `lanes=2/4/8`，逐项断言
+选中动作、路线每一步、`lastNodes` / `lastDepth` / `lastLeaves` / `lastStaticScore` /
+`lastTerminalScore` 全部相等。用节点上限（不传时间预算），否则两次会砍在不同地方。
+
+### 28.3 🔴 实测：不划算，所以默认关
+
+| lane | 父节点 | 子状态 | 耗时 | 吞吐 |
+|---|---|---|---|---|
+| 1（串行） | 63823 | 307418 | 1589 ms | 40165 /s |
+| 2 | 同上 | 同上 | 1724 ms | 37020 /s |
+| 4 | 同上 | 同上 | 1520 ms | 41988 /s |
+| 8 | 同上 | 同上 | 1544 ms | 41336 /s |
+
+场景：beam 135 / depth 40 / nodeLimit 40 万 / 两只 2000–3000 血怪 / 10 张手牌。
+结论：**8 lane 只有 1.03×，2 lane 反而更慢**。
+
+原因（同一趟量出来的）：
+
+- 一个父节点展开只要几十微秒（`SimState.copy()` 很便宜，跟蓝本那份要 fork 整套预测
+  模拟器的快照不是一个量级），跨线程交接的开销跟它同量级 → 「一个父节点一个作业」太细；
+  改成连续切片派活后仍只有 1.07×。
+- 真正的热点是**单线程的剪枝**：`prune` 里每个候选都要 `SimState.fingerprint()`，
+  实现是 `toJson()`（拼 JSON 字符串）再 FNV —— 实测 **2103 ns/次**，
+  30.7 万子状态 ≈ 0.65 s，占整趟搜索约四成。这一段并行碰不到（Amdahl 上限 ≈1.6×）。
+
+所以：蓝本默认 8 lane，我们**默认 1（串行）**，`-Dsts1solver.searchLanes=N` 可开。
+代码与开关留着，等指纹那步优化完再复测 —— 顺序不能反。
+
+### 28.4 顺带改的一处线程安全
+
+`IntentLearning.predict` 原来是 `synchronized` 方法，而它是 `CombatFlow.endTurn` 的必经之路
+（每展开一个回合边界就查一次）—— 并行一开就变成全局串行点。改成
+`ConcurrentHashMap` + `AtomicInteger` 计数，**读写语义完全不变**（`putIfAbsent` 保持
+「同 type+turn 只写一次」），只是不再拿同一把锁。

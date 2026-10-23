@@ -50,7 +50,7 @@ read_when:
 | `Expansion.Opening.cs`（开局展开特化） | `BeamSolver.openingNoCostPrefixes` + `zeroCostOpeningRescue` | 🔶 **部分**：**0 费开局补搜**已整条搬（`RunZeroCostOpeningRescue` + `BuildOpeningNoCostPrefixes` + `ApplyFixedPrefix`，2026-10-23，`mechanics-reference` §27）。其余 `Build*` 全家（power / fetched power / hand setup / copy / target variant …）依赖 STS2 专属物：`OpeningActionRegistry` 的两条规则是 `WHITE_NOISE`（STS1 属故障机器人）与 `DUPLICATOR` 药水，且 `PowerCardValuationModels.Registry` 未建模 → 不搬 |
 | `CombatSearchCoordinator.EarlyTurnExploration` 的前沿选择 `SelectEarlyTurnFrontier` | — | ❌ 未做：分组键是 7 元组，其中 5 项未建模（`SearchRouteTraits` / `PersistentSetupTraits` / `PersistentBuffValue` / `ReachableHandValue` / `FocusTargetCombatId`，`EarlyTurnFrontier.cs:55-62`）。自选子集做分桶 = 自创语义，与 Retention 批 3 同判据 |
 | `Expansion.Candidates.cs` / `Expansion.Choices.cs`（候选与牌内选择的展开） | `expandTurnLayer` 的三种分支 | 🔶 部分：只有「目标 / 选牌下标」两档，没有蓝本的候选评估 |
-| `ExpansionExecutor.cs` / `ParallelExpansion.cs`（并行展开） | 单线程 | ❌ 未做（结果不变，只影响速度） |
+| `ExpansionExecutor.cs` / `ParallelExpansion.cs`（并行展开） | `search/ParallelExpansion` + `BeamSolver.withParallelLanes` | 🔶 **结构已搬，默认关**（2026-10-24，`mechanics-reference` §28）：lane 隔离 + 按父节点原序提交两条不变式都照抄，`ParallelExpansionTest` 逐位验证「并行结果 = 串行结果」。但**实测不划算**：64k 父节点 / 307k 子状态的搜索 1 lane 1589ms、8 lane 1544ms（≈1.03×）。瓶颈不在展开，在单线程剪枝里的 `SimState.fingerprint()`（每个候选一次 JSON 序列化，实测 2.1µs，30 万子状态 ≈ 0.65s ≈ 全程四成）。→ 先优化指纹再复测；蓝本默认 8 lane，我们默认 1（`-Dsts1solver.searchLanes=N` 可开） |
 | `CyclePlanning.cs` / `CycleReplay` / `CycleRegionRetention`（循环检测与区域保留） | `TranspositionTable`（按指纹去重） | 🔶 部分：只有去重，没有循环区域机制 |
 | `NoveltySearch.cs` / `Bfws*`（新颖度搜索） | — | ❌ 未做 |
 | `Retention.cs` / `RetentionJobs.cs` / `BeamRetentionPolicy.*`（保留策略族：路由 / 有序变异 / 泳道） | `prune`（按 rank 排序取前 N） | 🔶 部分：排序三键已补齐（`CompareBeamRankOrder` 第三键 `offensiveProgress`，2026-10-23）+ **边界多样化** `DiversifyOrdinaryBeamBoundary` 已搬（beam 尾部按药水桶 × 推进组轮转占位）；Pareto cohort 前排保留 / 药水配额 / 承诺代表 / 有序变异 / 泳道路由未做。`OrderOrdinaryBeamTacticalCohorts` 的战术重排刻意不搬（依赖 ZeroCostPlayableCount / ReachableHandValue / HandCount 三个快照量，未建模） |
@@ -111,7 +111,10 @@ read_when:
      （批 3 Pareto / 批 5 承诺代表 / 前沿分桶都在等 `PersistentBuffValue` 这一族）。
      下一步要么补量，要么转第二梯队（机制镜像）。
 5. `NoveltySearch` / `BeamPortfolioSelector`（多轮搜索）。
-6. `ExpansionExecutor` 并行展开（只提速，不改结果）。
+6. **`ExpansionExecutor` / `ParallelExpansion` 并行展开** —— **结构已搬，默认关**
+   （2026-10-24，`mechanics-reference` §28）。实测 8 lane 只有 1.03×，
+   因为单线程的 `prune` 里每个候选要算一次 JSON 指纹（2.1µs × 30 万子状态 ≈ 全程四成）。
+   **下一步该做的是指纹开销**（缓存 / 免 JSON 重算），不是继续加线程 —— 那一步做完再开并行复测。
 
 新登记的三块缺口（都是 ❌，不是 ⛔），按「建模成本 / 对现有估值的影响」排序：
 

@@ -2,8 +2,8 @@
 
 > **用法**：把整份内容贴进新对话，第一条消息就给全上下文，避免反复补背景。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`
-> **当前状态**：2026-10-23 深夜，测试 **227 条全绿**，今晚 15 个 commit，
-> HEAD = `feat(search): 0 费开局补搜（固定前缀 + 免费前缀枚举 + 药水闸）` 那一笔
+> **当前状态**：2026-10-24 凌晨，测试 **231 条全绿**，昨晚 16 个 commit，
+> HEAD = `feat(search): 并行展开骨架` 那一笔
 
 ---
 
@@ -84,7 +84,7 @@
 - `AutoPilot` = 蓝本 `ApplyCurrentTurn`（每回合重规划，不冻结路线）
 - 面板 `SolverPanel` + 预算档位（低/中/高/极高：beamWidth 45/60/90/135、nodeLimit 6万/12万/25万/50万、time 60/120/180/300 秒）
 
-**测试**：227 条全绿（22 个测试文件）。
+**测试**：231 条全绿（23 个测试文件）。
 
 **文档**（`docs/research/`）：
 - `blueprint-parity.md` —— **蓝本复刻对照表**（蓝本 `src/Search/` 176 个文件逐项列 ✅/🔶/❌/⛔）
@@ -199,7 +199,12 @@ Flex 的能力是 `GainStrengthPower`（ID = `"Gain Strength"`），**不是 `"F
 4. **补快照量**（新插入的前置任务）：`PersistentBuffValue` 一族先做成「快照上能读出的数」，
    补到能支撑 Pareto 支配 / 前沿分桶 / 承诺代表三处。
 5. `NoveltySearch` / `BeamPortfolioSelector`（多轮搜索）—— 同样吃上面那批量。
-6. `ExpansionExecutor` 并行展开（只提速，不改结果；不依赖上面那批量，**可以随时做**）。
+6. **`ExpansionExecutor` / `ParallelExpansion` 并行展开** —— **结构已搬、默认关**
+   （`mechanics-reference` §28）。实测 8 lane 只有 1.03×：瓶颈不在展开，在单线程 `prune`
+   里的 `SimState.fingerprint()`（JSON 序列化 + FNV，实测 2.1µs/次，30 万子状态 ≈ 全程四成）。
+   🔴 **下一步优先做「指纹开销」**：缓存或换免 JSON 的直接哈希，做完再回来复测并行。
+   做指纹有两个红线：① 换算法可以（值只用于去重与日志），但**必须一处算两处一致**；
+   ② 千万别漏字段 —— 漏一个就是静默撞库，搜索会莫名其妙丢分支。
 
 ### 第二梯队（机制镜像补全）
 
@@ -239,7 +244,7 @@ Flex 的能力是 `GainStrengthPower`（ID = `"Gain Strength"`），**不是 `"F
 # 构建
 powershell -File tools/build.ps1
 
-# 测试（227 条）
+# 测试（231 条）
 powershell -File tools/gradle.ps1 test
 
 # 离线实验（ScoreAbTest / moreSearchTimeHelps，默认 skip）

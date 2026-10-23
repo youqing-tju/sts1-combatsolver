@@ -86,8 +86,14 @@ public final class BeamSolver {
     /** 有没有哪条前缀真的把答案换了（蓝本 {@code selected=}）。 */
     public boolean lastZeroCostImproved;
 
-    /** 上一次搜索里已经报过的「语义缺失」拒绝（每次搜索清空，避免刷屏）。 */
-    private final java.util.Set<String> reportedRejects = new java.util.HashSet<String>();
+    /**
+     * 上一次搜索里已经报过的「语义缺失」拒绝（每次搜索清空，避免刷屏）。
+     *
+     * <p>并行展开时各 lane 共享同一个集合（{@link java.util.Collections#synchronizedSet}），
+     * 这样「每张牌每原因只报一次」的口径与串行一致，不会每个 lane 各刷一遍。
+     */
+    private java.util.Set<String> reportedRejects =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
     /**
      * ⚠️ 非蓝本实现，已默认关闭。
      *
@@ -145,6 +151,14 @@ public final class BeamSolver {
      * {@code -1} = 不限（默认）。0 = 这趟搜索一杯都不喝（0 费补搜用的就是 0）。
      */
     private int maxPotionUses = -1;
+
+    /**
+     * 并行展开的 lane 数；{@code -1} = 用 {@link #defaultParallelLanes()}，1 = 串行。
+     *
+     * <p>照蓝本 {@code CombatBeamSolver.ParallelExpansion.cs}：lane 之间互不共享可变状态，
+     * 结果按父节点下标顺序提交 —— 所以**并行的结果与串行逐位相同**，只是快。
+     */
+    private int parallelLanes = -1;
 
     /**
      * 一个回合层至少分到这么多展开节点（蓝本 {@code SolverWeights.MinimumTurnLayerExpandedNodes}）。
@@ -240,6 +254,57 @@ public final class BeamSolver {
     public BeamSolver withMaxPotionUses(int maximum) {
         this.maxPotionUses = maximum < 0 ? -1 : maximum;
         return this;
+    }
+
+    /** 设并行展开的 lane 数；1 = 串行（测试用来做逐位对照）。 */
+    public BeamSolver withParallelLanes(int lanes) {
+        this.parallelLanes = Math.max(1, lanes);
+        return this;
+    }
+
+    /**
+     * 默认并行度：**默认 1（串行）**，只有显式给 {@code -Dsts1solver.searchLanes=N} 才开。
+     *
+     * <p>蓝本默认开（{@code ResolveDefaultSearchMaxDegreeOfParallelism}，大机器 8 lane），
+     * 我们实测开不起来 —— 2026-10-24 量过：64k 父节点 / 307k 子状态的搜索，
+     * 1 lane 1589ms、8 lane 1544ms（≈1.03×，2 lane 反而更慢）。
+     * 原因不在展开：一个父节点展开只要几十微秒，而**单线程的剪枝**里每个候选都要做一次
+     * {@code SimState.fingerprint()}（JSON 序列化 + FNV，实测 2.1µs），
+     * 30 万子状态 ≈ 0.65s，占掉整趟搜索的四成 —— 那一段并行碰不到。
+     * 结论：先优化指纹，再开并行才有意义；代码与开关留着，等那一步做完再复测。
+     */
+    public static int defaultParallelLanes() {
+        Integer override = Integer.getInteger(ParallelExpansion.DEGREE_PROPERTY);
+        if (override != null) {
+            return Math.max(1, Math.min(ParallelExpansion.MAX_DEGREE, override.intValue()));
+        }
+        return 1;
+    }
+
+    /**
+     * 给并行展开造一条 lane 的 worker。
+     *
+     * <p>照蓝本「每条 lane 有自己的求解器，候选只在 lane 内物化」：worker 只带**不可变**的东西
+     * （配置 + 打分起点 {@link Score.Root} + 遗物回血），可变状态里唯一要一致的是日志去重集合，
+     * 所以把它共享出去；其余（转置表、计数器）各 lane 各自一份，互不干扰。
+     */
+    BeamSolver expansionWorker() {
+        BeamSolver worker = new BeamSolver(energyPerTurn, handSize, beamWidth, depth,
+                nodeLimit, cardBranchLimit);
+        worker.maxPotionUses = maxPotionUses;
+        worker.rootHp = rootHp;
+        worker.rootMaxHp = rootMaxHp;
+        worker.rootTurn = rootTurn;
+        worker.scoreRoot = scoreRoot;
+        worker.postCombatRelicHeal = postCombatRelicHeal;
+        worker.reportedRejects = reportedRejects;
+        worker.parallelLanes = 1;               // worker 只做单节点展开，不再往下并行
+        return worker;
+    }
+
+    /** 并行展开时一条 lane 的入口（就是普通展开，只是换了个 worker 实例）。 */
+    void expandInto(SearchNode node, List<SearchNode> plays, List<SearchNode> ended, int branchLimit) {
+        expandTurnLayer(node, plays, ended, branchLimit);
     }
 
     /**
@@ -410,6 +475,9 @@ public final class BeamSolver {
             }
         }
         frontier.add(seed);
+        // 并行展开的 lane（每趟搜索一套）：必须在 bindRoot 之后建，worker 要拿到打分起点。
+        int lanes = parallelLanes > 0 ? parallelLanes : defaultParallelLanes();
+        ParallelExpansion expander = lanes > 1 ? ParallelExpansion.of(this, lanes) : null;
         // 打到战斗结束的路线只留**最好的一条**：每个叶子都攥着一份完整状态，不能无脑攒
         SearchNode bestTerminal = null;
         // 蓝本 ConsiderCurrentTurnCandidate：**本回合能安全走完**的路线里最好的那条。
@@ -464,9 +532,15 @@ public final class BeamSolver {
                     break;
                 }
                 List<SearchNode> plays = new ArrayList<SearchNode>();
-                for (SearchNode node : active) {
-                    expandTurnLayer(node, plays, ended, branchLimit);
-                    expanded++;                         // 蓝本口径：一个展开 = 一条「世界线」
+                if (expander != null && active.size() > 1) {
+                    // 并行展开：lane 之间无共享可变状态，结果按父节点原序合并（蓝本有序提交）
+                    expander.expandAll(active, plays, ended, branchLimit);
+                    expanded += active.size();      // 蓝本口径：一个展开 = 一条「世界线」
+                } else {
+                    for (SearchNode node : active) {
+                        expandTurnLayer(node, plays, ended, branchLimit);
+                        expanded++;                     // 蓝本口径：一个展开 = 一条「世界线」
+                    }
                 }
                 lastStates += plays.size();
                 if (plays.isEmpty()) {

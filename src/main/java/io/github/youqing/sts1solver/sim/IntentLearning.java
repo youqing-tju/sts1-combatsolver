@@ -1,7 +1,9 @@
 package io.github.youqing.sts1solver.sim;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 怪物意图的「观测学习表」。
@@ -17,31 +19,30 @@ import java.util.Map;
 public final class IntentLearning {
 
     /** type -> (turn -> intent damage) */
-    private static final Map<String, Map<Integer, Integer>> TABLE =
-            new HashMap<String, Map<Integer, Integer>>();
+    private static final ConcurrentMap<String, ConcurrentMap<Integer, Integer>> TABLE =
+            new ConcurrentHashMap<String, ConcurrentMap<Integer, Integer>>();
 
-    private static int hits;
-    private static int misses;
-    private static int approxHits;
+    private static final AtomicInteger hits = new AtomicInteger();
+    private static final AtomicInteger misses = new AtomicInteger();
+    private static final AtomicInteger approxHits = new AtomicInteger();
 
     private IntentLearning() {
     }
 
     /** 记录一次观测（幂等：同 type+turn 只写一次）。 */
-    // 搜索跑在后台线程、学习表在主线程写 —— 必须加锁，
-    // 否则 HashMap 并发读写会抛异常或死循环（JDK7 起虽然不再死循环，但仍会读到半截数据）。
-    public static synchronized void observe(String type, int turn, int intentDmg) {
+    // 主线程写、搜索线程（现在还分多条 lane）读 —— 用并发容器，读路径不加锁。
+    // 以前是 synchronized 方法：并行展开后它会变成全局串行点（每个 endTurn 都要查一次）。
+    public static void observe(String type, int turn, int intentDmg) {
         if (type == null || turn <= 0) {
             return;
         }
-        Map<Integer, Integer> byTurn = TABLE.get(type);
+        ConcurrentMap<Integer, Integer> byTurn = TABLE.get(type);
         if (byTurn == null) {
-            byTurn = new HashMap<Integer, Integer>();
-            TABLE.put(type, byTurn);
+            ConcurrentMap<Integer, Integer> created = new ConcurrentHashMap<Integer, Integer>();
+            ConcurrentMap<Integer, Integer> prior = TABLE.putIfAbsent(type, created);
+            byTurn = prior != null ? prior : created;
         }
-        if (!byTurn.containsKey(turn)) {
-            byTurn.put(turn, Math.max(0, intentDmg));
-        }
+        byTurn.putIfAbsent(turn, Math.max(0, intentDmg));
     }
 
     /**
@@ -49,34 +50,34 @@ public final class IntentLearning {
      *
      * @param fallback 查不到时使用（通常是当前意图）
      */
-    public static synchronized int predict(String type, int turn, int fallback) {
-        Map<Integer, Integer> byTurn = TABLE.get(type);
+    public static int predict(String type, int turn, int fallback) {
+        ConcurrentMap<Integer, Integer> byTurn = TABLE.get(type);
         if (byTurn != null && !byTurn.isEmpty()) {
             Integer known = byTurn.get(turn);
             if (known != null) {
-                hits++;
+                hits.incrementAndGet();
                 return known;
             }
             // 精确回合没观测到，用「已观测到的最大回合」作近似 ——
             // 比「沿用当前意图」更接近真实（怪物行为通常按回合循环）。
             int latestTurn = java.util.Collections.max(byTurn.keySet());
-            approxHits++;
+            approxHits.incrementAndGet();
             return byTurn.get(latestTurn);
         }
-        misses++;
+        misses.incrementAndGet();
         return fallback;
     }
 
-    public static synchronized int hits() {
-        return hits;
+    public static int hits() {
+        return hits.get();
     }
 
-    public static synchronized int misses() {
-        return misses;
+    public static int misses() {
+        return misses.get();
     }
 
-    public static synchronized int approxHits() {
-        return approxHits;
+    public static int approxHits() {
+        return approxHits.get();
     }
 
     /** 已学习到的怪物数（用于日志）。 */
@@ -85,9 +86,9 @@ public final class IntentLearning {
     }
 
     public static void resetStats() {
-        hits = 0;
-        misses = 0;
-        approxHits = 0;
+        hits.set(0);
+        misses.set(0);
+        approxHits.set(0);
     }
 
     /** 清空学习表（换局或调试用）。 */
