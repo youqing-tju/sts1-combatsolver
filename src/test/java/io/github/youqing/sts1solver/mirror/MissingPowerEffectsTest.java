@@ -10,6 +10,7 @@ import io.github.youqing.sts1solver.sim.SimMonster;
 import io.github.youqing.sts1solver.sim.SimState;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -24,6 +25,7 @@ class MissingPowerEffectsTest {
         SimState s = new SimState();
         s.hp = 30;
         s.maxHp = 80;
+        s.energy = 3;
         SimMonster m = new SimMonster("TestMonster", 40, 40, 0,
                 Collections.<String, Integer>emptyMap());
         m.intentDmg = 0;
@@ -156,5 +158,43 @@ class MissingPowerEffectsTest {
 
         // 抽 5 张里有 1 张状态 → 进化补 2 张
         assertTrue(s.hand.size() > 5, "手牌超过 5 张 = 进化补的：" + s.hand.size());
+    }
+
+    /** 双击：打出攻击牌时，复制一张再打一遍（{@code DoubleTapPower.onUseCard}）。 */
+    @Test
+    void doubleTapReplaysTheAttack() {
+        SimState s = fight();
+        s.playerPowers.put("Double Tap", 1);
+        s.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+
+        CardPlayer.play(s, 0, 0);
+
+        assertEquals(28, s.monsters.get(0).hp, "40 - 6×2 = 28");
+        assertEquals(2, s.discard.size(), "本体 + 复制各进弃牌堆");
+    }
+
+    /** 打完一次双击就消耗掉一层（{@code atEndOfTurn} 递减）。 */
+    @Test
+    void doubleTapIsConsumedByOneUse() {
+        SimState s = fight();
+        s.playerPowers.put("Double Tap", 1);
+        s.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+
+        CardPlayer.play(s, 0, 0);
+
+        assertFalse(s.playerPowers.containsKey("Double Tap"));
+    }
+
+    /** 非攻击牌不触发。 */
+    @Test
+    void doubleTapIgnoresNonAttackCards() {
+        SimState s = fight();
+        s.playerPowers.put("Double Tap", 1);
+        s.hand.add(new SimCard("Defend_R", false, 1, -1, "SKILL"));
+
+        CardPlayer.play(s, 0, -1);
+
+        assertEquals(5, s.block, "格挡只加一次");
+        assertTrue(s.playerPowers.containsKey("Double Tap"), "没消耗");
     }
 }

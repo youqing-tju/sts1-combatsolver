@@ -193,6 +193,39 @@ public final class PowerHooks {
         });
 
         // ---- 出牌 ---------------------------------------------------------------
+        // DoubleTapPower.onUseCard：打出 ATTACK 时，用 makeSameInstanceOf() 复制一张
+        // 再打一遍（进 limbo）。atEndOfTurn 递减 amount。
+        // 🔴 原版判据是 !card.purgeOnUse && type == ATTACK && amount > 0。
+        //    复制的那张不会再触发双击（它在 limbo 里、purgeOnUse 不同），
+        //    我们用 powerAux 里的标志做递归保护。
+        reg("Double Tap", HookPhase.USE_CARD, new Handler() {
+            @Override
+            public void fire(SimState state, int amount, HookContext ctx) {
+                if (ctx.card == null || !"ATTACK".equals(ctx.card.type)) {
+                    return;
+                }
+                if (state.powerAux.containsKey("DoubleTap.replaying")) {
+                    return;      // 复制的那张不再双击
+                }
+                state.powerAux.put("DoubleTap.replaying", 1);
+                try {
+                    io.github.youqing.sts1solver.sim.SimCard copy = new io.github.youqing.sts1solver.sim.SimCard(
+                            ctx.card.id, ctx.card.upgraded, ctx.card.cost,
+                            ctx.card.baseDamage, ctx.card.type, -1);
+                    io.github.youqing.sts1solver.mirror.CardPlayer.playFromPile(
+                            state, copy, ctx.targetIndex);
+                } finally {
+                    state.powerAux.remove("DoubleTap.replaying");
+                }
+                // atEndOfTurn 递减
+                if (amount <= 1) {
+                    state.playerPowers.remove("Double Tap");
+                } else {
+                    state.playerPowers.put("Double Tap", amount - 1);
+                }
+            }
+        });
+
         // PanachePower.onUseCard → amount--；归零时对全体造成 damage 并重置
         reg("Panache", HookPhase.USE_CARD, new Handler() {
             @Override
