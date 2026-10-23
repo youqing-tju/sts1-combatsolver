@@ -30,7 +30,7 @@ read_when:
 | `DeathSave*`（`DeathSaveHpRestored` / `DeathSavePremium` / `DeathSaveUseCount`） | `mirror/DeathSaveRelic` + `Score.deathSaveBeamCost` + `BeamSolver.strategicHpDeficit` | 🔶 **遗物侧已做**：**蜥蜴尾巴**在仿真里真拦一次致死伤害、记回血量、进三处计价；**瓶中仙子**（药水）等药水建模后接 |
 | `GrowthRewards` / `GrowthHpCredit` / `LongTermResourceValue`（局外收益） | 只有 `Feed` 的最大生命增长进了基础分 | 🔶 **部分**：`GrowthSource` 里就有 **Feed**；我们缺的是「成长奖励」这条独立计分轴与逐来源计数 |
 | `UnrecoveredLoot` / `TheftEncounterStrategy`（被偷资源） | — | ❌ **未做**：STS1 有 **Looter（掠夺者）** 偷金币后逃走 |
-| `RelicCounterEvaluation`（遗物计数估值） | 计数遗物在仿真里真触发 | 🔶 **部分**：战斗内计数（修女/手里剑/开信刀/墨水瓶）真触发；**战后阈值回血**（`PostCombatRelicHeal`，如 `Meat on the Bone`／`Burning Blood`）未建模 |
+| `RelicCounterEvaluation`（遗物计数估值） | 计数遗物在仿真里真触发 | 🔶 **部分**：战斗内计数（修女/手里剑/开信刀/墨水瓶）真触发；**战后回血**（`PostCombatRelicHeal`）已建模主路径（`StrategicHpDeficit` 里加无条件回血），阈值那条 `HealingHpCredit` 通道未做（依赖 `RelicCounterEvaluation`，见 `mechanics-reference` §24.4） |
 | `_isActEndingBoss` 分支（cap 32 / 虚弱 2 / horizon 8） | — | 🔶 **部分**：蓝本靠 `BossHpRelief` 分三档 —— `RunEnding`（最后一战，后面没战斗）在 STS1 **适用**（心脏/终幕 Boss）；`ActClearHeal`（幕末回 80 伤害）STS1 没有，那一段不适用 |
 
 ## 2. 搜索循环
@@ -89,7 +89,9 @@ read_when:
 7. ~~**死亡豁免（蜥蜴尾巴）**~~ → **已做**（`mirror/DeathSaveRelic`）。
    只剩**瓶中仙子**（药水）那一半，等药水建模后接 —— 蓝本 `TryRevive` 里 fairy 优先于 lizard tail，
    顺序要照抄。
-8. **战后阈值回血**（`PostCombatRelicHeal`：`Meat on the Bone` / `Burning Blood`）。
+8. ~~**战后阈值回血**（`PostCombatRelicHeal`）~~ → **主路径已做**（`mirror/PostCombatRelicHeal`）：
+   燃烧之血/黑血的无条件回血进 `StrategicHpDeficit`，带骨肉的阈值回血照蓝本不进排序。
+   剩「阈值回血 → `HealingHpCredit`」那条通道未做（依赖 `RelicCounterEvaluation`）。
 9. **药水**——最大的一块：要新建动作空间（使用药水 = 一个动作，有目标与时机），
    还会牵动 `SmartRequiredHpSaved`、`BlockPotionInsertion` 等一串策略。
 10. **局外收益**（`GrowthRewards` 逐来源计数 + `GrowthHpCredit` 轴）。

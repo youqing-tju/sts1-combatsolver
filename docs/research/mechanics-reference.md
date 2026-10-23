@@ -1191,3 +1191,97 @@ currentHealth += amount;
   不可能有残留。只有「格挡没吃满就致死」的极端情形（如自伤绕过格挡后，此前还有格挡）
   会有差异 —— 自伤那条路径原版也不清格挡，暂记。
 - 同一段代码**同时**管着瓶中仙子与蜥蜴尾巴的先后，接药水时两件事一起改。
+
+
+## 24. 战后阈值回血：`PostCombatRelicHeal`（A｜蓝本源码 + STS1 字节码，2026-10-23）
+
+### 24.1 蓝本原文
+
+`ActEndingBossPolicy.PostCombatRelicHealProfile`（`ActEndingBossPolicy.cs:34-82`）：
+
+```csharp
+record PostCombatRelicHealProfile(int UnconditionalHeal, int WoundedHeal, int WoundedHpPercent) {
+    int HealFor(int finalHp, int finalMaxHp)          // 玩家看到的：含阈值回血
+    int MonotoneHealFor(int finalHp, int finalMaxHp)  // 排序允许计的：只有无条件回血
+}
+```
+
+用法（`FinalPlanOrdering.cs:73-85` + `BeamRetentionPolicy.Ranking.cs:137-148`）：
+
+```csharp
+int relicHeal = RankedPostCombatRelicHeal(profile, completeVictory, PlayerHp, PlayerMaxHp);
+int strategicHpDeficit = StrategicHpDeficit(hpLost, maxHpDeficit,
+    RecoveredPlayerHp + relicHeal,          // ← 只有打赢才有
+    bossHpRelief, DeathSaveHpRestored);
+```
+
+**关键设计（蓝本注释写死了）**：
+
+> `min(heal, maxHp - finalHp)` 对 `finalHp` **单调不减**，所以「结束血量更高永不更差」成立，
+> 支配测试和搜索上界都靠这个不变式。
+> **带骨肉的阈值回血破坏它** —— 比阈值高 1 点血反而更差。
+> 所以阈值回血只报告给玩家、**不进排序**，直到 Pareto 测试重构成比较战后血量。
+> 这样做只会让解算器在阈值附近**略微高估**血量价值，绝不会反向。
+
+### 24.2 STS1 原版语义（javap 核实）
+
+三个遗物的结算点（`AbstractRoom.endBattle()`，字节码 `0-56`）：
+
+```java
+public void endBattle() {
+    isBattleOver = true;
+    if (player.currentHealth == 1) UnlockTracker.unlockAchievement("SHRUG_IT_OFF");
+    if (player.hasRelic("Meat on the Bone"))
+        player.getRelic("Meat on the Bone").onTrigger();   // ① 先结算带骨肉
+    player.onVictory();                                     // ② 再走每个遗物的 onVictory
+    ...
+}
+```
+
+**顺序很重要**：带骨肉**先**结算，所以它的阈值判据用的是战斗结束时的原始血量，
+不是被燃烧之血治疗后的血量。与蓝本注释里的
+"it settles first, so its threshold is tested against the HP the route actually ends on" 一致。
+
+三个遗物的 `onTrigger`/`onVictory`：
+
+| 遗物 | 回血 | 条件 | 字节码 |
+|---|---|---|---|
+| `Burning Blood`（燃烧之血，Ironclad 初始） | 6 | 无条件（只要 `currentHealth > 0`） | `bipush 6` |
+| `Black Blood`（黑血，升级版） | 12 | 同上 | `bipush 12` |
+| `Meat on the Bone`（带骨肉） | 12 | `currentHealth <= maxHealth / 2.0f` 且 `> 0` | `bipush 12` |
+
+带骨肉的阈值判据是 **float 比较**（`(float)hp <= (float)maxHp / 2.0f`）。
+我们的整除截断（`maxHp * 50 / 100`）在边界上同判：
+奇数 maxHp=81 时，原版 40 ≤ 40.5 为真、41 ≤ 40.5 为假，与 `hp ≤ 40` 一致。
+
+### 24.3 我们的实现
+
+| 位置 | 作用 |
+|---|---|
+| `mirror/PostCombatRelicHeal.of(relics)` | 从 `SimState.relics` 读出三件遗物（燃烧之血 6 / 黑血 12 / 带骨肉 12@50%） |
+| `PostCombatRelicHeal.healFor` | 玩家视角：含带骨肉阈值回血 |
+| `PostCombatRelicHeal.monotoneHealFor` | 排序视角：**只有无条件回血**（`clamp(unconditional, 0, maxHp - hp)`） |
+| `BeamSolver.bindRoot` | 战斗开始时固定这份画像 |
+| `BeamSolver.strategicHpDeficit` | 打赢时 `netLost - relicHeal`；没打赢不减 |
+
+**为什么是 `clamp(..., 0, maxHp - hp)`**（headroom）：回血最多补到满血，
+不可能靠多打几回合把赤字刷成负的。这一层也保证了 `Math.max(netLost - relicHeal, floor)`
+里的 `floor` 不会被击穿。
+
+### 24.4 只做了主路径，没做阈值那条通道
+
+蓝本还有一条独立通道：`StateEvaluation.cs:199-205` 里
+`relicCounters.HealingHpCredit = PersistentValueOfRecoveredHp(HealFor - MonotoneHealFor)`，
+即**把带骨肉的阈值回血折算成血量 credit，只对满足遗物计数条件的路线生效**。
+
+这条依赖 `RelicCounterEvaluation`（遗物计数估值）那套基础设施，我们的计数遗物是
+「在仿真里真触发」而不是估值，架构不同。先不做，记为待办。
+影响方向：`Meat on the Bone` 在血量卡阈值附近的路线会略微被低估。
+对「血更多永不更差」的不变式**没有破坏**（这正是不用 `healFor` 进排序的原因）。
+
+### 24.5 还没做
+
+- 阈值回血的 `HealingHpCredit` 通道（见 §24.4）。
+- `Mark of the Bloom` 会让所有 `heal` 静默失效 —— `BurningBlood.onVictory`
+  里的 `player.heal(6)` 会被 `onPlayerHeal` 链归零。当前没建模这个，
+  偏差方向是「我们以为会回血、实际不回」（偏低估计回血，安全方向）。

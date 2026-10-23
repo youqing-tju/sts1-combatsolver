@@ -176,6 +176,9 @@ public final class BeamSolver {
     private int rootTurn;
     /** 估值的「路线起点」快照（血量/上限/回合/开局攻击总量/开局敌人数）。 */
     private Score.Root scoreRoot;
+    /** 战斗打赢后，遗物会回多少血（只有无条件回血进最终排序）。 */
+    private io.github.youqing.sts1solver.mirror.PostCombatRelicHeal postCombatRelicHeal =
+            io.github.youqing.sts1solver.mirror.PostCombatRelicHeal.none();
 
     public BeamSolver(int energyPerTurn, int handSize, int beamWidth, int depth) {
         this(energyPerTurn, handSize, beamWidth, depth, 0, 0);
@@ -565,11 +568,12 @@ public final class BeamSolver {
     }
 
     /** 记住本轮搜索起点的血量/上限/回合/攻击总量/敌人数，供 {@link Score} 算各路「成长」。 */
-    private void bindRoot(SimState root) {
+    void bindRoot(SimState root) {
         rootHp = root.hp;
         rootMaxHp = root.maxHp;
         rootTurn = root.turn;
         scoreRoot = new Score.Root(root);
+        postCombatRelicHeal = io.github.youqing.sts1solver.mirror.PostCombatRelicHeal.of(root.relics);
     }
 
     /** 建节点：一次算出基础分（定路线）和排序分（定剪枝）。 */
@@ -703,7 +707,8 @@ public final class BeamSolver {
      * 所以我们直接用 {@code 起点血量 - 当前血量}，不必逐步累计。
      * 下界取「开局就缺的血」：血最多回满，不可能靠多打几回合把这一项刷成负的。
      */
-    private int strategicHpDeficit(SearchNode node) {
+    /** 包内可见：供测试直接断言赤字公式（含战后回血与死亡豁免的两项修正）。 */
+    int strategicHpDeficit(SearchNode node) {
         int netLost = rootHp - node.state.hp;
         int floor = rootHp - rootMaxHp;          // 开局本来就缺的血，回血最多补到这里
         int maxHpDeficit = Math.max(0, rootMaxHp - node.state.maxHp);
@@ -713,7 +718,15 @@ public final class BeamSolver {
         // 前一项把「复活回的血」从有效回血里剔出去（它不算这条路线挣的），
         // 后一项再收 9 倍溢价 —— 合起来等价于「净掉血 + DeathSaveBeamCost」。
         int deathSave = Score.deathSaveBeamCost(node.state.deathSaveHpRestored);
-        return Math.max(netLost, floor) + maxHpDeficit + deathSave;
+        // 蓝本 FinalPlanOrdering.cs:73-83：战后遗物回的血不会进 RecoveredPlayerHp，
+        // 但它会像战斗中回的血一样带进下一场战斗，所以赤字里要单独补上。
+        // 只有打赢才有（RankedPostCombatRelicHeal），且只算无条件回血
+        // （带骨肉的阈值回血破坏「血更多永不更差」的不变式，蓝本刻意不计）。
+        int relicHeal = isCompleteVictory(node)
+                ? postCombatRelicHeal.monotoneHealFor(node.state.hp, node.state.maxHp)
+                : 0;
+        // 回不满就只回到满血：relicHeal 已按 headroom 截过，所以 max 里的 floor 不会被击穿
+        return Math.max(netLost - relicHeal, floor) + maxHpDeficit + deathSave;
     }
 
     /** 蓝本 {@code CombatEndedTurn}：这场战斗在第几回合结束；没结束 = ∞。 */

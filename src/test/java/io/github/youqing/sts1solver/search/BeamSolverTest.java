@@ -178,4 +178,74 @@ class BeamSolverTest {
         assertEquals(PlanAction.Kind.PLAY_CARD, action.kind);
         assertEquals(0, action.cardIndex, "should take the kill with Strike_R");
     }
+
+    // ------------------------------------------ 战略血量赤字：战后回血 / 死亡豁免
+
+    private static SearchNode nodeOf(SimState s) {
+        return new SearchNode(s, PlanAction.endTurn(), null, 1, 0L);
+    }
+
+    /** 打赢的路线，战后遗物回的血要从赤字里减掉；没打赢就一分不给。 */
+    @Test
+    void postCombatHealReducesTheStrategicDeficitOnlyOnVictory() {
+        SimState root = state(40, 0, "Strike_R");
+        root.hp = 80;
+        root.maxHp = 80;
+        root.relics.put(io.github.youqing.sts1solver.mirror.PostCombatRelicHeal.BURNING_BLOOD, -1);
+
+        SimState won = root.copy();
+        won.monsters.get(0).hp = 0;
+        won.hp = 74;                       // 掉了 6 血
+
+        SimState lost = root.copy();       // 同样剩 74 血，但怪还活着
+        lost.hp = 74;
+
+        BeamSolver solver = new BeamSolver(3, 5, 8, 5);
+        solver.bindRoot(root);
+
+        // 打赢 → 燃烧之血会补 6，净掉血全被抵消 → 赤字 0
+        assertEquals(0, solver.strategicHpDeficit(nodeOf(won)), "打赢：回血抵消掉 6 点掉血");
+        // 没打赢 → 一分不给 → 赤字仍是 6
+        assertEquals(6, solver.strategicHpDeficit(nodeOf(lost)), "没打赢：不给回血");
+    }
+
+    /** 带骨肉的阈值回血**不能**进赤字 —— 它会破坏「结束血更多永不更差」的不变式。 */
+    @Test
+    void meatOnTheBoneThresholdHealIsExcludedFromTheDeficit() {
+        SimState root = state(40, 0, "Strike_R");
+        root.hp = 80;
+        root.maxHp = 80;
+        root.relics.put(io.github.youqing.sts1solver.mirror.PostCombatRelicHeal.MEAT_ON_THE_BONE, -1);
+
+        SimState won = root.copy();
+        won.monsters.get(0).hp = 0;
+        won.hp = 40;                       // 卡在阈值上，原版会触发 +12
+
+        BeamSolver solver = new BeamSolver(3, 5, 8, 5);
+        solver.bindRoot(root);
+
+        assertEquals(40, solver.strategicHpDeficit(nodeOf(won)),
+                "阈值回血不进赤字，40 点掉血就是 40");
+    }
+
+    /** 死亡豁免（蜥蜴尾巴）的溢价要在赤字里额外收一笔 —— 10 倍回血量。 */
+    @Test
+    void deathSaveSpikesTheStrategicDeficit() {
+        SimState root = state(40, 0, "Strike_R");
+        root.hp = 80;
+        root.maxHp = 80;
+
+        SimState revived = root.copy();
+        revived.monsters.get(0).hp = 0;
+        revived.hp = 60;
+        revived.deathSaveUsed = true;
+        revived.deathSaveHpRestored = 40;      // 复活回了 40 血
+
+        BeamSolver solver = new BeamSolver(3, 5, 8, 5);
+        solver.bindRoot(root);
+
+        // 净掉血 20 + deathSaveBeamCost(40) = 400 → 420
+        assertEquals(20 + 400, solver.strategicHpDeficit(nodeOf(revived)),
+                "复活回的血不算挣的，还要连本带溢价扣回去");
+    }
 }
