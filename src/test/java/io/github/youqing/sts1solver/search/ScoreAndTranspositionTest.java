@@ -1,5 +1,6 @@
 package io.github.youqing.sts1solver.search;
 
+import io.github.youqing.sts1solver.sim.SimCard;
 import io.github.youqing.sts1solver.sim.SimMonster;
 import io.github.youqing.sts1solver.sim.SimState;
 import org.junit.jupiter.api.Test;
@@ -60,13 +61,62 @@ class ScoreAndTranspositionTest {
         strong.playerPowers.put("Strength", 3);
         assertTrue(Score.of(strong).total() > plain, "力量应该加分");
 
+        // 易伤是「攻击倍率」，价值按吃得到它的攻击量算 —— 牌堆里得有攻击牌才有意义
         SimState debuffed = state(40);
         debuffed.monsters.get(0).powers.put("Vulnerable", 2);
+        debuffed.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        debuffed.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
         assertTrue(Score.of(debuffed).total() > plain, "敌人易伤应该加分");
 
         SimState weakened = state(40);
         weakened.monsters.get(0).powers.put("Weakened", 2);
         assertTrue(Score.of(weakened).total() > plain, "敌人虚弱应该加分");
+    }
+
+    /**
+     * 蓝本最重要的那条汇率：{@code Hp = 30_000}、{@code EnemyHp = -10_000}，
+     * 即**保住 1 点血 ≈ 造成 3 点伤害**。
+     *
+     * <p>旧实现是「1 血 = 1000 点敌方血」（相差 333 倍），AI 才会放着 120 血的怪磨 20 回合。
+     */
+    @Test
+    void onePlayerHpIsWorthAboutThreeEnemyHp() {
+        SimState threeLess = state(30);
+        SimState oneHpLess = state(33);
+        oneHpLess.hp = 51;
+
+        assertEquals(Score.of(threeLess).baseTotal(), Score.of(oneHpLess).baseTotal(),
+                "3 点敌方血应该正好等于 1 点自己血（30,000 : 10,000）");
+        assertTrue(Score.of(threeLess).baseTotal() > Score.of(state(33)).baseTotal(),
+                "同样血量下，敌方血越少越好");
+    }
+
+    /** 胜负必须压过任何战斗内收益：赢 1 血也不该输给「活着但满血没打死」。 */
+    @Test
+    void victoryDominatesEveryCombatTrade() {
+        SimState winAtOneHp = state(0);
+        winAtOneHp.hp = 1;
+
+        SimState aliveFullHp = state(999);
+        aliveFullHp.hp = 999;
+        aliveFullHp.maxHp = 999;
+
+        assertTrue(Score.of(winAtOneHp).baseTotal() > Score.of(aliveFullHp).baseTotal(),
+                "赢了就是赢了");
+    }
+
+    /** 死亡必须输给任何活着的局面，且「死得浅」要好于「死得深」（连续化，不靠随机决胜）。 */
+    @Test
+    void deathLosesAndIsOrderedByDepth() {
+        SimState shallow = state(10);
+        shallow.hp = -1;
+        SimState deep = state(10);
+        deep.hp = -20;
+
+        assertTrue(Score.of(shallow).baseTotal() > Score.of(deep).baseTotal(),
+                "少亏一点也是好一点");
+        assertTrue(Score.of(shallow).baseTotal() < Score.of(state(10)).baseTotal(),
+                "死了一切都白搭");
     }
 
     @Test
@@ -118,20 +168,35 @@ class ScoreAndTranspositionTest {
                 "block beyond the incoming damage must not add score");
     }
 
+    /**
+     * 集火：同样的伤害量，**打死一个**比「两个都残血」强 —— 因为少了一个敌人的意图。
+     *
+     * <p>这个性质不靠专门加分项，走的是 {@code projectedHp}：敌人少了，本回合挨的就少了。
+     */
     @Test
-    void prefersFocusFireOnTheWeakestEnemy() {
-        SimState focused = state(10);
-        focused.monsters.clear();
-        focused.monsters.add(new SimMonster("A", 4, 10, 0, Collections.<String, Integer>emptyMap()));
-        focused.monsters.add(new SimMonster("B", 10, 10, 0, Collections.<String, Integer>emptyMap()));
+    void prefersKillingAnEnemyOverSpreading() {
+        SimState killed = state(10);
+        killed.block = 0;
+        killed.monsters.clear();
+        killed.monsters.add(new SimMonster("A", 0, 10, 0, Collections.<String, Integer>emptyMap()));
+        SimMonster survivor = new SimMonster("B", 14, 14, 0,
+                Collections.<String, Integer>emptyMap());
+        survivor.intentDmg = 5;
+        killed.monsters.add(survivor);
 
         SimState spread = state(10);
+        spread.block = 0;
         spread.monsters.clear();
-        spread.monsters.add(new SimMonster("A", 7, 10, 0, Collections.<String, Integer>emptyMap()));
-        spread.monsters.add(new SimMonster("B", 7, 10, 0, Collections.<String, Integer>emptyMap()));
+        for (String name : new String[]{"A", "B"}) {
+            SimMonster m = new SimMonster(name, 7, 10, 0,
+                    Collections.<String, Integer>emptyMap());
+            m.intentDmg = 5;
+            spread.monsters.add(m);
+        }
 
-        assertTrue(Score.of(focused).total() > Score.of(spread).total(),
-                "same total HP, but concentrating damage is better");
+        assertEquals(Score.of(killed).enemyHp, Score.of(spread).enemyHp, "总血量相同");
+        assertTrue(Score.of(killed).baseTotal() > Score.of(spread).baseTotal(),
+                "打死一个 = 少一个意图，必须更优");
     }
 
     @Test

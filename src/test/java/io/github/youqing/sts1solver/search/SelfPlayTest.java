@@ -127,12 +127,13 @@ class SelfPlayTest {
     /**
      * A/B：把「每次决策的预算」拉长，结果会不会变好？
      *
-     * <p>这是用户的核心假设（瓶颈是搜索量）。用几个有取舍的场面各跑三档预算，
-     * 看剩余血量 / 回合数 / 总节点。**只打印不断言** —— 让数据说话。
+     * <p>⚠️ 2026-10-23 复检：这个台架**不可信**。时间预算吃的是真实墙钟，同一配置两次跑出
+     * 不同结果，「预算越大越早死」有一半是机器负载噪声。要看估值好坏请用
+     * {@link ScoreAbTest}（固定宽度 × 深度，确定性）。
      *
-     * <p>标了 {@code @Disabled}：跑完要几十秒，不该进 CI。要复现就临时去掉注解。
+     * <p>标了 {@code @Disabled}：跑完要几十秒，不该进 CI。
      */
-    @org.junit.jupiter.api.Disabled("手动实验（跑一次约 1 分钟），别进 CI")
+    @org.junit.jupiter.api.Disabled("已被 ScoreAbTest 取代（时间预算不可复现）")
     @Test
     void moreSearchTimeHelps() {
         long[] budgets = {5, 60, 300};
@@ -186,6 +187,68 @@ class SelfPlayTest {
             }
         }
         return n;
+    }
+
+    /**
+     * 估值质量的**确定性**回归：同样输入必然同样输出，所以数字可以当断言用。
+     *
+     * <p>两条判据来自 2026-10-23 的 A/B（见 {@link ScoreAbTest}）：
+     * <ul>
+     *   <li>双教徒 40+40：旧估值在宽度 60 这一档会**阵亡**，新估值剩 21 血 —— 必须活着。</li>
+     *   <li>单厚怪 120 血：旧估值磨 20 回合，新估值 12 回合 —— 必须 ≤ 15 回合。</li>
+     * </ul>
+     * 门槛留了余量（不是贴着 21 / 12 卡），免得小改动就红。
+     */
+    @Test
+    void deterministicSearchKeepsItsQuality() {
+        SimState cultists = twoCultists();
+        int cultistTurns = fight(cultists, 60, 60);
+        System.out.println("[regress] 双教徒：回合 " + cultistTurns + "，剩血 " + cultists.hp);
+        assertTrue(noAlive(cultists), "双教徒必须清场，实际剩 " + aliveCount(cultists) + " 只");
+        assertTrue(cultists.hp >= 15, "双教徒打完应剩 ≥15 血（旧估值同条件会死），实际 " + cultists.hp);
+
+        SimState big = bigSingle();
+        int bigTurns = fight(big, 60, 60);
+        System.out.println("[regress] 单厚怪：回合 " + bigTurns + "，剩血 " + big.hp);
+        assertTrue(noAlive(big), "120 血的怪必须打死");
+        assertTrue(bigTurns <= 15, "不该磨洋工（旧估值要 20 回合），实际 " + bigTurns + " 回合");
+    }
+
+    /** 跑完整场（确定性：固定宽度 × 深度，不用时间预算），返回打了几个回合。 */
+    private static int fight(SimState s, int width, int depth) {
+        BeamSolver solver = new BeamSolver(3, 5, width, depth, 200_000, 32);
+        int turns = 0;
+        while (turns < 25 && s.hp > 0 && !noAlive(s)) {
+            CombatFlow.endTurn(s, 3, 5);
+            if (s.hp <= 0 || noAlive(s)) {
+                break;
+            }
+            playTurnDeterministic(s, solver);
+            turns++;
+        }
+        return turns;
+    }
+
+    private static void playTurnDeterministic(SimState s, BeamSolver solver) {
+        for (int guard = 0; guard < 12; guard++) {
+            PlanAction action;
+            try {
+                action = solver.bestFirstAction(s);
+            } catch (Throwable t) {
+                return;
+            }
+            if (action == null || action.kind == PlanAction.Kind.END_TURN) {
+                return;
+            }
+            if (action.cardIndex < 0 || action.cardIndex >= s.hand.size()) {
+                return;
+            }
+            try {
+                CardPlayer.play(s, action.cardIndex, action.targetIndex, action.choiceIndex);
+            } catch (Throwable rejected) {
+                return;
+            }
+        }
     }
 
     /**

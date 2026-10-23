@@ -18,8 +18,11 @@ import java.util.Map;
  *
  * <p>骨架照蓝本：动作是一等公民（含「结束回合」），逐层展开候选、去重、按估值保留前 K 条
  * （蓝本 `CombatBeamSolver.BuildAcceptedEndTurnNodes` / `CombatBeamSolver.Expansion.cs`）。
- * 但**估值函数远没有蓝本复杂** —— 蓝本有几十项（战略血量赤字、回合数、路线特征…），
- * 我们先用最朴素的字典序：存活 > 血量 > 敌方总血 > 格挡。
+ *
+ * <p>估值见 {@link Score}：已按蓝本 {@code SolverWeights} 改成**线性加权**（单位是血，
+ * 1 血 = 3 点敌方血），并像蓝本一样把「剪枝用的排序分」与「选路线用的基础分」分开。
+ * 蓝本还有十几项更细的维度（LatentSetup / ReplayPotential / 药水与遗物计数 / 按回合层分配节点），
+ * 那些等 STS1 对应机制建模后再补，见 {@code docs/research/mechanics-reference.md} §14.4。
  *
  * <p>用途：给 AUTO 选「下一步打哪张牌」。不是精确求解器，但比"手牌顺序第一张"强得多。
  */
@@ -92,6 +95,11 @@ public final class BeamSolver {
     /** 每个节点最多展开多少个「牌 × 目标」分支（蓝本 MaxCardBranchesPerNode）；0 = 不限。 */
     private final int cardBranchLimit;
 
+    /** 本轮搜索起点的血量 / 最大生命 / 回合数——估值的「已损血量」「最大生命成长」要靠它。 */
+    private int rootHp;
+    private int rootMaxHp;
+    private int rootTurn;
+
     public BeamSolver(int energyPerTurn, int handSize, int beamWidth, int depth) {
         this(energyPerTurn, handSize, beamWidth, depth, 0, 0);
     }
@@ -112,7 +120,8 @@ public final class BeamSolver {
      */
     public List<SearchNode> rootChildren(SimState root) {
         List<SearchNode> out = new ArrayList<SearchNode>();
-        expand(new SearchNode(root.copy(), null, null, 0, evaluate(root)), out);
+        bindRoot(root);
+        expand(nodeOf(root.copy(), null, null, 0, null), out);
         return out;
     }
 
@@ -187,8 +196,9 @@ public final class BeamSolver {
     /** 从根跑到固定深度，返回选出的一条。 */
     private SearchNode searchToDepth(SimState root, int maxDepth, int width) {
         tt = new TranspositionTable();
+        bindRoot(root);
         List<SearchNode> beam = new ArrayList<SearchNode>();
-        beam.add(new SearchNode(root.copy(), null, null, 0, evaluate(root)));
+        beam.add(nodeOf(root.copy(), null, null, 0, null));
 
         List<SearchNode> finished = new ArrayList<SearchNode>();
 
@@ -294,9 +304,24 @@ public final class BeamSolver {
         } catch (Throwable t) {
             return false;
         }
-        out.add(new SearchNode(copy, PlanAction.play(cardIndex, targetIndex, choiceIndex), node,
-                node.depth + 1, evaluate(copy), state.hand.get(cardIndex).key()));
+        out.add(nodeOf(copy, PlanAction.play(cardIndex, targetIndex, choiceIndex), node,
+                node.depth + 1, state.hand.get(cardIndex).key()));
         return true;
+    }
+
+    /** 记住本轮搜索起点的血量/上限/回合，供 {@link Score} 算「已损血量」与「最大生命成长」。 */
+    private void bindRoot(SimState root) {
+        rootHp = root.hp;
+        rootMaxHp = root.maxHp;
+        rootTurn = root.turn;
+    }
+
+    /** 建节点：一次算出基础分（定路线）和排序分（定剪枝）。 */
+    private SearchNode nodeOf(SimState state, PlanAction action, SearchNode parent, int depth,
+                              String cardKey) {
+        Score score = Score.of(state, rootHp, rootMaxHp, rootTurn, depth);
+        return new SearchNode(state, action, parent, depth, score.baseTotal(), score.total(),
+                cardKey);
     }
 
     private static boolean sameAction(SearchNode a, SearchNode b) {
@@ -353,10 +378,16 @@ public final class BeamSolver {
         return evaluate(s);
     }
 
-    /** 先比分数，分数相同则优先「更早收场」的那条路线（蓝本的 CombatEndedTurn 次序）。 */
+    /**
+     * 先比基础分（蓝本 {@code SimulationSnapshot.Score}：血 / 敌方血 / 胜负），
+     * 再比 Beam 排序分，最后优先「更早收场」的那条路线。
+     */
     private static boolean better(SearchNode candidate, SearchNode incumbent) {
         if (candidate.score != incumbent.score) {
             return candidate.score > incumbent.score;
+        }
+        if (candidate.rank != incumbent.rank) {
+            return candidate.rank > incumbent.rank;
         }
         return candidate.depth < incumbent.depth;
     }
@@ -413,24 +444,24 @@ public final class BeamSolver {
         // 「结束回合」永远是合法动作（蓝本 PlanActionKind.EndTurn）
         SimState afterTurn = state.copy();
         CombatFlow.endTurn(afterTurn, energyPerTurn, handSize);
-        out.add(new SearchNode(afterTurn, PlanAction.endTurn(), node, node.depth + 1,
-                evaluate(afterTurn)));
+        out.add(nodeOf(afterTurn, PlanAction.endTurn(), node, node.depth + 1, null));
     }
 
     private List<SearchNode> prune(List<SearchNode> candidates, int width) {
         Map<String, SearchNode> byState = new LinkedHashMap<String, SearchNode>();
         for (SearchNode node : candidates) {
             String key = node.state.fingerprint();
-            if (!DEBUG && tt.dominated(key, node.score) && byState.containsKey(key)) {
+            if (!DEBUG && tt.dominated(key, node.rank) && byState.containsKey(key)) {
                 continue;
             }
             SearchNode existing = byState.get(key);
-            if (existing == null || node.score > existing.score) {
+            if (existing == null || node.rank > existing.rank) {
                 byState.put(key, node);
             }
         }
         List<SearchNode> unique = new ArrayList<SearchNode>(byState.values());
-        unique.sort((a, b) -> Long.compare(b.score, a.score));
+        // 剪枝按 Beam 排序分（含手头资源），最终选路线才按基础分
+        unique.sort((a, b) -> Long.compare(b.rank, a.rank));
         return unique.size() <= width ? unique : new ArrayList<SearchNode>(unique.subList(0, width));
     }
 
