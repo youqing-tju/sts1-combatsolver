@@ -9,7 +9,13 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 
 # Gradle 的构建目录默认在工作区之外（见 docs/dev-notes.md）
-$buildRoot = Join-Path $env:USERPROFILE '.sts1-combatsolver/build'
+# NOTE: $env:USERPROFILE is empty in some non-interactive sessions (the caller
+#       strips the environment), and Join-Path then throws. Fall back to the
+#       .NET lookup so the script works from any shell.
+$homeDir = $env:USERPROFILE
+if (-not $homeDir) { $homeDir = [Environment]::GetFolderPath('UserProfile') }
+if (-not $homeDir) { throw 'Cannot resolve the user profile directory (USERPROFILE is empty).' }
+$buildRoot = Join-Path $homeDir '.sts1-combatsolver/build'
 $jar  = Join-Path $buildRoot 'libs/STS1CombatSolver.jar'
 
 $stsHome = 'C:/Users/22757/steam/steamapps/common/SlayTheSpire'

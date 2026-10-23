@@ -2,7 +2,8 @@
 
 > **用法**：把整份内容贴进新对话，第一条消息就给全上下文，避免反复补背景。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`
-> **当前状态**：2026-10-23 晚，测试 216 条全绿，今晚 13 个 commit，HEAD = `6377f41`
+> **当前状态**：2026-10-23 深夜，测试 **227 条全绿**，今晚 15 个 commit，
+> HEAD = `feat(search): 0 费开局补搜（固定前缀 + 免费前缀枚举 + 药水闸）` 那一笔
 
 ---
 
@@ -73,12 +74,17 @@
 - `PlanAction` / `RouteStep` / `AsyncSearch` / `TranspositionTable`
 - 剪枝排序 = 蓝本 `CompareBeamRankOrder` 前两键（rank 降 → actionCount 升）
 - 最终路线排序 = 蓝本 `FinalPlanOrdering` 词典序（Won → Survives → HpDeficit → Turn → EnemyHp → Score → ActionCount）
+- **固定前缀搜索**（`withFixedPrefix`）= 蓝本 `ApplyFixedPrefix`（`Phases.cs:2296-2400`）：
+  前缀先回放、走完的节点当搜索根，打不出就整条作废（不换牌顶上）
+- **0 费开局补搜**（`openingNoCostPrefixes` + `zeroCostOpeningRescue`）=
+  蓝本 `RunZeroCostOpeningRescue`：主搜索答案是「第一步就结束回合」时，把免费牌的组合
+  各重搜一轮（4 万节点 / 12 秒 / 最多 8 趟 / 不喝药），严格更好才换
 
 **执行层**：
 - `AutoPilot` = 蓝本 `ApplyCurrentTurn`（每回合重规划，不冻结路线）
 - 面板 `SolverPanel` + 预算档位（低/中/高/极高：beamWidth 45/60/90/135、nodeLimit 6万/12万/25万/50万、time 60/120/180/300 秒）
 
-**测试**：216 条全绿（21 个测试文件）。
+**测试**：227 条全绿（22 个测试文件）。
 
 **文档**（`docs/research/`）：
 - `blueprint-parity.md` —— **蓝本复刻对照表**（蓝本 `src/Search/` 176 个文件逐项列 ✅/🔶/❌/⛔）
@@ -164,6 +170,12 @@ Flex 的能力是 `GainStrengthPower`（ID = `"Gain Strength"`），**不是 `"F
 ### 13. 新卡接进来先跑 `python tools/audit_registry.py`
 查 Exhaust 标记与费用作用域。
 
+### 14. 固定前缀：打不出就整条作废，**不许**换一张牌顶上
+蓝本注释写得很清楚（`Phases.cs:2415-2417`）：前缀代表「已经决定要这么打」，
+一步不可达就整条路线作废，不能拿别的牌凑。我们的 `replayPrefixAction` 直接返回 null。
+另外 `PlanAction` 带的是**手牌下标**（不是牌名），所以前缀只能在「同一个根状态上立刻回放」，
+不能跨回合缓存 —— 手牌一变下标就错位。
+
 ---
 
 ## 五、下一步该做什么（按优先级）
@@ -173,13 +185,21 @@ Flex 的能力是 `GainStrengthPower`（ID = `"Gain Strength"`），**不是 `"F
 
 ### 第一梯队（搜索结构，对照表 §4 顺序）
 
-1. **`ApplyCurrentTurn` 的早停**（蓝本 `Phases.cs:1445 / 1554 / 2154`）——
-   搜到本回合候选就停、下回合重搜。我们 `AutoPilot` 已是每回合重规划，但没有「本回合候选」早停。
-2. **`Retention` / `BeamRetentionPolicy` 保留策略族**（蓝本 5 个文件：`Retention.cs` / `RetentionJobs.cs` / `BeamRetentionPolicy.{Ranking,OrderedMutation,Routing,Testing}.cs`）——
-   我们只有「按 rank 取前 N」，蓝本有路由/有序变异/泳道。这是**多样性剪枝**，塌掉会卡死搜索。
-3. **`Expansion.Opening` + `_earlyTurnScoutDepth`**（蓝本 `CombatBeamSolver.Expansion.Opening.cs` + `OpeningActionRegistry.cs`）—— 开局优化。
-4. **`NoveltySearch` / `BeamPortfolioSelector`**（蓝本多轮搜索，`BfwsPackedNovelty.cs` + `BeamPortfolio*.cs`）。
-5. **`ExpansionExecutor` 并行展开**（只提速，不改结果）。
+> ⚠️ 2026-10-23 深夜更新：第 1–4 项已到底。**第 4/5/6 项全都卡在同一件事上 —— 快照量没建模**
+> （`PersistentBuffValue` / `ReachableHandValue` / `SearchRouteTraits` / `PersistentSetupTraits` /
+> `FocusTargetCombatId` / `RelicCounters.SatisfiedMask` / `PotionStrategicCost`）。
+> 也就是说：**下一步要么先补量，要么转第二梯队**，不该再硬搬搜索结构。
+
+1. ~~`ApplyCurrentTurn` 的早停~~ → **不搬**（判据见 §四 与 `mechanics-reference` §22.4）。
+2. ~~`Retention` 保留策略族批 1+2~~ → **已搬**（`mechanics-reference` §26）；
+   批 3–6 卡在依赖量上。
+3. ~~`Expansion.Opening` + `_earlyTurnScoutDepth`~~ → **拆开后只搬了可搬的一半**：
+   0 费开局补搜已整条搬（`mechanics-reference` §27）；`SelectEarlyTurnFrontier`
+   的 7 元组分桶缺 5 项 → ❌ 等补量；`OpeningActionRegistry` → ⛔ 本期无对应。
+4. **补快照量**（新插入的前置任务）：`PersistentBuffValue` 一族先做成「快照上能读出的数」，
+   补到能支撑 Pareto 支配 / 前沿分桶 / 承诺代表三处。
+5. `NoveltySearch` / `BeamPortfolioSelector`（多轮搜索）—— 同样吃上面那批量。
+6. `ExpansionExecutor` 并行展开（只提速，不改结果；不依赖上面那批量，**可以随时做**）。
 
 ### 第二梯队（机制镜像补全）
 
@@ -219,7 +239,7 @@ Flex 的能力是 `GainStrengthPower`（ID = `"Gain Strength"`），**不是 `"F
 # 构建
 powershell -File tools/build.ps1
 
-# 测试（216 条）
+# 测试（227 条）
 powershell -File tools/gradle.ps1 test
 
 # 离线实验（ScoreAbTest / moreSearchTimeHelps，默认 skip）

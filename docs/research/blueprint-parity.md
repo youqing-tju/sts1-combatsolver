@@ -44,10 +44,11 @@ read_when:
 | `EscalateSearchWhenNoVictory`（Beam+节点帽+分支一起 ×2，最多 2 次，封顶 512/100，耗时预估，严格改善才采纳） | `bestFirstAction` 的加宽循环 | ✅ |
 | `ConsiderCompleteVictory`（完整胜利登记） | `bestTerminal` + `better()` | ✅ |
 | `ConsiderCurrentTurnCandidate` + `adoptedNode = currentBestNode ?? currentTurnCandidateNode`（`Phases.cs:372 / 2218`） | `currentTurnCandidate` + 三档选择顺序 | ✅ 选择顺序已复刻。**早停不搬**（2026-10-23 考证修正）：早停是**手动面板模式**的「立即交付」——用户点「执行本回合」按钮后，后台搜索在三个检查点（`Phases.cs:1445 / 1554 / 2154`）看到接管请求就提前收工，交付 `currentBestNode ?? currentTurnCandidateNode`。**FullAuto（全自动）不点这个按钮**（`SolverController.cs:1485 SetFullAuto` → 每回合 `AutoTurnStart` 自动重搜），等得起；我们的 AutoPilot 对应的就是 FullAuto（同构性见 §3 执行层行），不走早停路径 |
-| `_earlyTurnScoutDepth`（开局侦察层数） | — | ❌ 未做 |
+| `_earlyTurnScoutDepth`（开局侦察层数） | — | ❌ 未做：它本身只是「回合层循环上界 + 保留层数」的旋钮（`Phases.cs:1428 / :1480`），唯一消费者是 `RunEarlyTurnExploration`（`EarlyTurnExploration.cs`，浅搜 scout → 收 1/2 回合边界前沿 → 按前缀续搜）。单独搬进来只会把搜索截浅，没有消费者 → 无意义 |
 | `IncrementalVerificationMaxTurns = 32` | — | ❌ 未做（验证模式上限） |
 | `acceptableBattleHpLossReached`（打到达标战损就停） | — | ⛔ 不适用：需要跨战斗血量目标 |
-| `Expansion.Opening.cs`（开局展开特化） | — | ❌ 未做 |
+| `Expansion.Opening.cs`（开局展开特化） | `BeamSolver.openingNoCostPrefixes` + `zeroCostOpeningRescue` | 🔶 **部分**：**0 费开局补搜**已整条搬（`RunZeroCostOpeningRescue` + `BuildOpeningNoCostPrefixes` + `ApplyFixedPrefix`，2026-10-23，`mechanics-reference` §27）。其余 `Build*` 全家（power / fetched power / hand setup / copy / target variant …）依赖 STS2 专属物：`OpeningActionRegistry` 的两条规则是 `WHITE_NOISE`（STS1 属故障机器人）与 `DUPLICATOR` 药水，且 `PowerCardValuationModels.Registry` 未建模 → 不搬 |
+| `CombatSearchCoordinator.EarlyTurnExploration` 的前沿选择 `SelectEarlyTurnFrontier` | — | ❌ 未做：分组键是 7 元组，其中 5 项未建模（`SearchRouteTraits` / `PersistentSetupTraits` / `PersistentBuffValue` / `ReachableHandValue` / `FocusTargetCombatId`，`EarlyTurnFrontier.cs:55-62`）。自选子集做分桶 = 自创语义，与 Retention 批 3 同判据 |
 | `Expansion.Candidates.cs` / `Expansion.Choices.cs`（候选与牌内选择的展开） | `expandTurnLayer` 的三种分支 | 🔶 部分：只有「目标 / 选牌下标」两档，没有蓝本的候选评估 |
 | `ExpansionExecutor.cs` / `ParallelExpansion.cs`（并行展开） | 单线程 | ❌ 未做（结果不变，只影响速度） |
 | `CyclePlanning.cs` / `CycleReplay` / `CycleRegionRetention`（循环检测与区域保留） | `TranspositionTable`（按指纹去重） | 🔶 部分：只有去重，没有循环区域机制 |
@@ -96,7 +97,19 @@ read_when:
    **批 4 药水配额**（依赖 `PotionStrategicCost` 药水战略成本，未建模）；
    **批 5 承诺代表**（依赖 PowerCardValuation 模型族）；**批 6 OrderedMutation**
    （依赖 NoveltySearch，对照表第 5 项）。
-4. `Expansion.Opening` + `_earlyTurnScoutDepth`。
+4. **~~`Expansion.Opening` + `_earlyTurnScoutDepth`~~ → 拆开后只有一半可搬，已搬（2026-10-23）**：
+   - ✅ **0 费开局补搜**（`RunZeroCostOpeningRescue`，`PostSearch.cs:352-392`）已整条搬，
+     连带三个前置件：固定前缀回放（`ApplyFixedPrefix`，`Phases.cs:2296-2400`）、
+     药水上限闸（`maximumPotionUses`）、免费前缀枚举（`BuildOpeningNoCostPrefixes`）。
+     细节见 `mechanics-reference` §27。
+   - ❌ `_earlyTurnScoutDepth` 单独搬无意义（只是循环上界），它的消费者
+     `RunEarlyTurnExploration` 卡在 `SelectEarlyTurnFrontier` 的 7 元组分桶 ——
+     其中 5 项快照量没建模（`EarlyTurnFrontier.cs:55-62`）。**先补量，再搬前沿。**
+   - ⛔ `OpeningActionRegistry` 两条规则本期无对应（`WHITE_NOISE` 是故障机器人的卡、
+     `DUPLICATOR` 药水要配 `PowerCardValuation` 模型族）。
+   - 🔴 由此得出一个顺序结论：**第一梯队的 4/5/6 三项都以「补齐快照量」为前提**
+     （批 3 Pareto / 批 5 承诺代表 / 前沿分桶都在等 `PersistentBuffValue` 这一族）。
+     下一步要么补量，要么转第二梯队（机制镜像）。
 5. `NoveltySearch` / `BeamPortfolioSelector`（多轮搜索）。
 6. `ExpansionExecutor` 并行展开（只提速，不改结果）。
 

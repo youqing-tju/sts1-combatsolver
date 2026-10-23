@@ -78,6 +78,14 @@ public final class BeamSolver {
     /** 最后一轮是不是被时间掐断的（蓝本 {@code ResultScope != SearchCompletion}：掐断就不再加宽）。 */
     public boolean lastPassCutShort;
 
+    // ===== 0 费开局补搜的遥测（蓝本 PostSearch.cs 的 NO_COST_OPENING 日志那几项） =====
+    /** 这一趟枚举出几条免费前缀（蓝本 {@code BuildOpeningNoCostPrefixes} 的返回长度）。 */
+    public int lastZeroCostPrefixes;
+    /** 真正派发了几趟前缀续搜（蓝本 {@code attempts}，上限 8）。 */
+    public int lastZeroCostAttempts;
+    /** 有没有哪条前缀真的把答案换了（蓝本 {@code selected=}）。 */
+    public boolean lastZeroCostImproved;
+
     /** 上一次搜索里已经报过的「语义缺失」拒绝（每次搜索清空，避免刷屏）。 */
     private final java.util.Set<String> reportedRejects = new java.util.HashSet<String>();
     /**
@@ -111,6 +119,32 @@ public final class BeamSolver {
     private final int nodeLimit;
     /** 每个节点最多展开多少个「牌 × 目标」分支（蓝本 MaxCardBranchesPerNode）；0 = 不限。 */
     private final int cardBranchLimit;
+
+    /**
+     * 固定搜索前缀（蓝本 {@code CombatBeamSolver._fixedPrefixActions}，ctor 参数
+     * {@code CombatBeamSolver.cs:38}）。
+     *
+     * <p>语义照抄 {@code ApplyFixedPrefix}（{@code CombatBeamSolver.Phases.cs:2296-2400}）：
+     * 从根状态开始把这串动作**先照着走一遍**，走完的节点当新的搜索起点；中间任何一步打不出
+     * （能量不够 / 没镜像 / 目标非法 / 药水为空）→ 整条前缀作废，返回 null，**不猜、不换一张牌**。
+     * 这是「0 费开局补搜」的前置件：补搜要对每条候选前缀各重搜一轮。
+     *
+     * <p>⚠️ 蓝本还校验 {@code action.Turn != node.Turn}（我们 {@link PlanAction} 不带回合号，
+     * 前缀一律「从当前局面立刻回放」，下标天然有效）和「这张牌打完会不会强制结束回合」
+     * （STS1 铁甲没有这种牌），所以这两条检查在 STS1 无对应，不做。
+     *
+     * <p>空 = 普通搜索（默认，行为与引入前缀之前逐字节一致）。
+     */
+    private java.util.List<PlanAction> fixedPrefix = java.util.Collections.emptyList();
+
+    /**
+     * 这条路线最多喝几瓶药水（蓝本 {@code maximumPotionUses}）。
+     *
+     * <p>闸门照抄 {@code EnumeratePlannedPotionActions}（{@code ExpansionPlan.cs:146-147}）：
+     * {@code _maximumPotionUses != null && ExplicitPotionUseCount(node) >= 上限} → 整段不枚举药水。
+     * {@code -1} = 不限（默认）。0 = 这趟搜索一杯都不喝（0 费补搜用的就是 0）。
+     */
+    private int maxPotionUses = -1;
 
     /**
      * 一个回合层至少分到这么多展开节点（蓝本 {@code SolverWeights.MinimumTurnLayerExpandedNodes}）。
@@ -194,6 +228,20 @@ public final class BeamSolver {
         this.cardBranchLimit = Math.max(0, cardBranchLimit);
     }
 
+    /** 设固定搜索前缀（蓝本 {@code fixedPrefixActions}）；传空集合即恢复普通搜索。 */
+    public BeamSolver withFixedPrefix(java.util.List<PlanAction> prefix) {
+        this.fixedPrefix = prefix == null || prefix.isEmpty()
+                ? java.util.Collections.<PlanAction>emptyList()
+                : new ArrayList<PlanAction>(prefix);
+        return this;
+    }
+
+    /** 设「这条路线最多喝几瓶药水」（蓝本 {@code maximumPotionUses}）；{@code -1} = 不限。 */
+    public BeamSolver withMaxPotionUses(int maximum) {
+        this.maxPotionUses = maximum < 0 ? -1 : maximum;
+        return this;
+    }
+
     /**
      * 根节点的直接子节点（一步之内的所有选项及其估值）。
      * 用途：AUTO 在「同样好」的选项里优先挑未镜像的牌，兼顾数据采集。
@@ -242,6 +290,19 @@ public final class BeamSolver {
         lastPassCutShort = false;
         lastRoute = new java.util.ArrayList<PlanAction>();
         lastSteps = new java.util.ArrayList<RouteStep>();
+        lastZeroCostPrefixes = 0;
+        lastZeroCostAttempts = 0;
+        lastZeroCostImproved = false;
+
+        // 固定前缀先单独验一遍：验不过就整条作废（蓝本 ApplyFixedPrefix 的 null 分支）。
+        // 放在这里是为了**别让搜索跑完整趟才发现前缀是废的**，也避免下面的加宽循环误判成「没打赢」。
+        if (!fixedPrefix.isEmpty()) {
+            bindRoot(root);             // 前缀回放要算分，先绑估值起点
+            if (applyFixedPrefix(nodeOf(root.copy(), null, null, 0, null), fixedPrefix) == null) {
+                Trace.warn("SEARCH PREFIX REJECTED: " + describePrefix(fixedPrefix));
+                return null;
+            }
+        }
 
         // 每次搜索独立计时：长时间预算（面板「标准」档 120 秒）只在这里生效
         long deadline = budgetMillis == Long.MAX_VALUE
@@ -284,7 +345,21 @@ public final class BeamSolver {
             selected = candidate;
         }
 
+        // 蓝本 RunZeroCostOpeningRescue（PostSearch.cs:352-392，后处理第 4 趟）：
+        // 主搜索的答案是「这回合直接结束」时，再补一趟「先把免费牌打出去会怎样」。
+        // 蓝本放在 coordinator 的 post-search 链里，我们这里没有 coordinator，
+        // 所以放在同一份 deadline 内、紧跟主搜索 —— 顺序与蓝本一致（rescue 在 mid-combat 之前，
+        // 我们还没搬 mid-combat）。前缀搜索自己就是 sub-solver，不能递归触发补搜。
+        if (fixedPrefix.isEmpty()) {
+            selected = zeroCostOpeningRescue(root, selected, deadline);
+        }
+
         lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
+        if (selected != null) {
+            // 补搜可能会换掉主搜索的答案，路线要跟着换（AUTO 执行的是 lastSteps）
+            lastRoute = routeOf(selected);
+            lastSteps = stepsOf(selected);
+        }
         return selected == null ? null : selected.firstAction();
     }
 
@@ -324,7 +399,17 @@ public final class BeamSolver {
         int expanded = 0;           // 本轮展开数（节点帽按轮算，蓝本每一趟都是新的 _run）
 
         List<SearchNode> frontier = new ArrayList<SearchNode>();
-        frontier.add(nodeOf(root.copy(), null, null, 0, null));
+        SearchNode seed = nodeOf(root.copy(), null, null, 0, null);
+        if (!fixedPrefix.isEmpty()) {
+            // 蓝本 ApplyFixedPrefix（Phases.cs:1106）：把固定前缀回放完的节点当新的搜索根。
+            // 验不过就整趟作废 —— 调用方（补搜）把 null 当成「这条前缀不能用」，不会静默换成别的路线。
+            seed = applyFixedPrefix(seed, fixedPrefix);
+            if (seed == null) {
+                lastPassCutShort = true;    // 让加宽循环别再重试（前缀不会因预算变化而变合法）
+                return null;
+            }
+        }
+        frontier.add(seed);
         // 打到战斗结束的路线只留**最好的一条**：每个叶子都攥着一份完整状态，不能无脑攒
         SearchNode bestTerminal = null;
         // 蓝本 ConsiderCurrentTurnCandidate：**本回合能安全走完**的路线里最好的那条。
@@ -953,7 +1038,11 @@ public final class BeamSolver {
         }
 
         // 药水：和打牌同级的一等动作（蓝本 PlanActionKind.UsePotion）
-        for (int slot = 0; slot < state.potions.size(); slot++) {
+        // 蓝本 EnumeratePlannedPotionActions（ExpansionPlan.cs:146-147）：用过上限就整段不枚举。
+        // 0 费补搜传 0 —— 蓝本 OpeningNoCostContinuationSource 的
+        // potionPolicyOverride: Disabled, maximumPotionUses: 0 就是这个意思。
+        boolean potionsClosed = maxPotionUses >= 0 && node.potionsUsed >= maxPotionUses;
+        for (int slot = 0; !potionsClosed && slot < state.potions.size(); slot++) {
             if (branchLimit > 0 && produced >= branchLimit) {
                 break;
             }
@@ -1267,6 +1356,298 @@ public final class BeamSolver {
                 selected.set(slots.get(index), replacements.get(index));
             }
         }
+    }
+
+    // ================================================================================
+    // 0 费开局补搜 —— 蓝本 CombatSearchCoordinator.PostSearch.cs:352-392 RunZeroCostOpeningRescue
+    //   + CombatBeamSolver.Expansion.Opening.cs:1028-1064 BuildOpeningNoCostPrefixes
+    //   + CombatBeamSolver.Phases.cs:2296-2400 ApplyFixedPrefix
+    // ================================================================================
+
+    /**
+     * 补搜的预算与上限，逐值照抄蓝本 {@code PostSearch.cs:363-371}：
+     * {@code minimumRemainingMilliseconds: 5_000} / {@code maximumNodes: 40_000} /
+     * {@code maximumMilliseconds: 12_000} / {@code reserveMilliseconds: 2_000} /
+     * {@code ++attempts >= 8}。
+     */
+    public static final int ZERO_COST_MAX_NODES = 40_000;
+    public static final int ZERO_COST_MAX_MILLIS = 12_000;
+    public static final int ZERO_COST_RESERVE_MILLIS = 2_000;
+    public static final int ZERO_COST_MIN_REMAINING_MILLIS = 5_000;
+    public static final int ZERO_COST_MAX_ATTEMPTS = 8;
+
+    /** 蓝本 {@code BuildOpeningNoCostPrefixes}：BFS 深度 4、每层留 24、最后取 12 条。 */
+    public static final int NO_COST_PREFIX_MAX_DEPTH = 4;
+    public static final int NO_COST_PREFIX_FRONTIER_LIMIT = 24;
+    public static final int NO_COST_PREFIX_LIMIT = 12;
+
+    /**
+     * 蓝本 {@code RunZeroCostOpeningRescue} 的触发条件（{@code PostSearch.cs:355-362}），逐条对：
+     *
+     * <pre>
+     * ResultScope == SearchCompletion        → !hitNodeLimit &amp;&amp; !lastPassCutShort（没被预算截断）
+     * IsCompleteVictory(selected)            → 真打赢了
+     * ExplicitPotionCount == 0               → 这条路线一瓶药都没喝
+     * ProjectedBattleHpLost &gt; 0              → 还是掉了血（一点没掉就不用救了）
+     * BestNode.Actions.First().Kind == EndTurn → **最优路线的第一步就是「结束回合」**
+     * </pre>
+     *
+     * <p>蓝本还有两个前提我们没有对应物：{@code PotionPolicy == Smart} 与
+     * {@code !PotionStrategy.HasForcedDirectives} —— 那是它那套药水策略族的状态，
+     * STS1 侧还没有药水策略（记在 {@code blueprint-parity} 药水估值那一行）。
+     * 这里用「这条路线的药水用量」代替「策略档位」，是当前能落到实处的等价判定。
+     */
+    boolean shouldRescueZeroCostOpening(SearchNode selected) {
+        if (selected == null || hitNodeLimit || lastPassCutShort) {
+            return false;
+        }
+        if (!isCompleteVictory(selected)) {
+            return false;
+        }
+        if (selected.potionsUsed != 0) {
+            return false;
+        }
+        if (rootHp - selected.state.hp <= 0) {
+            return false;
+        }
+        PlanAction first = selected.firstAction();
+        return first != null && first.kind == PlanAction.Kind.END_TURN;
+    }
+
+    /**
+     * 蓝本 {@code RunZeroCostOpeningRescue}（{@code PostSearch.cs:366-389}）：
+     * 枚举免费出牌前缀，每条各重搜一轮（不喝药），**严格更好才采纳**，最多 8 趟。
+     *
+     * <p>包内可见是为了让测试能直接喂一个「假的劣解」验证采纳逻辑，不必构造一个
+     * 真会让主搜索误判的局面（那种局面依赖 beam 剪枝的具体宽度，不可复现）。
+     */
+    SearchNode zeroCostOpeningRescue(SimState root, SearchNode selected, long deadline) {
+        if (!shouldRescueZeroCostOpening(selected)) {
+            return selected;
+        }
+        java.util.List<java.util.List<PlanAction>> prefixes = openingNoCostPrefixes(root);
+        lastZeroCostPrefixes = prefixes.size();
+        if (prefixes.isEmpty()) {
+            return selected;        // 这回合根本没有免费牌可打，救不了
+        }
+        int attempts = 0;
+        for (java.util.List<PlanAction> prefix : prefixes) {
+            long remaining = remainingMillis(deadline);
+            if (remaining != Long.MAX_VALUE && remaining <= ZERO_COST_MIN_REMAINING_MILLIS) {
+                break;              // 蓝本 ledger.RemainingRequestMillisecondsLong > 5_000 那道门
+            }
+            long budget = remaining == Long.MAX_VALUE
+                    ? Long.MAX_VALUE
+                    : Math.min(ZERO_COST_MAX_MILLIS, remaining - ZERO_COST_RESERVE_MILLIS);
+            long subDeadline = budget == Long.MAX_VALUE
+                    ? Long.MAX_VALUE
+                    : System.nanoTime() + budget * 1_000_000L;
+
+            // 蓝本 OpeningNoCostContinuationSource：potionPolicyOverride Disabled + 最多 0 瓶
+            BeamSolver sub = new BeamSolver(energyPerTurn, handSize, beamWidth, depth,
+                    ZERO_COST_MAX_NODES, cardBranchLimit)
+                    .withFixedPrefix(prefix)
+                    .withMaxPotionUses(0);
+            SearchNode candidate = sub.searchToDepth(root, Math.max(1, depth), beamWidth,
+                    cardBranchLimit, ZERO_COST_MAX_NODES, subDeadline);
+            lastNodes += sub.lastNodes;
+            attempts++;
+            // 蓝本要求 candidate.ResultScope == SearchCompletion 才算数（被截断的搜索不算成绩）
+            boolean complete = candidate != null && !sub.hitNodeLimit && !sub.lastPassCutShort;
+            boolean improved = complete && better(candidate, selected);
+            Trace.info("ZERO_COST_OPENING prefix=" + describePrefix(prefix)
+                    + " hp_lost=" + (candidate == null ? -1 : rootHp - candidate.state.hp)
+                    + " nodes=" + sub.lastNodes + " selected=" + improved);
+            if (improved) {
+                selected = candidate;
+                lastZeroCostImproved = true;
+            }
+            // 蓝本 `if (selected.ProjectedBattleHpLost == 0 || ++attempts >= 8) break;`
+            if (rootHp - selected.state.hp <= 0 || attempts >= ZERO_COST_MAX_ATTEMPTS) {
+                break;
+            }
+        }
+        lastZeroCostAttempts = attempts;
+        return selected;
+    }
+
+    /**
+     * 蓝本 {@code BuildOpeningNoCostPrefixes}（{@code Expansion.Opening.cs:1028-1064}）逐行翻译：
+     *
+     * <ol>
+     *   <li>从根开始 BFS，最多 4 层；</li>
+     *   <li>每层只留「出牌 + 还在本回合 + 能量没被打掉」的子节点（= 免费牌）；</li>
+     *   <li>按状态指纹去重（蓝本 {@code DistinctBy(StateKey)}，保留**先出现**的那条），
+     *       再按基础分降序取前 24 条当前沿；</li>
+     *   <li>所有层的入选节点汇总后，按「动作多优先、分高其次」取 12 条，各自回溯成完整前缀。</li>
+     * </ol>
+     *
+     * <p>只用到了「动作种类 / 回合 / 能量 / 状态指纹 / 基础分 / 动作数」六个量 —— 全是我们已有的，
+     * 所以这条能整条搬（对照表 §4 第 4 项里可搬的那一半）。
+     */
+    public java.util.List<java.util.List<PlanAction>> openingNoCostPrefixes(SimState root) {
+        bindRoot(root);
+        reportedRejects.clear();
+        SearchNode seed = nodeOf(root.copy(), null, null, 0, null);
+        java.util.List<SearchNode> frontier = new ArrayList<SearchNode>();
+        frontier.add(seed);
+        java.util.List<SearchNode> candidates = new ArrayList<SearchNode>();
+        for (int layer = 0; layer < NO_COST_PREFIX_MAX_DEPTH && !frontier.isEmpty(); layer++) {
+            java.util.List<SearchNode> next = new ArrayList<SearchNode>();
+            for (SearchNode parent : frontier) {
+                if (parent.terminal()) {
+                    continue;           // 蓝本 ExpandOpeningSeed 的守卫
+                }
+                java.util.List<SearchNode> plays = new ArrayList<SearchNode>();
+                java.util.List<SearchNode> ended = new ArrayList<SearchNode>();
+                expandTurnLayer(parent, plays, ended, cardBranchLimit);
+                collectNoCostPlays(plays, parent, next);
+                collectNoCostPlays(ended, parent, next);   // 打死怪的免费牌也算（蓝本不过滤终局）
+            }
+            frontier = noCostFrontier(next);
+            candidates.addAll(frontier);
+        }
+        candidates.sort(new java.util.Comparator<SearchNode>() {
+            @Override
+            public int compare(SearchNode a, SearchNode b) {
+                int c = Integer.compare(b.depth, a.depth);      // 动作多的优先
+                return c != 0 ? c : Long.compare(b.score, a.score);
+            }
+        });
+        int limit = Math.min(NO_COST_PREFIX_LIMIT, candidates.size());
+        java.util.List<java.util.List<PlanAction>> prefixes =
+                new ArrayList<java.util.List<PlanAction>>(limit);
+        for (int i = 0; i < limit; i++) {
+            prefixes.add(routeOf(candidates.get(i)));
+        }
+        return prefixes;
+    }
+
+    /** 只收「免费出牌」：{@code PlayCard && 还在本回合 && 能量没变}（{@code Expansion.Opening.cs:1046-1048}）。 */
+    private static void collectNoCostPlays(java.util.List<SearchNode> children, SearchNode parent,
+                                           java.util.List<SearchNode> out) {
+        for (SearchNode child : children) {
+            if (child == null || child.action == null
+                    || child.action.kind != PlanAction.Kind.PLAY_CARD) {
+                continue;
+            }
+            if (child.state.turn != parent.state.turn) {
+                continue;
+            }
+            if (child.state.energy != parent.state.energy) {
+                continue;
+            }
+            out.add(child);
+        }
+    }
+
+    /** 蓝本 {@code DistinctBy(StateKey).OrderByDescending(Score).Take(24)}。 */
+    private static java.util.List<SearchNode> noCostFrontier(java.util.List<SearchNode> nodes) {
+        Map<String, SearchNode> byState = new LinkedHashMap<String, SearchNode>();
+        for (SearchNode node : nodes) {
+            String key = node.state.fingerprint();
+            if (!byState.containsKey(key)) {
+                byState.put(key, node);         // DistinctBy 保留先出现的那条
+            }
+        }
+        java.util.List<SearchNode> unique = new ArrayList<SearchNode>(byState.values());
+        unique.sort(new java.util.Comparator<SearchNode>() {
+            @Override
+            public int compare(SearchNode a, SearchNode b) {
+                return Long.compare(b.score, a.score);
+            }
+        });
+        return unique.size() <= NO_COST_PREFIX_FRONTIER_LIMIT
+                ? unique
+                : new ArrayList<SearchNode>(unique.subList(0, NO_COST_PREFIX_FRONTIER_LIMIT));
+    }
+
+    /**
+     * 蓝本 {@code ApplyFixedPrefix}（{@code Phases.cs:2296-2400}）：
+     * 从 {@code seed} 开始按顺序回放前缀，返回走完的节点；任何一步不合法 → 返回 null（整条作废）。
+     *
+     * <p>与蓝本一致的收尾：前缀中途把战斗打完了就 {@code break}（剩下的动作不可达）。
+     * 蓝本的 {@code resetFixedPrefixSchedulingBaseline} 会重置「持续增益 / 力量压制 / 虚弱回合 /
+     * 保留攻击价值」四个排程基线 —— 这四个量我们都没建模，所以无对应代码，不是漏搬。
+     */
+    private SearchNode applyFixedPrefix(SearchNode seed, java.util.List<PlanAction> prefix) {
+        SearchNode node = seed;
+        for (PlanAction action : prefix) {
+            if (node.terminal()) {
+                break;
+            }
+            SearchNode next = replayPrefixAction(node, action);
+            if (next == null) {
+                return null;
+            }
+            node = next;
+        }
+        return node;
+    }
+
+    /** 回放前缀里的一步；打不出/用不了 → null（蓝本 {@code CanApplyFixedPrefixAction} 为假）。 */
+    private SearchNode replayPrefixAction(SearchNode node, PlanAction action) {
+        if (action == null) {
+            return null;
+        }
+        SimState state = node.state;
+        SimState copy;
+        String cardKey = null;
+        try {
+            copy = state.copy();
+            if (action.kind == PlanAction.Kind.END_TURN) {
+                CombatFlow.endTurn(copy, energyPerTurn, handSize);
+            } else if (action.kind == PlanAction.Kind.PLAY_CARD) {
+                if (action.cardIndex < 0 || action.cardIndex >= state.hand.size()) {
+                    return null;
+                }
+                cardKey = state.hand.get(action.cardIndex).key();
+                CardPlayer.play(copy, action.cardIndex, action.targetIndex, action.choiceIndex);
+            } else if (action.kind == PlanAction.Kind.USE_POTION) {
+                if (action.cardIndex < 0 || action.cardIndex >= state.potions.size()) {
+                    return null;
+                }
+                String potionId = state.potions.get(action.cardIndex);
+                if (potionId == null
+                        || !io.github.youqing.sts1solver.mirror.Potions.canUse(potionId)) {
+                    return null;
+                }
+                boolean used = action.choiceIndices != null
+                        ? io.github.youqing.sts1solver.mirror.Potions.useMulti(copy, potionId,
+                                action.choiceIndices)
+                        : io.github.youqing.sts1solver.mirror.Potions.use(copy, potionId,
+                                action.targetIndex, action.choiceIndex);
+                if (!used) {
+                    return null;
+                }
+                copy.potions.set(action.cardIndex, null);
+                cardKey = potionId;
+            } else {
+                return null;
+            }
+        } catch (Throwable rejected) {
+            return null;                    // 打不出就是打不出，不换一张牌顶上
+        }
+        return nodeOf(copy, action, node, node.depth + 1, cardKey);
+    }
+
+    /** 日志用：{@code PLAY[0]->1,PLAY[1]}。 */
+    private static String describePrefix(java.util.List<PlanAction> prefix) {
+        StringBuilder sb = new StringBuilder();
+        for (PlanAction action : prefix) {
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(action);
+        }
+        return sb.length() == 0 ? "-" : sb.toString();
+    }
+
+    /** 到 deadline 还剩多少毫秒；{@code Long.MAX_VALUE} 截止 = 不限。 */
+    private static long remainingMillis(long deadline) {
+        return deadline == Long.MAX_VALUE
+                ? Long.MAX_VALUE
+                : Math.max(0, (deadline - System.nanoTime()) / 1_000_000L);
     }
 
     /**

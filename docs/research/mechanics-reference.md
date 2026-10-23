@@ -1487,3 +1487,94 @@ STS1 Ironclad 逐项对应（`BeamSolver.offensiveProgressOf`）：
 - 新增 `BeamRetentionPolicyTest` 5 条：推进量计算（力量×命中段数+BodySlam 格挡 = 25 的手工推演）、
   无力量/无撞击 = 0、排序第三键、轮转（[B,A,D] 手工推演）、分桶隔离。
 - 全量 221 条通过（216 旧 + 5 新），现有搜索行为测试无一受影响。
+
+## 27. 0 费开局补搜（A｜蓝本源码，2026-10-23）
+
+> 对照表 §4 第 4 项拆开后的可搬部分。蓝本一条链：
+> `RunZeroCostOpeningRescue`（`CombatSearchCoordinator.PostSearch.cs:352-392`，后处理第 4 趟）
+> → `OpeningNoCostContinuationSource`（`OpeningNoCostContinuationSource.cs`）
+> → `BuildOpeningNoCostPrefixes`（`CombatBeamSolver.Expansion.Opening.cs:1028-1064`）
+> → 每条前缀各跑一个 `CombatBeamSolver(fixedPrefixActions: prefix, maximumPotionUses: 0)`
+> → `ApplyFixedPrefix`（`CombatBeamSolver.Phases.cs:2296-2400`）。
+
+### 27.1 固定前缀回放（前置件）
+
+蓝本 ctor 参数 `fixedPrefixActions`（`CombatBeamSolver.cs:38`），搜索开跑前把前缀
+**回放**一遍，走完的节点当搜索根（`Phases.cs:1106-1129`）。
+
+逐条照抄的四件事：
+
+1. **动作不合法 → 整条作废**：蓝本 `CanApplyFixedPrefixAction`（`:2402-2441`）
+   对出牌查「在手牌里 + 当前打得出 + 目标合法」，对药水查「枚举出来的药水动作里有这一条」。
+   我们的 `replayPrefixAction` 直接在副本上试打，`ActionRejected` / 任何异常 → 返回 null。
+2. **打不出不许换牌顶上**：蓝本注释「Keep the planned identity: an invalid suffix rejects
+   the adjusted route rather than replaying it against a missing target or choosing another one.」
+   —— 我们同样整条拒绝，不 fallback。
+3. **战斗提前结束就 `break`**：前缀剩下的动作已经不可达（`:2384-2388`）。
+4. **索引题**：蓝本 `PlanAction` 带 `CardId`，靠 `FindCardForReplay` 在手里找牌；
+   我们 `PlanAction` 带**手牌下标**，前缀一律「从当前局面立刻回放」，所以下标天然有效。
+   蓝本的 `action.Turn != node.Turn` 检查与「这张牌打完会强制结束回合」检查（`:2312-2338`）
+   在 STS1 无对应物（`PlanAction` 不带回合号；铁甲没有强制结束回合的牌），不做。
+
+**无对应、不是漏搬**：蓝本 `resetFixedPrefixSchedulingBaseline` 会重置
+`InitialPersistentBuffValue` / `InitialEnemyStrengthSuppression` / `InitialEnemyWeakTurns` /
+`InitialRetainedAttackValue` 四个排程基线（`:1135-1142`）—— 这四个量我们都没建模。
+
+### 27.2 药水上限闸
+
+`EnumeratePlannedPotionActions`（`ExpansionPlan.cs:146-147`）：
+`_maximumPotionUses != null && ExplicitPotionUseCount(node) >= 上限` → 整段不枚举药水。
+我们落在 `expandTurnLayer` 的药水循环上，判据 `node.potionsUsed >= maxPotionUses`
+（`potionsUsed` 就是路线里 USE_POTION 的累计数；STS1 没有「自动用药」，
+瓶中仙子是被动死亡豁免，不算显式用量）。
+
+### 27.3 免费前缀枚举
+
+`BuildOpeningNoCostPrefixes`（`Expansion.Opening.cs:1028-1064`）逐行：
+
+| 蓝本 | 我们 |
+|---|---|
+| BFS `depth < 4` | `NO_COST_PREFIX_MAX_DEPTH = 4` |
+| 子节点筛 `PlayCard && Turn == parent.Turn && Energy == parent.Energy` | `collectNoCostPlays` 同三条（plays 与 ended 都过一遍 —— 蓝本也不排除终局子节点） |
+| `DistinctBy(StateKey)` 后按 `Score` 降序取 24 | `noCostFrontier`：按指纹去重（保留先出现的），按基础分降序取 24 |
+| 汇总后 `OrderByDescending(ActionCount).ThenByDescending(Score).Take(12)` | `depth` 降序、`score` 降序取 12 |
+| `node.Actions.ToArray()` 当前缀 | `routeOf(node)` |
+
+只用到了六个量：动作种类 / 回合 / 能量 / 状态指纹 / 基础分 / 动作数 —— **全部已有**，
+这就是「这条能整条搬」的判据。
+
+### 27.4 触发条件与采纳
+
+`PostSearch.cs:355-362` 的与条件，逐条对：
+
+| 蓝本 | 我们（`shouldRescueZeroCostOpening`） |
+|---|---|
+| `ResultScope == SearchCompletion` | `!hitNodeLimit && !lastPassCutShort` |
+| `IsCompleteVictory(selected)` | 同 |
+| `selected.ExplicitPotionCount == 0` | `selected.potionsUsed == 0` |
+| `selected.ProjectedBattleHpLost > 0` | `rootHp - selected.state.hp > 0`（投影掉血 = 起点血 - 该节点血） |
+| `BestNode.Actions.First().Kind == EndTurn` | `selected.firstAction().kind == END_TURN` |
+| `PotionPolicy == Smart && !HasForcedDirectives` | **无对应**：药水策略族未建模，用「这条路线用药数」代替 |
+| `!IncludeTurnSetup` | 无对应（我们没有 turn-setup 分支） |
+
+采纳（`PostSearch.cs:366-389`）：
+`minimumRemainingMilliseconds 5000` → `ZERO_COST_MIN_REMAINING_MILLIS`；
+`maximumNodes 40000` → `ZERO_COST_MAX_NODES`；`maximumMilliseconds 12000` → `ZERO_COST_MAX_MILLIS`；
+`reserveMilliseconds 2000` → `ZERO_COST_RESERVE_MILLIS`；`++attempts >= 8` → `ZERO_COST_MAX_ATTEMPTS`；
+`ResultScope == SearchCompletion` 才算成绩 → `!sub.hitNodeLimit && !sub.lastPassCutShort`；
+`IsBetterPotionPolicyResult` → 我们的 `better()`（最终排序词典序）；
+`ProjectedBattleHpLost == 0` 就停 → `rootHp - selected.state.hp <= 0` 就停。
+
+**位置差异（记录在案）**：蓝本在 coordinator 的 post-search 链（主搜索之后第 4 趟）；
+我们没有 coordinator 这一层，放在 `bestFirstAction` 里紧跟主搜索、共用同一份 deadline。
+补搜自己是 sub-solver（带固定前缀），`fixedPrefix` 非空时不再触发补搜 —— 不递归。
+
+### 27.5 验证
+
+- 新增 `ZeroCostOpeningRescueTest` 6 条：前缀回放（`lastSteps[0].cardKey == Flex`）、
+  非法前缀整条作废（能量不够 / 下标越界两档）、药水闸 0 时路线无用药且不限时必用药、
+  免费前缀只收 0 费牌（回放后按牌名校验，不看下标）、采纳逻辑（喂一条「赢了但赔 25 血」的
+  假解，补搜必须换掉）、第一步是出牌时不补搜。
+- 全量 **227 条通过**（221 旧 + 6 新）。
+- ⚠️ 未覆盖：「主搜索真误判、补搜救回来」的端到端局面 —— 它依赖 beam 宽度，换宽度就不复现，
+  钉不住，所以只钉采纳逻辑。
