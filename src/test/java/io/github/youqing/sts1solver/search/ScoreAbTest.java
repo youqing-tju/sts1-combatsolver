@@ -148,6 +148,50 @@ class ScoreAbTest {
         }
     }
 
+    /** 带「能力牌 + 成长攻击」的牌组：验证 Beam 项与「掉血二次计价」的交互。 */
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "离线实验（gradle test -Pexperiments 才跑）")
+    @Test
+    void beamTermsWithPowerDeck() {
+        System.out.println("[ab] ===== Beam 项 / 掉血二次计价 A/B（牌组含恶魔形态 / 暴走 / 愤怒） =====");
+        System.out.println("[ab] baseOnly | dmgWeight | 场面 | 回合 | 血量 | 恶魔形态 | 存活");
+        for (boolean baseOnly : new boolean[]{true, false}) {
+            for (double dmg : new double[]{0d, 1d}) {
+                Score.baseScoreOnly = baseOnly;
+                Score.damageTakenWeight = dmg;
+                for (int scene = 0; scene < 2; scene++) {
+                    SimState s = scene == 0 ? powerDeck(true) : powerDeck(false);
+                    System.out.println("[ab] " + baseOnly + " | " + dmg + " | "
+                            + (scene == 0 ? "双教徒" : "单厚怪") + " | " + run(s, 60, 16)
+                            + " | 恶魔 " + s.playerPowers.getOrDefault("Demon Form", 0));
+                }
+            }
+        }
+        Score.resetKnobs();
+    }
+
+    /** 卡组：标准起手 + 恶魔形态 + 暴走 + 愤怒。 */
+    private static SimState powerDeck(boolean multi) {
+        SimState s = multi ? twoCultists() : bigSingle();
+        s.draw.add(new SimCard("Demon Form", false, 3, 0, "POWER"));
+        s.draw.add(new SimCard("Rampage", false, 1, 8, "ATTACK"));
+        s.draw.add(new SimCard("Anger", false, 0, 6, "ATTACK"));
+        return s;
+    }
+
+    /** 全场里「暴走」的卡面伤害（打过就会涨），用来判断 AI 有没有反复用成长攻击。 */
+    private static int rampageDamage(SimState s) {
+        int best = 0;
+        for (java.util.List<SimCard> pile
+                : java.util.Arrays.asList(s.hand, s.draw, s.discard, s.exhaust)) {
+            for (SimCard c : pile) {
+                if ("Rampage".equals(c.id)) {
+                    best = Math.max(best, c.baseDamage);
+                }
+            }
+        }
+        return best;
+    }
+
     /** 回合层覆盖：给定节点预算，搜索能推进到第几个回合层、花多少毫秒。 */
     @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "sts1.experiments", matches = "true", disabledReason = "离线实验（gradle test -Pexperiments 才跑）")
     @Test

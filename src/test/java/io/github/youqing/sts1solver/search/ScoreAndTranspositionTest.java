@@ -199,6 +199,55 @@ class ScoreAndTranspositionTest {
                 "打死一个 = 少一个意图，必须更优");
     }
 
+    /**
+     * 蓝本 {@code LatentSetupValue}：手里捏着还没打的能力牌算「延迟收益」，
+     * 但**只在多敌人（或 Boss）时启用** —— 单敌人小怪不值得为长期成长拖延。
+     */
+    @Test
+    void latentPowerCardsCountOnlyInMultiEnemyFights() {
+        SimState one = state(40);
+        one.hand.add(new SimCard("Demon Form", false, 3, 0, "POWER"));
+        SimState onePlain = state(40);
+        assertEquals(Score.of(onePlain).total(), Score.of(one).total(),
+                "单敌人时不吃延迟收益");
+
+        SimState two = state(40);
+        two.monsters.add(new SimMonster("U", 40, 40, 0, Collections.<String, Integer>emptyMap()));
+        two.hand.add(new SimCard("Demon Form", false, 3, 0, "POWER"));
+        SimState twoPlain = state(40);
+        twoPlain.monsters.add(new SimMonster("U", 40, 40, 0,
+                Collections.<String, Integer>emptyMap()));
+        assertTrue(Score.of(two).total() > Score.of(twoPlain).total(),
+                "多敌人时手里的能力牌应该算分");
+    }
+
+    /**
+     * 蓝本 {@code RetainedAttackGrowth}：牌堆里的攻击总量比开局更多就加分。
+     *
+     * <p>作用不是「打得疼」，而是**别把可复用的攻击牌烧掉换一点即时伤害**：
+     * 消耗一张好攻击 = 攻击总量下降 = 掉分。
+     */
+    @Test
+    void growingAttackValueInTheDeckIsWorthSomething() {
+        SimState rootState = state(40);
+        rootState.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        Score.Root root = new Score.Root(rootState);        // 开局攻击总量 = 6
+
+        SimState kept = state(40);
+        kept.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+
+        SimState grown = state(40);
+        grown.hand.add(new SimCard("Searing Blow", false, 2, 20, "ATTACK"));
+
+        assertTrue(Score.of(grown, root, 0).total() > Score.of(kept, root, 0).total(),
+                "牌堆里的攻击总量比开局高应该加分（暴走/愤怒/武装）");
+
+        // 蓝本用 max(0, 当前 - 开局)：**只奖励成长，不惩罚损失**。
+        SimState burnt = state(40);                         // 攻击牌被消耗光了
+        assertEquals(Score.of(kept, root, 0).total(), Score.of(burnt, root, 0).total(),
+                "消耗掉攻击牌只掉成长分，不该额外倒扣");
+    }
+
     @Test
     void transpositionDropsDominatedStates() {
         TranspositionTable tt = new TranspositionTable();

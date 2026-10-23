@@ -136,6 +136,8 @@ public final class BeamSolver {
     private int rootHp;
     private int rootMaxHp;
     private int rootTurn;
+    /** 估值的「路线起点」快照（血量/上限/回合/开局攻击总量/开局敌人数）。 */
+    private Score.Root scoreRoot;
 
     public BeamSolver(int energyPerTurn, int handSize, int beamWidth, int depth) {
         this(energyPerTurn, handSize, beamWidth, depth, 0, 0);
@@ -459,17 +461,18 @@ public final class BeamSolver {
         return nodeOf(afterTurn, PlanAction.endTurn(), node, node.depth + 1, null);
     }
 
-    /** 记住本轮搜索起点的血量/上限/回合，供 {@link Score} 算「已损血量」与「最大生命成长」。 */
+    /** 记住本轮搜索起点的血量/上限/回合/攻击总量/敌人数，供 {@link Score} 算各路「成长」。 */
     private void bindRoot(SimState root) {
         rootHp = root.hp;
         rootMaxHp = root.maxHp;
         rootTurn = root.turn;
+        scoreRoot = new Score.Root(root);
     }
 
     /** 建节点：一次算出基础分（定路线）和排序分（定剪枝）。 */
     private SearchNode nodeOf(SimState state, PlanAction action, SearchNode parent, int depth,
                               String cardKey) {
-        Score score = Score.of(state, rootHp, rootMaxHp, rootTurn, depth);
+        Score score = Score.of(state, scoreRoot, depth);
         return new SearchNode(state, action, parent, depth, score.baseTotal(), score.total(),
                 cardKey);
     }

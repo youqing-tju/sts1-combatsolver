@@ -93,18 +93,51 @@ public final class Score {
     public static final double CLUTTER_PENALTY = -8_000d;
     /** 每个动作扣 1 分：等价于「同样好就选更短的那条」，量级上可忽略。 */
     public static final double ACTION_PENALTY = -1d;
+    /**
+     * Beam 排序：**还没打出去的能力牌**算「延迟收益」。
+     *
+     * <p>蓝本 {@code LatentSetupValue}：手牌/抽牌/弃牌里每张能力牌计 {@code LatentCardSetupValue} 点，
+     * 普通能力牌默认 {@value #LATENT_POWER_VALUE} 点，再按 {@link #LATENT_SETUP_CAP} 封顶。
+     * 蓝本对个别 STS2 能力卡给了更高的分（Echo Form 12 / Buffer 8 / 偏折 6 …），
+     * **STS1 没有这些卡**，对应的「哪张能力更值钱」属于需要判断的映射，这里不臆造，
+     * 统一走蓝本的默认分支。
+     *
+     * <p>蓝本只在「多敌人或 Boss」时才启用（{@code _isActEndingBoss || _initialEnemyCount > 1}），
+     * 单敌人小怪不值得为长期成长拖延；我们照抄前半条（Boss 判定还没建模）。
+     */
+    public static final int LATENT_SETUP_CAP = 24;
+    public static final double LATENT_SETUP_VALUE = 12_000d;
+    public static final int LATENT_POWER_VALUE = 2;
+    /**
+     * Beam 排序：**牌堆里的攻击总量比开局更多**就加分（蓝本 {@code RetainedAttackGrowth}）。
+     *
+     * <p>值 = {@code min(16, 当前攻击总量 - 开局攻击总量)}。攻击总量只统计手牌+抽牌+弃牌，
+     * 所以「消耗掉一张好攻击换一点即时伤害」会掉分，而「暴走每打一次 +5」「愤怒复制一张」
+     * 「武装升级」会加分 —— 这正是蓝本注释说的
+     * 「防止一个破坏性选择因为换来一点即时伤害而显得更优」。
+     */
+    public static final int RETAINED_GROWTH_CAP = 16;
+    public static final double RETAINED_GROWTH_VALUE = 20_000d;
 
     // ===================== 两个实验开关（默认 = 蓝本口径） =====================
 
     /**
-     * 「已损血量」是否二次计价：蓝本 {@code StateEvaluation} 同时计入
-     * {@code projectedHp * Hp} 和 {@code -cumulativePlayerHpLost * Hp}，等于**掉 1 点血收 2 份钱**
-     * （有效汇率变成 1 血 = 6 伤），与它自己注释里写的「保住 1 HP ≈ 造成 3 点伤害」矛盾。
+     * 「已损血量」是否二次计价 —— **照蓝本，默认开（1.0）**。
      *
-     * <p>STS1 还有 Reaper / 吃（Feed）这类**战斗中回血**，二次计价会把回血算成零收益，
-     * 所以默认取 {@code 0}（只按剩余血量算），跑 A/B 时再开成 {@code 1} 对比。
+     * <p>蓝本 {@code StateEvaluation.cs:163-167} 同时计入 {@code projectedHp * Hp} 和
+     * {@code -cumulativePlayerHpLost * Hp}：前者是「还剩多少血」，后者是「这一路掉了多少血」。
+     * 两者都是增长量，于是**掉 1 点血要收 2 份钱**，有效汇率从 1:3 变成 1:6 ——
+     * 与它自己注释里写的「保住 1 HP ≈ 造成 3 点伤害」不一致，但这就是它的实现。
+     * 蓝本作者管这叫「战略血量赤字」，好处是「先掉血再回血」不算白掉。
+     *
+     * <p>⚠️ 我们的 {@code hpLost} 是**净掉血**（{@code 起点血量 - 当前血量}），
+     * 蓝本记的是**累计未格挡伤害**（回血不抵扣）。STS1 有 Reaper / 吃这类战斗中回血，
+     * 净额口径对它们更友好一点；要更严格可以改成累计值。
+     *
+     * <p>实测代价（`ScoreAbTest`，固定 12 伤的木桩）：单怪 120 血会从 12 回合拖到 21 回合
+     * （剩血 55 → 64）。真怪物会成长，这个木桩对「龟」格外有利，所以按蓝本保留。
      */
-    public static volatile double damageTakenWeight = 0d;
+    public static volatile double damageTakenWeight = 1d;
 
     /**
      * 每推进一个回合扣多少分。蓝本没有这一项（只有 {@code ActionPenalty = -1}），
@@ -125,12 +158,19 @@ public final class Score {
      */
     public static volatile boolean legacyScoring = false;
 
+    /**
+     * 蓝本 {@code SolverSearchProfile.BaseScoreOnly}：中途排序只用基础分，不加 Beam 项。
+     * 默认关（= 蓝本默认）。留成开关是为了能离线验证「Beam 项到底有没有用」。
+     */
+    public static volatile boolean baseScoreOnly = false;
+
     /** 恢复默认（单测之间互不污染）。 */
     public static void resetKnobs() {
-        damageTakenWeight = 0d;
+        damageTakenWeight = 1d;
         turnPenaltyPerTurn = 0L;
         energyBeamValue = ENERGY_VALUE;
         legacyScoring = false;
+        baseScoreOnly = false;
     }
 
     /** 旧版（2026-10-23 之前）的字典序硬编码估值，仅作 A/B 对照。 */
@@ -186,10 +226,22 @@ public final class Score {
     public final int enemyWeak;
     /** 敌方力量被削掉的层数合计（负数力量）。 */
     public final int enemyStrengthDown;
-    /** 牌堆（手牌+抽牌+弃牌）里的攻击牌总伤害，用来给易伤封顶。蓝本 {@code retainedAttackValue}。 */
-    public final int attackWindow;
+    /**
+     * 牌堆（手牌+抽牌+弃牌）里的攻击牌总伤害 —— 蓝本 {@code retainedAttackValue}。
+     *
+     * <p>⚠️ 这个值是**原始值，不封顶**：易伤项用它时取 {@code min(24, ·)}，
+     * 而「成长」项要用原始差值（见 {@link #RETAINED_GROWTH_CAP}）。
+     * 早先在这里就截断到 24，等于把成长项废掉了。
+     */
+    public final int retainedAttackValue;
+    /** 还没打出去的能力牌值多少点（蓝本 {@code LatentSetupValue}，普通能力牌 2 点/张）。 */
+    public final int latentSetupValue;
     /** 牌堆里的状态/诅咒张数（牌库杂质）。 */
     public final int clutter;
+    /** 开局时的攻击总量（算「成长」要拿它做差）。 */
+    public final int initialRetainedAttackValue;
+    /** 开局时的敌人数（蓝本只在多敌人/Boss 时启用 LatentSetup）。 */
+    public final int initialEnemyCount;
 
     public final boolean dead;
     public final boolean won;
@@ -218,8 +270,11 @@ public final class Score {
         this.focusVulnerable = b.focusVulnerable;
         this.enemyWeak = b.enemyWeak;
         this.enemyStrengthDown = b.enemyStrengthDown;
-        this.attackWindow = b.attackWindow;
+        this.retainedAttackValue = b.retainedAttackValue;
+        this.latentSetupValue = b.latentSetupValue;
         this.clutter = b.clutter;
+        this.initialRetainedAttackValue = b.initialRetainedAttackValue;
+        this.initialEnemyCount = b.initialEnemyCount;
         this.dead = b.dead;
         this.won = b.won;
         this.actions = b.actions;
@@ -236,29 +291,67 @@ public final class Score {
 
     // ===================== 构造 =====================
 
+    /**
+     * 一条搜索路线的**起点**。蓝本每次 pass 都会重新抓这些值
+     * （{@code _run.InitialPersistentBuffValue} / {@code InitialRetainedAttackValue} / {@code root.InitialPlayerMaxHp}），
+     * 因为「已损血量」「最大生命成长」「攻击总量成长」都只能相对起点算。
+     */
+    public static final class Root {
+        final int hp;
+        final int maxHp;
+        final int turn;
+        final int retainedAttackValue;
+        final int enemyCount;
+
+        public Root(SimState state) {
+            this.hp = state.hp;
+            this.maxHp = state.maxHp;
+            this.turn = state.turn;
+            int alive = 0;
+            for (SimMonster m : state.monsters) {
+                if (m.hp > 0) {
+                    alive++;
+                }
+            }
+            this.enemyCount = alive;
+            this.retainedAttackValue = attackTotal(state.hand) + attackTotal(state.draw)
+                    + attackTotal(state.discard);
+        }
+    }
+
+    /** 牌堆里的攻击总量（蓝本 {@code retainedAttackValue} 的统计口径：手牌 + 抽牌 + 弃牌）。 */
+    private static int attackTotal(java.util.List<SimCard> pile) {
+        int total = 0;
+        for (SimCard c : pile) {
+            if (c.isAttack()) {
+                total += Math.max(1, c.baseDamage);
+            }
+        }
+        return total;
+    }
+
     /** 把当前状态当作「路线起点」来估值（单测/面板/回退决策用）。 */
     public static Score of(SimState state) {
-        return of(state, state.hp, state.maxHp, state.turn, 0);
+        return of(state, new Root(state), 0);
     }
 
     /**
-     * @param initialHp    本条路线起点的血量（算「已损血量」用）
-     * @param initialMaxHp 本条路线起点的最大生命（算「最大生命成长」用）
-     * @param initialTurn  本条路线起点的回合数
-     * @param actions      本条路线已经走了几步
+     * @param root    本条路线的起点（血量/最大生命/回合数/开局攻击总量/开局敌人数）
+     * @param actions 本条路线已经走了几步
      */
-    public static Score of(SimState state, int initialHp, int initialMaxHp,
-                           int initialTurn, int actions) {
+    public static Score of(SimState state, Root root, int actions) {
         Builder b = new Builder();
         b.playerHp = state.hp;
         b.maxHp = state.maxHp;
-        b.maxHpGain = state.maxHp - initialMaxHp;
-        b.hpLost = Math.max(0, initialHp - state.hp);
+        b.maxHpGain = state.maxHp - root.maxHp;
+        b.hpLost = Math.max(0, root.hp - state.hp);
         b.block = state.block;
         b.energy = state.energy;
         b.handSize = state.hand.size();
         b.actions = actions;
-        b.turns = Math.max(0, state.turn - initialTurn);
+        b.turns = Math.max(0, state.turn - root.turn);
+        b.initialRetainedAttackValue = root.retainedAttackValue;
+        b.initialEnemyCount = root.enemyCount;
 
         int alive = 0;
         int enemyHp = 0;
@@ -315,25 +408,24 @@ public final class Score {
 
         // 蓝本的 retainedAttackValue 统计的是「所有活着的牌」（手牌 + 抽牌 + 弃牌），不是只算手牌：
         // 易伤要跨回合吃满，手里这回合打不出的攻击牌下一回合也能吃到。
-        int window = 0;
-        window += cardStats(state.hand, b);
-        window += cardStats(state.draw, b);
-        window += cardStats(state.discard, b);
-        b.attackWindow = Math.min(VULN_WINDOW_CAP, window);
+        // ⚠️ 这里存**原始值**，不封顶 —— 易伤项自己取 min(24, ·)，成长项要原始差值。
+        b.retainedAttackValue = attackTotal(state.hand) + attackTotal(state.draw)
+                + attackTotal(state.discard);
+        cardStats(state.hand, b);
+        cardStats(state.draw, b);
+        cardStats(state.discard, b);
         return new Score(b);
     }
 
-    /** 累计牌堆里的攻击总量与杂质张数（抽牌/弃牌堆共用）。 */
-    private static int cardStats(java.util.List<SimCard> pile, Builder b) {
-        int window = 0;
+    /** 统计牌堆里的「延迟收益能力牌」与「牌库杂质」。 */
+    private static void cardStats(java.util.List<SimCard> pile, Builder b) {
         for (SimCard c : pile) {
-            if (c.isAttack()) {
-                window += Math.max(1, c.baseDamage);
+            if ("POWER".equals(c.type)) {
+                b.latentSetupValue += LATENT_POWER_VALUE;
             } else if ("STATUS".equals(c.type) || "CURSE".equals(c.type)) {
                 b.clutter++;
             }
         }
-        return window;
     }
 
     private static int amount(Integer value) {
@@ -376,20 +468,31 @@ public final class Score {
      * Beam 排序分（蓝本 {@code BeamRankScore}）—— 只决定「哪些半成品路线能活到下一层」。
      */
     public long beamTotal() {
-        if (legacyScoring) {
-            return legacyTotal();
+        // 蓝本 SolverSearchProfile.BaseScoreOnly：中途排序只用基础分
+        if (legacyScoring || baseScoreOnly) {
+            return baseTotal();
         }
         double score = baseTotal();
         if (aliveEnemies > 0) {
+            // 顺序照蓝本 BeamRankScore：能量 → 持续成长 → 延迟收益 → 攻击总量成长 → 易伤 → 控制
             // 还剩敌人时，手头的资源才有意义；打完这些项全部清零（否则「先防再杀」会靠余量微弱胜出）。
             score += Math.min(ENERGY_CAP, energy) * energyBeamValue;
             // 力量也算持续成长：蓝本把它并进 PersistentBuffValue 的 DamagePotential 里
             int persistent = scalingPowers + strength;
             score += Math.min(PERSISTENT_CAP, persistent) * PERSISTENT_VALUE;
+            // 还没打出去的能力牌 = 延迟收益（蓝本：只在多敌人或 Boss 时启用）
+            if (initialEnemyCount > 1) {
+                score += Math.min(LATENT_SETUP_CAP, latentSetupValue) * LATENT_SETUP_VALUE;
+            }
+            // 牌堆攻击总量比开局更多（暴走/愤怒/武装）= 未来输出更高
+            score += Math.min(RETAINED_GROWTH_CAP,
+                    Math.max(0, retainedAttackValue - initialRetainedAttackValue))
+                    * RETAINED_GROWTH_VALUE;
             // 易伤是倍率，价值 = 层数 × 吃得到它的攻击量（蓝本 VulnerableAttackWindowCap）
-            score += focusVulnerable * attackWindow * VULN_VALUE;
+            int vulnWindow = Math.min(VULN_WINDOW_CAP, retainedAttackValue);
+            score += focusVulnerable * vulnWindow * VULN_VALUE;
             score += Math.max(0, enemyVulnerable - focusVulnerable)
-                    * attackWindow * VULN_VALUE_OFF_TARGET;
+                    * vulnWindow * VULN_VALUE_OFF_TARGET;
             score += Math.min(ENEMY_WEAK_CAP, enemyWeak) * ENEMY_WEAK_HP_SAVED * HP;
             score += Math.min(ENEMY_STR_CAP, enemyStrengthDown) * ENEMY_STR_HORIZON * HP;
         }
@@ -420,7 +523,9 @@ public final class Score {
                 + " vuln=" + enemyVulnerable + "(" + focusVulnerable + ")"
                 + " weak=" + enemyWeak
                 + " strDown=" + enemyStrengthDown
-                + " window=" + attackWindow
+                + " window=" + retainedAttackValue
+                + " latent=" + latentSetupValue
+                + " growth=" + Math.max(0, retainedAttackValue - initialRetainedAttackValue)
                 + " clutter=" + clutter
                 + " won=" + won
                 + " turns=" + turns
@@ -447,7 +552,10 @@ public final class Score {
         int focusVulnerable;
         int enemyWeak;
         int enemyStrengthDown;
-        int attackWindow;
+        int retainedAttackValue;
+        int latentSetupValue;
+        int initialRetainedAttackValue;
+        int initialEnemyCount;
         int clutter;
         boolean dead;
         boolean won;

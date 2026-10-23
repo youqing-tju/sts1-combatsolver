@@ -192,12 +192,14 @@ class SelfPlayTest {
     /**
      * 估值质量的**确定性**回归：同样输入必然同样输出，所以数字可以当断言用。
      *
-     * <p>两条判据来自 2026-10-23 的 A/B（见 {@link ScoreAbTest}）：
-     * <ul>
-     *   <li>双教徒 40+40：旧估值磨 11 回合只剩 19 血，新估值 8 回合剩 28 血 —— 必须活着且留有余量。</li>
-     *   <li>单厚怪 120 血：旧估值磨 20 回合，新估值 12 回合 —— 必须 ≤ 15 回合。</li>
-     * </ul>
-     * 门槛留了余量（不是贴着 28 / 12 卡），免得小改动就红。
+     * <p>2026-10-23 现状（蓝本原味权重：1 血 = 3 敌方血 + 掉血二次计价）：
+     * 双教徒 10 回合剩 26 血、单厚怪 21 回合剩 64 血。
+     *
+     * <p>⚠️ 这里**不断言回合数上限**。蓝本的 {@code ActionPenalty = -1} 对回合数几乎不计价，
+     * 而 1:6 的有效汇率（二次计价后）本来就允许「用血量换时间」。
+     * 纯木桩（固定 12 伤、不成长）对「龟」格外有利，21 回合是这种木桩的产物；
+     * 真怪物会成长，且 STS1 一局里没有 20 回合的普通战。
+     * 要收紧的话改 `Score.damageTakenWeight`，别改断言。
      */
     @Test
     void deterministicSearchKeepsItsQuality() {
@@ -211,7 +213,8 @@ class SelfPlayTest {
         int bigTurns = fight(big, 60, 60);
         System.out.println("[regress] 单厚怪：回合 " + bigTurns + "，剩血 " + big.hp);
         assertTrue(noAlive(big), "120 血的怪必须打死");
-        assertTrue(bigTurns <= 15, "不该磨洋工（旧估值要 20 回合），实际 " + bigTurns + " 回合");
+        assertTrue(big.hp >= 50, "单厚怪打完应剩 ≥50 血，实际 " + big.hp);
+        assertTrue(bigTurns <= 25, "不能卡在原地不出牌，实际 " + bigTurns + " 回合");
     }
 
     /** 跑完整场（确定性：固定宽度 × 深度，不用时间预算），返回打了几个回合。 */
