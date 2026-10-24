@@ -119,6 +119,7 @@ public final class MonsterMoves {
         MACHINES.put("FungiBeast", new FungiBeastMachine());
         MACHINES.put("SlaverBlue", new SlaverBlueMachine());
         MACHINES.put("SlaverRed", new SlaverRedMachine());
+        MACHINES.put("Lagavulin", new LagavulinMachine());
         MACHINES.put("LouseNormal", new LouseMachine("LouseNormal", true));
         MACHINES.put("LouseDefensive", new LouseMachine("LouseDefensive", false));
         MACHINES.put("GremlinWizard", new GremlinWizardMachine());
@@ -597,6 +598,59 @@ public final class MonsterMoves {
             return repeatedScrape
                     ? MonsterMove.attack(1, stab)
                     : MonsterMove.attackDebuff(3, scrape, "Vulnerable", vuln);
+        }
+    }
+
+    /**
+     * 拉格瓦林（Lagavulin，第一章精英）。
+     *
+     * <pre>
+     * getMove:  没醒 → 5(SLEEP)
+     *           醒了：debuffTurnCount &lt; 2 ? (lastTwoMoves(3) ? 1 : 3) : 1
+     * takeTurn: 5(SLEEP) → idleCount++；到 3 就 ChangeState("OPEN") 并排 3(ATTACK)
+     *           1(Siphon Soul) → debuffTurnCount = 0；玩家 **力量和敏捷各 -debuff**
+     *           3(ATTACK) → debuffTurnCount++；一段 attackDmg
+     *           4(STUN) → 只 ChangeState("OPEN")，不打人
+     * 常数:     attackDmg 18 (A3: 20)、debuff -1 (A18: -2)、HP 109-111 (A8: 112-115)
+     * </pre>
+     *
+     * <p>三个类字段全部从历史反推：
+     * <ul>
+     *   <li>{@code isOut} = 历史里出现过 1 / 3 / 4（醒着的招）；</li>
+     *   <li>{@code idleCount} = 历史里 5 的个数；</li>
+     *   <li>{@code debuffTurnCount} = 末尾连续 3 的个数（Siphon 会把它清零）。</li>
+     * </ul>
+     *
+     * <p>「睡着时被打就醒」不在这里 —— 那是 {@code damage()} 的重写，钩在
+     * {@code DamageCalc.hit}（见 {@code wakeSleepingLagavulin}）。
+     */
+    static final class LagavulinMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int attackDmg = c.ascension >= 3 ? 20 : 18;
+            int debuff = c.ascension >= 18 ? 2 : 1;
+            boolean awake = c.history.contains(Integer.valueOf(1))
+                    || c.history.contains(Integer.valueOf(3))
+                    || c.history.contains(Integer.valueOf(4));
+            if (!awake) {
+                int sleeps = 0;
+                for (Integer id : c.history) {
+                    if (id.intValue() == 5) {
+                        sleeps++;
+                    }
+                }
+                return sleeps >= 3 ? MonsterMove.attack(3, attackDmg) : MonsterMove.none(5);
+            }
+            int sinceDebuff = 0;
+            for (int i = c.history.size() - 1; i >= 0 && c.history.get(i).intValue() == 3; i--) {
+                sinceDebuff++;
+            }
+            MonsterMove siphon = MonsterMove.doubleDebuff(1, "Strength", debuff,
+                    "Dexterity", debuff);
+            if (sinceDebuff < 2) {
+                return c.lastTwoMoves(3) ? siphon : MonsterMove.attack(3, attackDmg);
+            }
+            return siphon;
         }
     }
 }

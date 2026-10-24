@@ -2126,3 +2126,39 @@ for (AbstractMonster m : monsters) {
 **被这条修正打红的一条旧测试**：`flameBarrierReflectionGoesThroughMonsterBlock`
 原来断言「怪物 3 格挡吸收掉 6 点反弹 → 只掉 3 血」，但怪物出手时格挡已经清掉了，
 正确是全额 6 点。断言已改成 34，并另加一条「格挡不跨回合累加」的反向测试。
+
+### 33.16 拉格瓦林（Lagavulin）—— 第一章精英（2026-10-25）
+
+它是本章最复杂的一只：三个类字段 + 一个 `damage()` 重写。
+
+| 类字段 | 从历史怎么反推 |
+|---|---|
+| `isOut`（醒没醒） | 历史里出现过 1 / 3 / 4 |
+| `idleCount`（睡了几回合） | 历史里 5 的个数 |
+| `debuffTurnCount`（距上次吸血打了几下） | 末尾连续 3 的个数（Siphon 会清零） |
+
+```
+getMove:  没醒 → 5(SLEEP)
+          醒了：debuffTurnCount < 2 ? (lastTwoMoves(3) ? 1 : 3) : 1
+takeTurn: 5 → idleCount++；到 3 就 OPEN 并排 3(ATTACK)
+          1(Siphon Soul) → debuffTurnCount = 0；玩家力量与敏捷各 -N
+          3(ATTACK) → debuffTurnCount++；一段 attackDmg
+          4(STUN) → 只 OPEN，不打人
+常数:     attackDmg 18 (A3: 20)、debuff -1 (A18: -2)、HP 109-111 (A8: 112-115)
+```
+
+**`damage()` 重写**（`Lagavulin.damage`）：血量**真的变了**且还没醒过 →
+`setMove((byte)4, Intent.STUN)` + `ChangeState("OPEN")`，后者再做
+`ReducePowerAction(Metallicize, 8)`。
+
+落在 `DamageCalc.hit`（怪物受伤的唯一咽喉）：比较打前打后的 `hp`，
+判据用「当前排的招还是 5」当作 `isOutTriggered` 的等价物（改过之后就不是 5 了，不会重复触发）。
+
+🔴 **一个反直觉的细节**：全被格挡吸收时**不会醒** —— 原版判的是 `currentHealth` 变没变，
+不是「挨没挨打」。测试里就踩到了：8 点格挡挡下 8 点伤害，`pendingMove` 仍是 SLEEP。
+
+`MonsterMove` 因此补了第二个玩家减益槽（`playerDebuff2`）—— Siphon Soul 一次扣两项。
+
+验证 3 条：机器序列（睡 3 回合→醒→砍两下→吸血，A3/A18 数值）、
+「挨打即醒 + 金属化被拿掉 + 醒着再挨打不改招」、端到端（睡着每回合 +8 格挡 /
+格挡没打穿不醒 / 打穿后 STUN 那回合不造成伤害 / 自己回合开始清格挡）。全量 **274 条**。

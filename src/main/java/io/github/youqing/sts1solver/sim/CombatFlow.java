@@ -177,6 +177,11 @@ public final class CombatFlow {
             state.playerPowers.put(move.playerDebuff,
                     (prior == null ? 0 : prior) + move.playerDebuffAmount);
         }
+        if (move.playerDebuff2 != null && move.playerDebuff2Amount > 0) {
+            Integer prior = state.playerPowers.get(move.playerDebuff2);
+            state.playerPowers.put(move.playerDebuff2,
+                    (prior == null ? 0 : prior) + move.playerDebuff2Amount);
+        }
         if (move.selfBuff != null && move.selfBuffAmount > 0) {
             // 原版 ApplyPowerAction(owner, owner, power)：给自己叠层
             Integer prior = m.powers.get(move.selfBuff);

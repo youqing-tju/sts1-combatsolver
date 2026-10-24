@@ -38,6 +38,9 @@ public final class MonsterMove {
     /** 施加给玩家的减益 ID（{@code null} = 不施加）。 */
     public final String playerDebuff;
     public final int playerDebuffAmount;
+    /** 第二个玩家减益（Lagavulin 的 Siphon Soul 同时扣力量与敏捷）；{@code null} = 没有。 */
+    public final String playerDebuff2;
+    public final int playerDebuff2Amount;
     /** 往玩家弃牌堆塞的状态牌 ID（Sentry 的 Dazed）；{@code null} = 不塞。 */
     public final String statusCard;
     public final int statusCount;
@@ -45,6 +48,15 @@ public final class MonsterMove {
     public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
                        String selfBuff, int selfBuffAmount,
                        String playerDebuff, int playerDebuffAmount,
+                       String statusCard, int statusCount) {
+        this(id, damage, hits, block, blockRandomAlly, selfBuff, selfBuffAmount,
+                playerDebuff, playerDebuffAmount, null, 0, statusCard, statusCount);
+    }
+
+    public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
+                       String selfBuff, int selfBuffAmount,
+                       String playerDebuff, int playerDebuffAmount,
+                       String playerDebuff2, int playerDebuff2Amount,
                        String statusCard, int statusCount) {
         this.id = id;
         this.damage = Math.max(0, damage);
@@ -55,6 +67,8 @@ public final class MonsterMove {
         this.selfBuffAmount = Math.max(0, selfBuffAmount);
         this.playerDebuff = playerDebuff;
         this.playerDebuffAmount = Math.max(0, playerDebuffAmount);
+        this.playerDebuff2 = playerDebuff2;
+        this.playerDebuff2Amount = Math.max(0, playerDebuff2Amount);
         this.statusCard = statusCard;
         this.statusCount = Math.max(0, statusCount);
     }
@@ -98,6 +112,13 @@ public final class MonsterMove {
         return new MonsterMove(id, 0, 0, 0, 0, power, amount, null, 0, null, 0);
     }
 
+    /** 一次扣两项（Lagavulin 的 Siphon Soul：力量和敏捷各 -N）。 */
+    public static MonsterMove doubleDebuff(int id, String first, int firstAmount,
+                                           String second, int secondAmount) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, first, firstAmount,
+                second, secondAmount, null, 0);
+    }
+
     /** 给自己挂能力 + 自己加格挡（JawWorm 的 Bellow）。 */
     public static MonsterMove buffBlock(int id, String power, int amount, int block) {
         return new MonsterMove(id, 0, 0, block, 0, power, amount, null, 0, null, 0);
@@ -119,6 +140,7 @@ public final class MonsterMove {
                 + (blockRandomAlly > 0 ? ", allyBlock=" + blockRandomAlly : "")
                 + (selfBuff == null ? "" : ", self " + selfBuff + "+" + selfBuffAmount)
                 + (playerDebuff == null ? "" : ", " + playerDebuff + "+" + playerDebuffAmount)
+                + (playerDebuff2 == null ? "" : ", " + playerDebuff2 + "+" + playerDebuff2Amount)
                 + (statusCard == null ? "" : ", discard+=" + statusCard + "x" + statusCount) + "}";
     }
 }

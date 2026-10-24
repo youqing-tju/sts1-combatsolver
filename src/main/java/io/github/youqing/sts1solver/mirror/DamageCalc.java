@@ -96,8 +96,41 @@ public final class DamageCalc {
      * 反伤走玩家的格挡/血量，会触发死亡豁免。
      */
     public static void hit(SimState state, SimMonster target, int damage) {
+        int hpBefore = target.hp;
         hitAndReturnDealt(target, damage);
+        // Lagavulin.damage(DamageInfo) 被重写过：**血量真的变了** 且还没醒过 → 立刻醒并晕一回合。
+        // 这是它作为精英的核心机制（睡着的 3 回合是可以白打的窗口，一旦动手就换它先手）。
+        if (target.hp != hpBefore) {
+            wakeSleepingLagavulin(target);
+        }
         applyThorns(state, target);
+    }
+
+    /**
+     * 睡着的 Lagavulin 一挨打就醒：{@code setMove((byte)4, Intent.STUN)} +
+     * {@code ChangeState("OPEN")}（后者会 {@code ReducePowerAction(Metallicize, 8)}）。
+     *
+     * <p>判据用「当前排的招还是 5(SLEEP)」—— 原版用 {@code isOutTriggered} 布尔，
+     * 但那个布尔在影子里的等价物就是「还没被改过招」；改过一次之后 pendingMove 就不是 5 了，
+     * 所以不会重复触发。
+     */
+    private static void wakeSleepingLagavulin(SimMonster target) {
+        if (!"Lagavulin".equals(target.type)
+                || target.pendingMove == null
+                || target.pendingMove.id != 5) {
+            return;
+        }
+        target.pendingMove = io.github.youqing.sts1solver.sim.MonsterMove.none(4);   // STUN
+        target.pendingMoveId = 4;
+        Integer metallicize = target.powers.get("Metallicize");
+        if (metallicize != null) {
+            int left = metallicize.intValue() - 8;
+            if (left > 0) {
+                target.powers.put("Metallicize", Integer.valueOf(left));
+            } else {
+                target.powers.remove("Metallicize");
+            }
+        }
     }
 
     /**

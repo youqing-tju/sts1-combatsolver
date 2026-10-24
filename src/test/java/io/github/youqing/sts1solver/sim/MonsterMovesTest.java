@@ -650,4 +650,83 @@ class MonsterMovesTest {
         io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 1, -1);
         assertTrue(s.block > 0, "技能牌不受缠身影响");
     }
+
+    // ============================ 第五批：Lagavulin（第一章精英） ============================
+
+    /** 睡 3 回合 → 醒；醒后砍两下换吸血（同时扣力量与敏捷）。 */
+    @Test
+    void lagavulinSleepsThenAwakesThenSiphons() {
+        assertEquals(5, decide("Lagavulin", history(), 50, 0, 0).id, "睡着就一直睡");
+        assertEquals(5, decide("Lagavulin", history(5, 5), 50, 0, 0).id, "睡第 2 回合");
+        MonsterMove wake = decide("Lagavulin", history(5, 5, 5), 50, 0, 0);
+        assertEquals(3, wake.id, "睡满 3 回合 → 醒并开打");
+        assertEquals(18, wake.damage);
+        assertEquals(20, decide("Lagavulin", history(5, 5, 5), 50, 0, 3).damage, "A3 起 20");
+
+        assertEquals(3, decide("Lagavulin", history(5, 5, 5, 3), 50, 0, 0).id, "第二下还是砍");
+        MonsterMove siphon = decide("Lagavulin", history(5, 5, 5, 3, 3), 50, 0, 0);
+        assertEquals(1, siphon.id, "连砍两下 → Siphon Soul");
+        assertEquals("Strength", siphon.playerDebuff);
+        assertEquals("Dexterity", siphon.playerDebuff2, "同时扣敏捷");
+        assertEquals(1, siphon.playerDebuffAmount);
+        assertEquals(2, decide("Lagavulin", history(5, 5, 5, 3, 3), 50, 0, 18).playerDebuffAmount,
+                "A18 起各 -2");
+    }
+
+    /** 睡着时挨打 → 立刻醒并晕一回合（原版 damage() 重写），金属化同时被拿掉。 */
+    @Test
+    void lagavulinWakesWhenDamaged() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        SimMonster lag = new SimMonster("Lagavulin", 110, 110, 0, NO_POWERS);
+        lag.powers.put("Metallicize", Integer.valueOf(8));
+        lag.pendingMove = MonsterMove.none(5);
+        lag.pendingMoveId = 5;
+        s.monsters.add(lag);
+
+        DamageCalc.hit(s, lag, 10);
+
+        assertEquals(100, lag.hp, "掉 10 血");
+        assertEquals(4, lag.pendingMove.id, "醒来当回合改成 STUN");
+        assertNull(lag.powers.get("Metallicize"), "OPEN 会把金属化拿掉（ReducePowerAction 8）");
+
+        // 已经醒了再挨打不会又变 STUN
+        lag.pendingMove = MonsterMove.attack(3, 18);
+        lag.pendingMoveId = 3;
+        DamageCalc.hit(s, lag, 5);
+        assertEquals(3, lag.pendingMove.id, "醒着挨打不改招");
+    }
+
+    /** 端到端：睡着的 Lagavulin 每回合吃金属化的格挡；打它一下就换成 STUN（这回合不打人）。 */
+    @Test
+    void sleepingLagavulinGainsBlockAndStunsAfterBeingHit() {
+        SimState s = new SimState();
+        s.hp = 60;
+        s.maxHp = 80;
+        s.energy = 3;
+        SimMonster lag = new SimMonster("Lagavulin", 110, 110, 0, NO_POWERS);
+        lag.powers.put("Metallicize", Integer.valueOf(8));
+        lag.pendingMove = MonsterMove.none(5);
+        lag.pendingMoveId = 5;
+        s.monsters.add(lag);
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(8, lag.block, "金属化每回合 +8 格挡");
+        assertEquals(60, s.hp, "睡着不打人");
+        assertEquals(5, lag.pendingMove.id, "还没被打，继续睡（不过已经睡着 1 回合了）");
+
+        // 打它一下：立刻醒（STUN），这回合它不会攻击。
+        // ⚠️ 伤害必须先打穿 8 点格挡 —— 原版判据是「currentHealth 真的变了」，
+        //    全被格挡吸收时**不会醒**（Lagavulin.damage 的 if_icmpeq 分支）。
+        assertEquals(5, lag.pendingMove.id, "只被格挡吸收的话还没醒");
+        DamageCalc.hit(s, lag, 8);
+        assertEquals(5, lag.pendingMove.id, "8 点全被格挡吸收 → 不醒");
+        DamageCalc.hit(s, lag, 20);
+        assertEquals(4, lag.pendingMove.id);
+        int hpBefore = s.hp;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(hpBefore, s.hp, "STUN 那回合不造成伤害");
+        assertEquals(0, lag.block, "它自己的回合开始会清格挡");
+    }
 }
