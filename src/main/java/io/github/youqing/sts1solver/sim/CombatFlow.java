@@ -51,6 +51,16 @@ public final class CombatFlow {
         // 🔴 顺序很重要：**先让格挡吸收敌方伤害，再清空格挡**。
         // 反过来写（先清后打）会让格挡完全失效 —— 搜索于是永远不防御，
         // 这正是 BeamSolverTest 抓到的问题。
+        // ④.0 怪物回合开始：**清格挡**。
+        // 原版 MonsterGroup.applyPreTurnLogic()：
+        //   if (!isDying && !isEscaping) { if (!hasPower("Barricade")) loseBlock(); applyStartOfTurnPowers(); }
+        // 不清的话怪物格挡会跨回合累加，搜索会严重高估「杀不掉」（球体守卫每两回合 +25）。
+        for (SimMonster m : state.monsters) {
+            if (m.hp > 0 && !m.powers.containsKey("Barricade")) {
+                m.block = 0;
+            }
+        }
+
         // 每只怪走完整的一轮：结算本招 → 把这一招记进历史 → **立刻**决策下一招。
         // 原版就是这个次序（takeTurn 里把 RollMoveAction 排在末尾），所以 aiRng 的消耗次序
         // 也与我们一致；Tsundere 这种「出招时还要抽一次随机队友」的怪才不会错位。
@@ -68,6 +78,13 @@ public final class CombatFlow {
         for (SimMonster m : state.monsters) {
             if (m.hp <= 0) {
                 continue;
+            }
+            // MetallicizePower.atEndOfTurnPreEndTurnCards → GainBlockAction(owner, owner, amount)
+            // 字节码核实：这个方法**忽略 isPlayer 参数**，所以怪物身上的金属化同样每回合加格挡
+            // （睡着的 Lagavulin 就是靠它）。
+            Integer metallicize = m.powers.get("Metallicize");
+            if (metallicize != null && metallicize > 0) {
+                m.block += metallicize;
             }
             // PlatedArmorPower.atEndOfTurnPreEndTurnCards → GainBlockAction(owner, owner, amount)
             Integer plated = m.powers.get("Plated Armor");

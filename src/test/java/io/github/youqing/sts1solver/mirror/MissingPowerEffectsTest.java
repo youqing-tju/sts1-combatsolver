@@ -93,8 +93,29 @@ class MissingPowerEffectsTest {
 
         CombatFlow.endTurn(s, 3, 5);
 
-        assertEquals(37, s.monsters.get(0).hp, "6 反弹 - 3 格挡 = 3 点掉血");
+        // 🔴 怪物格挡在**它自己回合开始时就已经清掉**（原版 MonsterGroup.applyPreTurnLogic），
+        // 所以轮到它出手时身上没有格挡，烈焰屏障的 6 点全额进血。
+        // 这条断言原来写的是 37（以为格挡还在）—— 那是把「怪物格挡跨回合累加」的 bug 当成了正确行为。
+        assertEquals(34, s.monsters.get(0).hp, "6 反弹全额进血：怪物出手前格挡已被清");
         assertEquals(0, s.monsters.get(0).block);
+    }
+
+    /**
+     * 怪物格挡**不跨回合累加**：回合开始先清、再行动。
+     *
+     * <p>原版 {@code MonsterGroup.applyPreTurnLogic()}：
+     * {@code if (!hasPower("Barricade")) loseBlock();}。这条要是漏了，
+     * 球体守卫那种「每两回合 +25 格挡」的怪会越打越硬，搜索会误判成杀不掉。
+     */
+    @Test
+    void monsterBlockDoesNotAccumulateAcrossTurns() {
+        SimState s = fight();
+        SimMonster monster = s.monsters.get(0);
+        monster.intentDmg = 0;
+        monster.block = 30;
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(0, monster.block, "回合开始清空格挡（它这回合没加块）");
     }
 
     // ------------------------------------------ 第二批：Flex / Rupture / Evolve

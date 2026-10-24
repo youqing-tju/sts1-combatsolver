@@ -2096,3 +2096,33 @@ takeTurn: 1 → 一段 stab 13（A2: 14）；2 → 玩家缠身；
 验证 2 条：机器分支（首招必刺 / num>=75 缠身 / 缠过不再缠 / Scrape 带易伤 / A17 易伤 2 / 连续两 Scrape 换刺），
 以及**端到端**——红奴隶主真把缠身挂上玩家后，`Strike` 被拒（错误信息里带 `Entangled`）、
 `Defend` 照常打出。全量 **270 条**通过。
+
+### 33.15 🔴 修一个静默 bug：怪物格挡跨回合累加（2026-10-25）
+
+建模怪物格挡（球体守卫 +25、傲娇鬼给队友 +7）之后才发现：
+`CombatFlow.endTurn` **从来没清过怪物的格挡**，而玩家侧一直有清。
+
+原版 `MonsterGroup.applyPreTurnLogic()`（字节码）：
+
+```java
+for (AbstractMonster m : monsters) {
+    if (!m.isDying && !m.isEscaping) {
+        if (!m.hasPower("Barricade")) m.loseBlock();
+        m.applyStartOfTurnPowers();
+    }
+}
+```
+
+也就是**怪物回合一开始就把自己的格挡清零**（壁垒除外），然后才行动。
+漏掉这条的后果不是「差一点」：球体守卫每两回合 +25，几回合后搜索会认定「打不死」，
+于是所有路线都退化成纯挨打 —— 方向是**系统性低估进攻**。
+
+落点：`endTurn` 的 ④.0，逐怪 `if (!powers.containsKey("Barricade")) block = 0`。
+
+顺带补上**怪物金属化**：`MetallicizePower.atEndOfTurnPreEndTurnCards(boolean)`
+的字节码**完全忽略那个 isPlayer 参数**，永远 `GainBlockAction(owner, owner, amount)` ——
+所以怪物身上的金属化照样每回合加块（睡着的 Lagavulin 就靠它）。我们原来只在玩家钩子里处理。
+
+**被这条修正打红的一条旧测试**：`flameBarrierReflectionGoesThroughMonsterBlock`
+原来断言「怪物 3 格挡吸收掉 6 点反弹 → 只掉 3 血」，但怪物出手时格挡已经清掉了，
+正确是全额 6 点。断言已改成 34，并另加一条「格挡不跨回合累加」的反向测试。

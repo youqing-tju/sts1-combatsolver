@@ -2,8 +2,8 @@
 
 > **用法**：把整份内容贴进新对话，第一条消息就给全上下文，避免反复补背景。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`
-> **当前状态**：2026-10-25 凌晨，测试 **270 条全绿**，
-> HEAD = `feat(sim): 怪物镜像第五批（红奴隶主）` 那一笔
+> **当前状态**：2026-10-25 凌晨，测试 **271 条全绿**，
+> HEAD = `fix(sim): 怪物格挡跨回合累加` 那一笔
 
 ---
 
@@ -84,7 +84,7 @@
 - `AutoPilot` = 蓝本 `ApplyCurrentTurn`（每回合重规划，不冻结路线）
 - 面板 `SolverPanel` + 预算档位（低/中/高/极高：beamWidth 45/60/90/135、nodeLimit 6万/12万/25万/50万、time 60/120/180/300 秒）
 
-**测试**：270 条全绿（27 个测试文件）。
+**测试**：271 条全绿（27 个测试文件）。
 
 **文档**（`docs/research/`）：
 - `blueprint-parity.md` —— **蓝本复刻对照表**（蓝本 `src/Search/` 176 个文件逐项列 ✅/🔶/❌/⛔）
@@ -248,7 +248,7 @@ Flex 的能力是 `GainStrengthPower`（ID = `"Gain Strength"`），**不是 `"F
 # 构建
 powershell -File tools/build.ps1
 
-# 测试（270 条）
+# 测试（271 条）
 powershell -File tools/gradle.ps1 test
 
 # 离线实验（ScoreAbTest / moreSearchTimeHelps，默认 skip）
