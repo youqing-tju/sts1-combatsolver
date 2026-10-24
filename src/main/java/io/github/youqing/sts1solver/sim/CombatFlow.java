@@ -51,37 +51,17 @@ public final class CombatFlow {
         // 🔴 顺序很重要：**先让格挡吸收敌方伤害，再清空格挡**。
         // 反过来写（先清后打）会让格挡完全失效 —— 搜索于是永远不防御，
         // 这正是 BeamSolverTest 抓到的问题。
-        for (SimMonster m : state.monsters) {
+        // 每只怪走完整的一轮：结算本招 → 把这一招记进历史 → **立刻**决策下一招。
+        // 原版就是这个次序（takeTurn 里把 RollMoveAction 排在末尾），所以 aiRng 的消耗次序
+        // 也与我们一致；Tsundere 这种「出招时还要抽一次随机队友」的怪才不会错位。
+        int nextTurn = state.turn + 1;
+        for (int slot = 0; slot < state.monsters.size(); slot++) {
+            SimMonster m = state.monsters.get(slot);
             if (m.hp <= 0) {
                 continue;
             }
-            if (m.pendingMove != null) {
-                // 已镜像的怪：按原版 takeTurn() 逐段结算，格挡/荆棘都按段算
-                MonsterMove move = m.pendingMove;
-                for (int hit = 0; hit < move.hits; hit++) {
-                    int damage = io.github.youqing.sts1solver.mirror.DamageCalc
-                            .monsterAttackDamage(state, move.damage, m);
-                    if (damage > 0) {
-                        hitPlayer(state, damage, m);
-                    }
-                }
-                if (move.block > 0) {
-                    m.block += move.block;
-                }
-                if (move.playerDebuff != null && move.playerDebuffAmount > 0) {
-                    Integer prior = state.playerPowers.get(move.playerDebuff);
-                    state.playerPowers.put(move.playerDebuff,
-                            (prior == null ? 0 : prior) + move.playerDebuffAmount);
-                }
-                if (move.selfBuff != null && move.selfBuffAmount > 0) {
-                    // 原版 ApplyPowerAction(owner, owner, power)：给自己叠层
-                    Integer prior = m.powers.get(move.selfBuff);
-                    m.powers.put(move.selfBuff, (prior == null ? 0 : prior) + move.selfBuffAmount);
-                }
-            } else if (m.intentDmg > 0) {
-                // 未镜像的怪：沿用「意图伤害」单段结算（老路径，行为不变）
-                hitPlayer(state, m.intentDmg, m);
-            }
+            takeTurn(state, m);
+            rollNextMove(state, m, slot, nextTurn);
         }
 
         // ④.5 怪物自己的回合末能力（原版 atEndOfTurnPreEndTurnCards / atEndOfRound）
@@ -109,48 +89,107 @@ public final class CombatFlow {
             io.github.youqing.sts1solver.mirror.DamageCalc.tickIntangible(m.powers);
         }
 
+        // ④.6 意图伤害：估值/展示口径。放在 ④.5 之后，否则本回合刚结算的仪式力量
+        //      要等下一回合才反映到意图上（原版是执行伤害时现算，我们存的是快照）。
+        for (SimMonster m : state.monsters) {
+            if (m.hp <= 0 || m.pendingMove == null) {
+                continue;
+            }
+            MonsterMove planned = m.pendingMove;
+            int perHit = planned.attacks()
+                    ? io.github.youqing.sts1solver.mirror.DamageCalc
+                            .monsterAttackDamage(state, planned.damage, m)
+                    : 0;
+            m.intentDmg = perHit * planned.hits;
+            m.intentAttack = planned.attacks();
+        }
+
         // ⑤ 敌人打完，剩余格挡清零（壁垒除外）
         if (power(state, "Barricade") <= 0) {
             state.block = 0;
         }
 
-        // ⑥ 进入下一回合：按「意图学习表」刷新怪物意图（查不到就沿用当前值）
-        state.turn = state.turn + 1;
-        for (int slot = 0; slot < state.monsters.size(); slot++) {
-            SimMonster m = state.monsters.get(slot);
-            if (m.hp <= 0) {
-                continue;
-            }
-            // 本回合打过的招进历史（原版 moveHistory 在 takeTurn 后追加，RollMoveAction 再决策）
-            if (m.pendingMove != null) {
-                m.moveHistory.add(Integer.valueOf(m.pendingMove.id));
-            } else if (m.pendingMoveId >= 0) {
-                // 捕获来的那一招（我们没算过它，但它是历史的一部分）
-                m.moveHistory.add(Integer.valueOf(m.pendingMoveId));
-            }
-            m.pendingMove = null;
-            m.pendingMoveId = -1;
-            if (MonsterMoves.supported(m.type)) {
-                MonsterMove planned = MonsterMoves.next(state, m, state.turn, slot);
-                m.pendingMove = planned;
-                m.pendingMoveId = planned.id;
-                // 意图伤害只用于估值/展示：多段按「基础伤害经力量/虚弱/易伤修正后 × 段数」合计
-                int perHit = planned.attacks()
-                        ? io.github.youqing.sts1solver.mirror.DamageCalc
-                                .monsterAttackDamage(state, planned.damage, m)
-                        : 0;
-                m.intentDmg = perHit * planned.hits;
-                m.intentAttack = planned.attacks();
-            } else {
-                m.intentDmg = IntentLearning.predict(m.type, state.turn, m.intentDmg);
-            }
-        }
+        // ⑥ 进入下一回合（意图已在 ④ 里逐只刷新过）
+        state.turn = nextTurn;
 
         // ⑦ 新回合的钩子 → 回能 → 抽牌 → 抽牌后的钩子
         Hooks.firePhase(state, HookPhase.START_OF_TURN);
         state.energy = energyPerTurn;
         draw(state, handSize);
         Hooks.firePhase(state, HookPhase.START_OF_TURN_POST_DRAW);
+    }
+
+    /** 结算一只怪这一招的全部载荷（原版 {@code takeTurn()} 排进 action 队列的那些动作）。 */
+    private static void takeTurn(SimState state, SimMonster m) {
+        MonsterMove move = m.pendingMove;
+        if (move == null) {
+            // 未镜像的怪：沿用「意图伤害」单段结算（老路径，行为不变）
+            if (m.intentDmg > 0) {
+                hitPlayer(state, m.intentDmg, m);
+            }
+            return;
+        }
+        for (int hit = 0; hit < move.hits; hit++) {
+            int damage = io.github.youqing.sts1solver.mirror.DamageCalc
+                    .monsterAttackDamage(state, move.damage, m);
+            if (damage > 0) {
+                hitPlayer(state, damage, m);
+            }
+        }
+        if (move.block > 0) {
+            m.block += move.block;
+        }
+        if (move.blockRandomAlly > 0) {
+            // GainBlockRandomMonsterAction：候选 = 除自己外的活怪；取 aiRng.random(size-1)
+            java.util.List<SimMonster> others = new java.util.ArrayList<SimMonster>();
+            for (SimMonster other : state.monsters) {
+                if (other != m && other.hp > 0) {
+                    others.add(other);
+                }
+            }
+            if (others.isEmpty()) {
+                m.block += move.blockRandomAlly;
+            } else {
+                RngStream ai = state.rng.get(SimState.RngKind.AI);
+                int pick = ai == null ? 0 : ai.random(others.size() - 1);
+                others.get(pick).block += move.blockRandomAlly;
+            }
+        }
+        if (move.playerDebuff != null && move.playerDebuffAmount > 0) {
+            Integer prior = state.playerPowers.get(move.playerDebuff);
+            state.playerPowers.put(move.playerDebuff,
+                    (prior == null ? 0 : prior) + move.playerDebuffAmount);
+        }
+        if (move.selfBuff != null && move.selfBuffAmount > 0) {
+            // 原版 ApplyPowerAction(owner, owner, power)：给自己叠层
+            Integer prior = m.powers.get(move.selfBuff);
+            m.powers.put(move.selfBuff, (prior == null ? 0 : prior) + move.selfBuffAmount);
+        }
+        if (move.statusCard != null && move.statusCount > 0) {
+            // MakeTempCardInDiscardAction(new Dazed(), n)：类型是 STATUS（Evolve 会数它）
+            for (int i = 0; i < move.statusCount; i++) {
+                state.discard.add(new SimCard(move.statusCard, false, -2, -1, "STATUS"));
+            }
+        }
+    }
+
+    /** 原版 {@code RollMoveAction}：把打过的招记进历史，再决策下一招（没镜像的走观测表）。 */
+    private static void rollNextMove(SimState state, SimMonster m, int slot, int turn) {
+        if (m.pendingMove != null) {
+            m.moveHistory.add(Integer.valueOf(m.pendingMove.id));
+        } else if (m.pendingMoveId >= 0) {
+            // 捕获来的那一招（我们没算过它，但它是历史的一部分）
+            m.moveHistory.add(Integer.valueOf(m.pendingMoveId));
+        }
+        m.pendingMove = null;
+        m.pendingMoveId = -1;
+        if (MonsterMoves.supported(m.type)) {
+            MonsterMove planned = MonsterMoves.next(state, m, turn, slot);
+            m.pendingMove = planned;
+            m.pendingMoveId = planned.id;
+        } else {
+            m.intentDmg = IntentLearning.predict(m.type, turn, m.intentDmg);
+        }
     }
 
     private static void clearCostForTurn(java.util.List<SimCard> pile) {

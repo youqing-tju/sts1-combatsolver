@@ -1987,3 +1987,57 @@ Ritual 走的是原有那条路：`CombatFlow.endTurn` ④.5 的 `atEndOfRound` 
 另外 `Exploder` / `Transient` / `SnakeDagger` / `TorchHead` 的 `javap` 输出为空
 （类名对不上或没有 `getMove`），下一批先确认它们到底在哪个类里。
 
+
+### 33.8 第三批：两个载荷扩展 + 四只怪（2026-10-25）
+
+这三个卡点里两个已经打通，`MonsterMove` 现在能表达六类载荷（伤害 / 自身格挡 / **队友格挡** /
+自身能力 / 玩家减益 / **塞状态牌**）：
+
+| 新载荷 | 原版 Action | 用它的怪 |
+|---|---|---|
+| `blockRandomAlly` | `GainBlockRandomMonsterAction` | `GremlinTsundere` |
+| `statusCard` | `MakeTempCardInDiscardAction` | `Sentry`（Dazed）、`SpikeSlime_M`（Slimed） |
+| （既有）`selfBuff + block` | `ApplyPowerAction` + `GainBlockAction` | `JawWorm` 的 Bellow |
+
+第三批四只怪（数值全部对着字节码 + `localization/eng/monsters.json` 的 MOVES 名核对）：
+
+| 怪物 | 决策 | 招式 |
+|---|---|---|
+| `Sentry` | 首招看**位次**：偶数位先 3、奇数位先 4；之后 4/3 交替 | 3 = 塞 Dazed 2（A18: 3）；4 = beam 9（A3: 10） |
+| `GremlinTsundere` | 有队友就 1（Protect），落单才 2（Shield Bash） | Protect = 给**随机队友**格挡 7（A7: 8 / A17: 11）；Bash 6（A2: 8） |
+| `JawWorm` | `num` 三档（25 / 55）+ `aiRng.randomBoolean(0.5625/0.357/0.416)` | 1 Chomp 11（A2: 12）；2 Bellow（力量 3/4/5 + 格挡 6/6/9）；3 Thrash 7 + 格挡 5 |
+| `AcidSlime_S` | **按 takeTurn 的 SetMoveAction 写**：1→2→1 死循环 | 1 打（3 / A2: 4）；2 玩家 Weak 1 |
+| `SpikeSlime_M` | `num < 30` 看 `lastTwoMoves(1)`，否则看 `last(4)/lastTwo(4)` | 1 打（8 / A2: 10）+ 塞 1 张 Slimed；4 玩家 Frail 1 |
+
+### 33.9 三条踩坑（都写进代码注释了）
+
+1. **`AcidSlime_S` 根本不用 `getMove`**：它的 `takeTurn` 自带 `SetMoveAction`，字节码里
+   没有 `RollMoveAction`。照 `getMove` 翻（`randomBoolean` 二选一）会得到错的序列 ——
+   真实序列是死循环 1→2→1。**判据：先看 takeTurn 末尾有没有 `RollMoveAction`**，
+   没有就说明决策被写死在 takeTurn 里。
+2. **随机数原语的消耗次数**：`randomBoolean()` / `randomBoolean(float)` 各消耗一次
+   （`counter++` + `nextBoolean()` / `nextFloat() < chance`）。JawWorm 的 `getMove`
+   里就有，所以一次决策可能消耗 **两次** aiRng。`RngStream` 已补这两个原语。
+3. **`RandomXS128(state0, state1)` 不是种子混合器**：拿小整数当 state0 时，前若干个
+   `nextFloat()` 几乎恒为 0，`randomBoolean(0.5625f)` 于是永远返回 true。写测试造种子
+   必须先摊一遍（`MonsterMovesTest.mix`），否则会以为分支逻辑坏了。
+
+### 33.10 回合流程的重排（顺带修正）
+
+原来 `CombatFlow.endTurn` 是「所有怪 takeTurn → 所有怪 rollMove」。原版是**逐只**
+`takeTurn` 末尾就排 `RollMoveAction`。只要怪物在 takeTurn 里消耗随机数
+（Tsundere 的随机队友、JawWorm 的 `randomBoolean`），两种次序就会让 aiRng 的**取值**
+错位。现在改成逐只「takeTurn → 记历史 → 决策下一招」，与蓝本同序。
+
+意图伤害（`intentDmg`）挪到回合末能力结算**之后**重算 —— 否则本回合刚结算的仪式力量
+要等下一回合才反映到意图上。
+
+### 33.11 验证
+
+`MonsterMovesTest` 新增 6 条（哨兵位次与交替、Dazed 落进弃牌堆且类型是 STATUS、
+傲娇鬼给队友格挡 / 落单改打、大颚虫三档 num、小酸史莱姆 1→2 循环、中刺史莱姆
+Slimed + Frail）。全量 **262 条**通过。
+
+顺带修了一条被误伤的旧测试：`DeathSaveRelicTest` 原来拿 `JawWorm` 当「意图 100」的木桩，
+可它现在是镜像怪、招式由机器决定，写死的 intentDmg 会被覆盖 → 换成未镜像的 `Looter`。
+**教训：拿真怪当木桩会随镜像进度悄悄失效，木桩一律用没镜像的类型。**

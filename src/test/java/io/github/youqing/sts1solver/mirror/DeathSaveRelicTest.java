@@ -30,7 +30,9 @@ class DeathSaveRelicTest {
         s.hp = playerHp;
         s.maxHp = 80;
         s.energy = 3;
-        SimMonster m = new SimMonster("JawWorm", 160, 160, 0,
+        // 用一个**没有镜像**的怪当木桩：镜像怪会自己决定招式，intentDmg 只是展示值，
+        // 写死 100 会被它自己的招式盖掉（JawWorm 已镜像 → 这里踩过）。
+        SimMonster m = new SimMonster("Looter", 160, 160, 0,
                 Collections.<String, Integer>emptyMap());
         m.intentDmg = 100;
         s.monsters.add(m);

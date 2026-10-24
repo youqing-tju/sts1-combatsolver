@@ -27,6 +27,24 @@ public final class RngStream {
         this.counter = counter;
     }
 
+    /**
+     * {@code com.megacrit.cardcrawl.random.Random.randomBoolean()} ——
+     * 计数器 +1，底层走 {@code RandomXS128.nextBoolean()}（字节码直读）。
+     */
+    public boolean randomBoolean() {
+        counter++;
+        return xs.nextBoolean();
+    }
+
+    /**
+     * {@code Random.randomBoolean(float chance)} —— 计数器 +1，
+     * 判据是 {@code nextFloat() < chance}（字节码：{@code fcmpg; ifge → false}）。
+     */
+    public boolean randomBoolean(float chance) {
+        counter++;
+        return xs.nextFloat() < chance;
+    }
+
     /** Rebuild a stream from a snapshot. */
     public static RngStream from(long state0, long state1, int counter) {
         return new RngStream(state0, state1, counter);

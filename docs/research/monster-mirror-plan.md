@@ -13,6 +13,11 @@
 | `GremlinWarrior` | 1 | 4 伤（A2 起 5） |
 | `GremlinFat` | 1 | 4 伤（A2 起 5）+ Weak 1（A17 起 2） |
 | `SpikeSlime_S` | 1 | 5 伤（A2 起 6） |
+| `Sentry` | 1 | 位次决定首招，之后 4/3 交替；塞 Dazed（新载荷 `statusCard`） |
+| `GremlinTsundere` | 1 | 有队友给随机队友格挡，落单才打（新载荷 `blockRandomAlly`） |
+| `JawWorm` | 1 | num 三档 + `randomBoolean(chance)`，一次决策可能消耗两次 aiRng |
+| `AcidSlime_S` | 1 | **不用 getMove**：takeTurn 自带 SetMoveAction，1→2 死循环 |
+| `SpikeSlime_M` | 1 | 攻击塞 Slimed，Lick 上 Frail |
 
 ## 二、分类（用 `javap -c` 扫 `getMove` 得到，见 `monster-mirror-scan.txt`）
 

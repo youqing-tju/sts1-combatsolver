@@ -68,6 +68,17 @@ public final class MonsterMoves {
                     && history.get(size - 2).intValue() == id;
         }
 
+        /**
+         * 原版 {@code AbstractDungeon.aiRng.randomBoolean(chance)}。
+         *
+         * <p>⚠️ 这是**额外**消耗：{@link #next} 已经抽过一次 {@code num}，
+         * 决策里再调它就会再推进一格 aiRng —— 原版也是这么消耗的（JawWorm 的 getMove 里就有）。
+         */
+        public boolean randomBoolean(float chance) {
+            RngStream ai = state.rng.get(SimState.RngKind.AI);
+            return ai != null && ai.randomBoolean(chance);
+        }
+
         /** 原版 {@code lastMoveBefore(byte)}：上上招是不是它（历史至少两招）。 */
         public boolean lastMoveBefore(int id) {
             int size = history.size();
@@ -88,9 +99,23 @@ public final class MonsterMoves {
         MACHINES.put("GremlinWarrior", new GremlinWarriorMachine());
         MACHINES.put("GremlinFat", new GremlinFatMachine());
         MACHINES.put("SpikeSlime_S", new SpikeSlimeMachine("SpikeSlime_S", 5, 6));
+        MACHINES.put("Sentry", new SentryMachine());
+        MACHINES.put("GremlinTsundere", new GremlinTsundereMachine());
+        MACHINES.put("JawWorm", new JawWormMachine());
+        MACHINES.put("AcidSlime_S", new AcidSlimeMachine());
+        MACHINES.put("SpikeSlime_M", new SpikeSlimeMMachine());
     }
 
     private MonsterMoves() {
+    }
+
+    /** 取某只怪的机器（测试用来逐分支钉住；运行期走 {@link #next}）。 */
+    static Machine machineFor(String type) {
+        Machine machine = MACHINES.get(type);
+        if (machine == null) {
+            throw new IllegalArgumentException("no monster mirror for " + type);
+        }
+        return machine;
     }
 
     public static boolean supported(String type) {
@@ -242,6 +267,157 @@ public final class MonsterMoves {
         @Override
         public String toString() {
             return type + "Machine";
+        }
+    }
+
+    /**
+     * 哨兵（Sentry）。
+     *
+     * <pre>
+     * getMove:  firstMove → 自己在怪物组里的位次 %2==0 ? 3(DEBUFF) : 4(ATTACK, beamDmg)
+     *           否则 lastMove(4) ? 3 : 4          // 就是 4/3 交替
+     * takeTurn: 3 → 往玩家弃牌堆塞 dazedAmt 张 Dazed；4 → 一段 beamDmg
+     * 常数:     beamDmg 9 (A3: 10)、dazedAmt 2 (A18: 3)、HP 38-42 (A8: 39-45)
+     * </pre>
+     *
+     * <p>位次用 {@link Context#slot}（原版 {@code monsters.lastIndexOf(this) % 2}）。
+     */
+    static final class SentryMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int beam = c.ascension >= 3 ? 10 : 9;
+            int dazed = c.ascension >= 18 ? 3 : 2;
+            boolean first = c.history.isEmpty();
+            boolean debuff = first ? (c.slot % 2 == 0) : c.lastMove(4);
+            return debuff ? MonsterMove.status(3, "Dazed", dazed) : MonsterMove.attack(4, beam);
+        }
+    }
+
+    /**
+     * 小鬼傲娇（GremlinTsundere）。
+     *
+     * <pre>
+     * getMove:  永远 1(DEFEND)
+     * takeTurn: 1 → 给**随机队友**（不含自己）加 blockAmt 格挡；
+     *              然后数活着的怪：还有别人 → 仍排 1；只剩自己 → 排 2(ATTACK, bashDmg)
+     * 常数:     blockAmt 7 (A7: 8, A17: 11)、bashDmg 6 (A2: 8)、HP 12-15 (A7: 13-17)
+     * </pre>
+     *
+     * <p>也就是说它是「有队友就一直加格挡、落单才开始打」的怪。原版在 takeTurn 末尾用
+     * {@code SetMoveAction} 改 nextMove，这里等价为「按当前活怪数决定」。
+     */
+    static final class GremlinTsundereMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int blockAmt = c.ascension >= 17 ? 11 : (c.ascension >= 7 ? 8 : 7);
+            int bash = c.ascension >= 2 ? 8 : 6;
+            int alive = 0;
+            for (SimMonster other : c.state.monsters) {
+                if (other.hp > 0) {
+                    alive++;
+                }
+            }
+            return alive > 1 ? MonsterMove.blockAlly(1, blockAmt) : MonsterMove.attack(2, bash);
+        }
+    }
+
+    /**
+     * 大颚虫（JawWorm）。
+     *
+     * <pre>
+     * getMove:  firstMove → 1(ATTACK, chomp)，然后关掉标志
+     *           num &lt; 25:  lastMove(1) ? (aiRng.randomBoolean(0.5625f) ? 2 : 3) : 1
+     *           num &lt; 55:  lastTwoMoves(3) ? (aiRng.randomBoolean(0.357f) ? 1 : 2) : 3
+     *           否则:       lastMove(2) ? (aiRng.randomBoolean(0.416f) ? 1 : 3) : 2
+     * takeTurn: 1 → 一段 chomp；2(Bellow) → 自己 +bellowStr 力量、+bellowBlock 格挡；
+     *           3(Thrash) → 一段 thrash + 自己 +thrashBlock 格挡
+     * 常数:     chomp 11 (A2: 12)、thrash 7、thrashBlock 5、
+     *           bellowStr 3 (A2: 4, A17: 5)、bellowBlock 6 (A17: 9)、HP 40-44 (A7: 42-46)
+     * </pre>
+     */
+    static final class JawWormMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            boolean a2 = c.ascension >= 2;
+            boolean a17 = c.ascension >= 17;
+            int chomp = a2 ? 12 : 11;
+            int thrash = 7;
+            int thrashBlock = 5;
+            int bellowStr = a17 ? 5 : (a2 ? 4 : 3);
+            int bellowBlock = a17 ? 9 : 6;
+            if (c.history.isEmpty()) {
+                return MonsterMove.attack(1, chomp);
+            }
+            if (c.num < 25) {
+                if (c.lastMove(1)) {
+                    return c.randomBoolean(0.5625f)
+                            ? MonsterMove.buffBlock(2, "Strength", bellowStr, bellowBlock)
+                            : MonsterMove.attackBlock(3, thrash, thrashBlock);
+                }
+                return MonsterMove.attack(1, chomp);
+            }
+            if (c.num < 55) {
+                if (c.lastTwoMoves(3)) {
+                    return c.randomBoolean(0.357f)
+                            ? MonsterMove.attack(1, chomp)
+                            : MonsterMove.buffBlock(2, "Strength", bellowStr, bellowBlock);
+                }
+                return MonsterMove.attackBlock(3, thrash, thrashBlock);
+            }
+            if (c.lastMove(2)) {
+                return c.randomBoolean(0.416f)
+                        ? MonsterMove.attack(1, chomp)
+                        : MonsterMove.attackBlock(3, thrash, thrashBlock);
+            }
+            return MonsterMove.buffBlock(2, "Strength", bellowStr, bellowBlock);
+        }
+    }
+
+    /**
+     * 小酸液史莱姆（AcidSlime_S）。
+     *
+     * <pre>
+     * getMove:  A17+: lastTwoMoves(1) ? 1 : 2；否则 aiRng.randomBoolean() ? 1 : 2
+     * takeTurn: 1 → 一段 dmg，然后 SetMoveAction(2, DEBUFF)
+     *           2 → 玩家 Weak 1，然后 SetMoveAction(1, ATTACK, dmg)
+     * 常数:     dmg 3 (A2: 4)、HP 8-12 (A7: 9-13)
+     * </pre>
+     *
+     * <p>🔴 关键：它的 takeTurn **自带 SetMoveAction**，每回合结束根本不调 {@code getMove}
+     * （字节码里没有 RollMoveAction）。所以真实序列是死循环的 1→2→1→2，
+     * {@code getMove} 只决定开场第一招。机器按 takeTurn 的口径写，不按 {@code getMove}。
+     */
+    static final class AcidSlimeMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int damage = c.ascension >= 2 ? 4 : 3;
+            return c.lastMove(1)
+                    ? MonsterMove.attackDebuff(2, 0, "Weakened", 1)
+                    : MonsterMove.attack(1, damage);
+        }
+    }
+
+    /**
+     * 中刺史莱姆（SpikeSlime_M）。
+     *
+     * <pre>
+     * getMove:  num &lt; 30: lastTwoMoves(1) ? 4(DEBUFF) : 1(ATTACK, dmg)
+     *           否则:     A17+ 看 lastMove(4)、其余看 lastTwoMoves(4) → 是则 1、否则 4
+     * takeTurn: 1 → 一段 dmg + 往玩家弃牌堆塞 1 张 Slimed；4(Lick) → 玩家 Frail 1
+     * 常数:     dmg 8 (A2: 10)、HP 28-32 (A7: 29-34)
+     * </pre>
+     */
+    static final class SpikeSlimeMMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int damage = c.ascension >= 2 ? 10 : 8;
+            MonsterMove attack = MonsterMove.attackStatus(1, damage, "Slimed", 1);
+            MonsterMove lick = MonsterMove.attackDebuff(4, 0, "Frail", 1);
+            if (c.num < 30) {
+                return c.lastTwoMoves(1) ? lick : attack;
+            }
+            boolean repeatedLick = c.ascension >= 17 ? c.lastMove(4) : c.lastTwoMoves(4);
+            return repeatedLick ? attack : lick;
         }
     }
 }
