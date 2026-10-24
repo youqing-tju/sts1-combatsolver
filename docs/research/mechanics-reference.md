@@ -1704,3 +1704,48 @@ LinkedHashMap 的施加顺序）。混洗器：黄金比例步进 + murmur 收�
 **这是语义变更**（补进去 = 等价类变细 = 去重变少 = 节点数变多、结果可能变），
 所以要用户拍板，不擅自改。§29.2 的哈希字段严格按现有口径排列，就是为了让这一步
 可以独立决定。
+
+## 30. 带骨肉的阈值回血进基础分（A｜蓝本源码，2026-10-24）
+
+### 30.1 蓝本怎么写
+
+`CombatBeamSolver.StateEvaluation.cs:199-207`：
+
+```csharp
+RelicCounterEvaluation relicCounters = combat.EvaluateRelicCounters(...);
+if (won && (relicCounters.SatisfiedMask & (1UL << (int)RelicCounterId.MeatOnTheBone)) != 0)
+{
+    int thresholdHeal = root.PostCombatRelicHeal.HealFor(hp, maxHp)
+                      - root.PostCombatRelicHeal.MonotoneHealFor(hp, maxHp);
+    relicCounters = relicCounters with { HealingHpCredit =
+        ActEndingBossPolicy.PersistentValueOfRecoveredHp(thresholdHeal, _strategicBossHpRelief) };
+}
+score += (double)(relicCounters.HpCredit + relicCounters.HealingHpCredit) * hpWeight;
+```
+
+要点：**阈值回血不走赤字轴**（那会破坏「血更多永不更差」的单调不变式，见
+`PostCombatRelicHeal` 类注释），它按 `hpWeight` 直接进**基础分**，而且只算
+`HealFor - MonotoneHealFor` 这个**差额** —— 无条件那部分已经在赤字里抵过了。
+
+### 30.2 我们怎么对
+
+| 蓝本 | 我们 |
+|---|---|
+| `root.PostCombatRelicHeal` | `Score.Root.postCombatHeal`（从根快照的 `relics` 建，和 `BeamSolver.postCombatRelicHeal` 同源） |
+| `HealFor - MonotoneHealFor` | `Score.thresholdPostCombatHeal(heal, hp, maxHp)`，逐项同式（都按 headroom 截断） |
+| `won && MeatOnTheBone 满足` | `won`（= 没死且怪全灭）+ `heal.hasAnyHeal()` |
+| `PersistentValueOfRecoveredHp(x, relief)` | 恒等 —— 我们只有 `BossHpRelief.None` 一档，`RawHpRequiredForPersistentValue(1, None) = 1` |
+| `HpCredit`（计数遗物目标） | 未建模（`RelicCounterTarget` 是 UI 目标策略），记 0 |
+| `hpWeight` | `Score.HP = 30_000`（1 血） |
+
+### 30.3 验证
+
+`PostCombatThresholdHealTest` 5 条：
+
+1. 结束时正好 40/80（= 50%）→ 比无遗物多 12 血的分；
+2. 41/80（高于阈值）→ 一点不多；
+3. 还有怪活着（没赢）→ 一点不多；
+4. **燃烧之血 + 带骨肉** → 增量仍是 12（不是 18）—— 防止无条件回血被算两遍；
+5. 10/20 只剩 10 点空位 → 只兑现 10。
+
+全量 239 条通过。

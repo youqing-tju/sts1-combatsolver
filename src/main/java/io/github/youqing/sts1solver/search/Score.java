@@ -263,6 +263,8 @@ public final class Score {
     public final int deathSaveHpRestored;
     /** 用掉了几次救命遗物（0/1，蓝本 {@code DeathSaveUseCount}）。 */
     public final int deathSaveUseCount;
+    /** 战后遗物回血画像（燃烧之血 / 黑血 / 带骨肉）；判定阈值回血用。 */
+    public final io.github.youqing.sts1solver.mirror.PostCombatRelicHeal postCombatHeal;
 
     private Score(Builder b) {
         this.aliveEnemies = b.aliveEnemies;
@@ -294,6 +296,7 @@ public final class Score {
         this.hpLost = b.hpLost;
         this.deathSaveHpRestored = b.deathSaveHpRestored;
         this.deathSaveUseCount = b.deathSaveUseCount;
+        this.postCombatHeal = b.postCombatHeal;
     }
 
     /** 会「每个回合都变强」的能力：层数越打越值钱（蓝本按能力逐个估 RetentionValue，这里统一按层）。 */
@@ -316,6 +319,14 @@ public final class Score {
         final int turn;
         final int retainedAttackValue;
         final int enemyCount;
+        /**
+         * 战后遗物回血画像（燃烧之血 / 黑血 / 带骨肉）。
+         *
+         * <p>蓝本 {@code CombatRootSnapshot.PostCombatRelicHeal}：**从根快照上读**，不是每个节点现算 ——
+         * 否则「打着打着吃到一个遗物」会让同一场战斗前后的画像不一致。
+         * 阈值那部分进基础分（{@link #baseTotal()}），单调那部分进终局排序的赤字（另一个轴）。
+         */
+        final io.github.youqing.sts1solver.mirror.PostCombatRelicHeal postCombatHeal;
 
         public Root(SimState state) {
             this.hp = state.hp;
@@ -330,6 +341,7 @@ public final class Score {
             this.enemyCount = alive;
             this.retainedAttackValue = attackTotal(state.hand) + attackTotal(state.draw)
                     + attackTotal(state.discard);
+            this.postCombatHeal = io.github.youqing.sts1solver.mirror.PostCombatRelicHeal.of(state.relics);
         }
     }
 
@@ -389,6 +401,7 @@ public final class Score {
         b.turns = Math.max(0, state.turn - root.turn);
         b.initialRetainedAttackValue = root.retainedAttackValue;
         b.initialEnemyCount = root.enemyCount;
+        b.postCombatHeal = root.postCombatHeal;
 
         int alive = 0;
         int enemyHp = 0;
@@ -473,6 +486,25 @@ public final class Score {
         return value == null ? 0 : value;
     }
 
+    // ===================== 战后阈值回血（蓝本 StateEvaluation.cs:200-207） =====================
+
+    /**
+     * 阈值回血里「排序能计」的那部分 = {@code HealFor - MonotoneHealFor}。
+     *
+     * <p>为什么要这么减：{@code HealFor} 含燃烧之血/黑血的无条件回血 + 带骨肉的阈值回血，
+     * 而单调那部分已经在终局排序的 {@code StrategicHpDeficit} 里抵过赤字了
+     * （见 {@code PostCombatRelicHeal} 的类注释）。这里只补**阈值那一半**，
+     * 而且只在赢了（{@code won}）的时候补 —— 打输了战后遗物不结算。
+     */
+    static int thresholdPostCombatHeal(
+            io.github.youqing.sts1solver.mirror.PostCombatRelicHeal heal, int finalHp, int finalMaxHp) {
+        if (heal == null || !heal.hasAnyHeal()) {
+            return 0;
+        }
+        return Math.max(0, heal.healFor(finalHp, finalMaxHp)
+                - heal.monotoneHealFor(finalHp, finalMaxHp));
+    }
+
     // ===================== 死亡豁免计价（蓝本 ActEndingBossPolicy） =====================
 
     /**
@@ -532,6 +564,14 @@ public final class Score {
         score -= deathSaveBeamCost(deathSaveHpRestored) * HP;
         if (won) {
             score += VICTORY_BONUS;
+            // 蓝本 StateEvaluation.cs:200-207：赢了、且带骨肉的阈值条件满足时，把
+            // `HealFor - MonotoneHealFor`（**只有阈值那一部分**）按血值计入分数。
+            // 单调那部分（燃烧之血 / 黑血）走终局排序的 StrategicHpDeficit，不在这里重复计。
+            //
+            // 蓝本还叠了 `ActEndingBossPolicy.PersistentValueOfRecoveredHp(thresholdHeal, relief)`，
+            // 我们只有 BossHpRelief.None 这一档（幕末 80% 回血 STS1 没有），
+            // 而 None 档 `RawHpRequiredForPersistentValue(1, None) = 1` → 该变换是恒等，直接加。
+            score += thresholdPostCombatHeal(postCombatHeal, playerHp, maxHp) * HP;
         }
         score += enemyHp * ENEMY_HP;
         score += clutter * CLUTTER_PENALTY;
@@ -634,6 +674,8 @@ public final class Score {
         int clutter;
         boolean dead;
         boolean won;
+        /** 战后遗物回血画像（从根快照带下来）；{@code null} = 用无遗物的默认口径。 */
+        io.github.youqing.sts1solver.mirror.PostCombatRelicHeal postCombatHeal;
         int actions;
         int turns;
         int hpLost;

@@ -2,8 +2,8 @@
 
 > **用法**：把整份内容贴进新对话，第一条消息就给全上下文，避免反复补背景。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`
-> **当前状态**：2026-10-24 晚，测试 **234 条全绿**，
-> HEAD = `perf(sim): 指纹换免拼字符串的直接哈希` 那一笔
+> **当前状态**：2026-10-24 深夜，测试 **239 条全绿**，
+> HEAD = `feat(eval): 带骨肉阈值回血进基础分` 那一笔
 
 ---
 
@@ -84,7 +84,7 @@
 - `AutoPilot` = 蓝本 `ApplyCurrentTurn`（每回合重规划，不冻结路线）
 - 面板 `SolverPanel` + 预算档位（低/中/高/极高：beamWidth 45/60/90/135、nodeLimit 6万/12万/25万/50万、time 60/120/180/300 秒）
 
-**测试**：234 条全绿（24 个测试文件）。
+**测试**：239 条全绿（25 个测试文件）。
 
 **文档**（`docs/research/`）：
 - `blueprint-parity.md` —— **蓝本复刻对照表**（蓝本 `src/Search/` 176 个文件逐项列 ✅/🔶/❌/⛔）
@@ -248,7 +248,7 @@ Flex 的能力是 `GainStrengthPower`（ID = `"Gain Strength"`），**不是 `"F
 # 构建
 powershell -File tools/build.ps1
 
-# 测试（234 条）
+# 测试（239 条）
 powershell -File tools/gradle.ps1 test
 
 # 离线实验（ScoreAbTest / moreSearchTimeHelps，默认 skip）
@@ -272,3 +272,18 @@ python tools/coverage_report.py
 - **遇到不确定就查字节码**，不凭记忆。
 - **用户会说「继续」**表示继续推进下一项；说「？」表示你上一条回复有问题。
 - 回复中文，附 `file:line` 证据链。
+
+---
+
+## 九、🔴 待用户确认清单（2026-10-24 夜）
+
+> 这些是「动手前需要拍板、我不该自己定」的问题。每条给了我的倾向，但**没做**。
+
+| # | 问题 | 影响 | 我的倾向 |
+|---|---|---|---|
+| 1 | **指纹口径缺口**（`mechanics-reference` §29.4）：指纹里没有 `turn` / `hpLossCount` / `potionSlots`。补不补？`hpLossCount` 决定浴血奋战的动态费用，「同血量、挨打次数不同」的两条路线现在会被去重掉一条 | 补 = 等价类变细 → 去重变少 → 节点数变多、结果可能变（语义变更） | **补 `hpLossCount`**（真会算错）；`turn` 可不补（回合前进必伴随抽牌，实际撞不上）；`potionSlots` 是常量 |
+| 2 | **药水扩到 50+ 之前，要不要先做 `PotionStrategicCost`**（药水战略成本）？蓝本那套依赖侧栏额度（`SmartRequiredHpSaved` / `PotionHpRequired`），我们没有 UI 输入 | 没有成本模型就扩药水 = 搜索会把药水当免费资源白喝，比不扩更差 | **先做成本模型**，否则不扩 |
+| 3 | **Act 2-4 怪物镜像（M3.3）**：我们的意图是 `IntentLearning` **观测学习**，只能靠真机跑图采集 | 不采集就永远只有 Act 1 准 | 需要你安排跑图（至少每组怪 2–3 个回合）；或者改路线做成完整的怪物 AI 镜像（成本极高） |
+| 4 | **`BeamPortfolioSelector` 是训练出来的决策树模型**（32 特征 JSON + 版本校验），我们没数据训练，STS2 的模型也不能用 | 决定对照表里它记 ⛔ 还是留接口 | 记 **⛔ 本期无对应**（无训练数据），不留空接口 |
+| 5 | **`PersistentBuffValue` / 能力估值模型族**（`StrategicEffectModel` 的 DamagePotential / ScalingPotential / RetentionValue）：**Retention 批 3 Pareto、批 5 承诺代表、`SelectEarlyTurnFrontier` 前沿分桶** 三项全卡在它上面 | 目前第一梯队最大的单块；要做就得给铁甲每个能力写三项数值，逐条对着蓝本 | 值得做，但**单独立项**（不是一晚的活）；做完一次解锁三项 |
+| 6 | **`CyclePlanning`（5057 行）**：周期检测 + 周期族探测预算 | 我们已有指纹去重兜底；整块搬成本极高 | 先记 ❌ 不搬；如果真出现「搜索在同一层打转」的实测症状，再做轻量版（只检测同回合内的动作周期） |
