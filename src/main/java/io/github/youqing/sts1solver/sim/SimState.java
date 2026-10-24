@@ -530,14 +530,16 @@ public final class SimState {
      * 所以只要**等价类不变**就等价于没改行为 —— 由 {@code SimStateFingerprintTest} 对拍：
      * 任意两个状态，老口径 {@code fingerprintOf(toJson())} 相等 ⟺ 新口径相等。
      *
-     * <p>⚠️ 已知口径缺口（不是这次改出来的，是原样保留）：{@code toJson} 里没有
-     * {@code turn} / {@code hpLossCount} / {@code potionSlots} / {@code gold}，
-     * 所以这些字段不同的两个状态会被判成同一个局面。要不要补是**语义变更**，
-     * 记在 {@code mechanics-reference} §29.3，等用户拍板。
+     * <p>⚠️ 2026-10-24 补了三个字段（`turn` / `hpLossCount` / `potionSlots`）：原口径
+     * （`toJson`）里没有它们，于是「同血量、挨打次数不同」的两条路线会被去重掉一条 ——
+     * `hpLossCount` 决定浴血奋战的动态费用，这是**静默算错**，属于必须补的缺口。
+     * 补的代价是等价类变细、去重变少、节点数略增（搜索结果可能与补之前不同）。
+     * `turn` 同理（回合前进必然抽牌，实际很少撞，但撞上就是把不同回合当成同一局面）。
      */
     public String fingerprint() {
         Mix hash = new Mix();
         hash.add(act).add(floor).add(ascension);
+        hash.add(turn).add(hpLossCount).add(potionSlots);
         hash.add(hp).add(maxHp).add(block).add(energy);
         hash.add(deathSaveUsed ? 1 : 0).add(deathSaveUseCount).add(deathSaveHpRestored);
         hash.textMap(playerPowers);

@@ -1749,3 +1749,58 @@ score += (double)(relicCounters.HpCredit + relicCounters.HealingHpCredit) * hpWe
 5. 10/20 只剩 10 点空位 → 只兑现 10。
 
 全量 239 条通过。
+
+## 31. 药水战略成本 + 对账闸（A｜蓝本源码，2026-10-24）
+
+### 31.1 蓝本怎么写
+
+两层：
+
+1. **成本**：`PotionValuationRegistry.StrategicHpCost(potion)`（`PotionValuationRegistry.cs:58-70`）
+   把每瓶药水归到三档，返回「喝掉它至少要买回多少血」：
+   `High → PotionHighValueHpSaved(18)`、`Elevated → PotionElevatedValueHpSaved(14)`、
+   默认 `PotionMinimumHpSaved(9)`。
+2. **对账**：`PotionUsePolicy`（`PotionUsePolicy.cs:9-37`）要求
+   `PotionHpSaved = 不喝药的赤字 - 这条的赤字 ≥ Σ StrategicHpCost`，
+   达不到的路线在最终选路时被剔掉（`potionBranchesRejected`）。
+
+### 31.2 我们怎么对
+
+| 蓝本 | 我们 |
+|---|---|
+| `StrategicHpCost(potion)` 三档 | `mirror/PotionValuation.strategicHpCost(id)`，9 / 14 / 18 逐值照抄；档位表只对**效果同形**的三瓶（见 §31.3） |
+| `PotionHpSaved` | `gatePotionSpending` 里跑一趟 `maxPotionUses = 0` 的基线搜索，`saved = deficit(基线) - deficit(选中)` |
+| 达不到就剔掉 | `saved < cost` → 直接换成基线路线（`lastPotionSpendRejected = true`） |
+| 「不喝就输、喝了能赢」 | 胜负不同时不做赤字相减，记 `lastPotionHpSaved = Integer.MAX_VALUE`（哨兵：买到的是整场胜利） |
+| 没预算跑基线 | 剩余 < 5s 就保持原答案（不硬跑） |
+
+### 31.3 STS1 档位映射（⚠️ 待核对）
+
+只把**效果同形**的对上，其余按基准档（宁可低估价值）：
+
+| STS1 药水 | 档 | 门槛 | 蓝本对应 |
+|---|---|---|---|
+| Fruit Juice（+5 最大生命） | HIGH | 18 | `GLOWWATER_POTION`（永久最大生命） |
+| GamblersBrew（弃任意张再抽等量） | HIGH | 18 | `GAMBLERS_BREW`（同名） |
+| LiquidMemories（弃牌堆取回一张） | ELEVATED | 14 | `LIQUID_MEMORIES`（同名） |
+| 其余 18 张 | BASELINE | 9 | 默认档 |
+
+瓶中仙子是被动死亡豁免（`canUse` 为假），不进表。
+
+### 31.4 验证
+
+`PotionCostGateTest` 4 条：
+
+1. 三档数值（9 / 14 / 18）+ 未登记 ID 落基准档；
+2. **只买「早一回合结束」不买血的药水必须被拒**（怪 20 血、意图 0、喝火药 1 回合结束 vs
+   不喝 2 回合结束、两者都 0 掉血 → 省血 0 < 9 → 退回不吃药路线）；
+   对照组 `withPotionCostGate(false)` 确认不设闸时搜索真的会喝（否则这条测试没意义）；
+3. 救命场面必须放行（怪 20 血意图 25、能量 0、空手 → 不喝必死）；
+4. 一滴药没喝的路线不触发对账（不多跑一趟基线）。
+
+全量 **243 条**通过。
+
+### 31.5 成本
+
+喝药时会多跑一趟「不喝药」基线搜索（同样的节点上限、同一份 deadline 里扣预算）。
+蓝本也是这么做的（`PotionFreePolicyBaseline`），所以这是对齐而非新增开销。

@@ -26,7 +26,7 @@ read_when:
 | `StateEvaluation.cs` `StrategicEffects` / 逐能力 RetentionValue | 按层数的近似 | 🔶 近似：没有 STS2 那张能力价值表 |
 | `LatentCardSetupValue` 逐卡分值表 | 走默认分支（能力牌 2 点） | 🔶 部分：表是 STS2 卡，不臆造 |
 | `ReplayPotentialValue`（附魔重放次数） | — | ⛔ 不适用：STS1 无附魔/重放机制（唯一接近的是双发/爆发，但那是「下一次打两次」，不是可重放卡） |
-| 药水估值（`PotionStrategicCost` / `SmartRequiredHpSaved`） | `mirror/Potions`（4 张）+ `PlanAction.USE_POTION` | 🔶 **镜像层已做**：火/格挡/能量/瓶中仙子 4 张 + 槽位 + 动作空间，瓶中仙子已接进死亡豁免；**估值策略未做**（依赖侧栏额度输入，见 `mechanics-reference` §25.4）；其余 30+ 张药水未做 |
+| 药水估值（`PotionStrategicCost` / `SmartRequiredHpSaved`） | `mirror/PotionValuation` + `BeamSolver.gatePotionSpending` | 🔶 **部分（2026-10-24）**：`PotionUsePolicy.StrategicHpCost` 三档成本（9/14/18，逐值照抄 `SolverWeights`）+ **对账闸**已搬 —— 喝药必须比「不喝药基线」多省 ≥ Σ成本，否则退回不喝药的路线（`mechanics-reference` §31）。仍缺：`SolverPotionPolicy` 档位（Smart / RequireAtLeastOne / Disabled）、强制用药指令、`PotionRewardOutlook`（腾槽位换奖励）—— 都要 UI 侧栏额度输入；药水镜像仍只 21 张 |
 | `DeathSave*`（`DeathSaveHpRestored` / `DeathSavePremium` / `DeathSaveUseCount`） | `mirror/DeathSaveRelic` + `Score.deathSaveBeamCost` + `BeamSolver.strategicHpDeficit` | 🔶 **遗物侧已做**：**蜥蜴尾巴**在仿真里真拦一次致死伤害、记回血量、进三处计价；**瓶中仙子**（药水）等药水建模后接 |
 | `GrowthRewards` / `GrowthHpCredit` / `LongTermResourceValue`（局外收益） | 只有 `Feed` 的最大生命增长进了基础分 | 🔶 **部分**：`GrowthSource` 里就有 **Feed**；我们缺的是「成长奖励」这条独立计分轴与逐来源计数 |
 | `UnrecoveredLoot` / `TheftEncounterStrategy`（被偷资源） | — | ❌ **未做**：STS1 有 **Looter（掠夺者）** 偷金币后逃走 |
@@ -58,7 +58,7 @@ read_when:
 | `BeamPortfolioSelector.cs` / `BeamWidthPortfolio*.cs`（多宽度组合） | — | ❌ 未做 |
 | `ContextualRankingModel.cs`（上下文排序模型） | — | ❌ 未做 |
 | `CardChoiceSupport*` / `CardChoiceMirrors` / `CardChoiceResolution`（牌内选择估值） | — | ❌ 未做 |
-| 药水动作（`BlockPotionInsertion` / `PotionChoiceContinuation` / `SolverPotionPolicy`） | — | ⛔ 不适用：未建模药水（要做等于新开一块） |
+| 药水动作（`BlockPotionInsertion` / `PotionChoiceContinuation` / `SolverPotionPolicy`） | `expandPotion` 的三种形态 + `gatePotionSpending` | 🔶 **部分**：动作空间（目标 / 单选 / 多选）与成本闸有了；`BlockPotionInsertion`（把药水插进已解路线）与 `PotionChoiceContinuation`（药水开出的选牌续搜）未做，`SolverPotionPolicy` 档位未做 |
 
 ## 3. 执行层（对应 Runtime/）
 

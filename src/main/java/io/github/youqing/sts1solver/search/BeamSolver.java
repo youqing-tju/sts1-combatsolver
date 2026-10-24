@@ -86,6 +86,18 @@ public final class BeamSolver {
     /** 有没有哪条前缀真的把答案换了（蓝本 {@code selected=}）。 */
     public boolean lastZeroCostImproved;
 
+    // ===== 药水战略成本对账的遥测（蓝本 PotionUsePolicy + FinalPlanOrdering） =====
+    /** 选中的路线里这瓶药水「至少要买回多少血」合计（蓝本 {@code ExplicitPotionStrategicCost}）。 */
+    public int lastPotionStrategicCost;
+    /**
+     * 不喝药的那条基线比它多掉多少血（蓝本 {@code PotionHpSaved}）。
+     * 若「不喝就输、喝了能赢」，这里记的是 {@link Integer#MAX_VALUE} 这个哨兵 ——
+     * 那时药水买到的不是血量，而是整场胜利。
+     */
+    public int lastPotionHpSaved;
+    /** 因为「买不回成本」而退回不喝药路线（蓝本 {@code potionBranchesRejected} 那一档）。 */
+    public boolean lastPotionSpendRejected;
+
     /**
      * 上一次搜索里已经报过的「语义缺失」拒绝（每次搜索清空，避免刷屏）。
      *
@@ -159,6 +171,9 @@ public final class BeamSolver {
      * 结果按父节点下标顺序提交 —— 所以**并行的结果与串行逐位相同**，只是快。
      */
     private int parallelLanes = -1;
+
+    /** 药水对账闸（蓝本 PotionUsePolicy 的最小切片）；测试里可以关掉做对照。 */
+    private boolean potionCostGate = true;
 
     /**
      * 一个回合层至少分到这么多展开节点（蓝本 {@code SolverWeights.MinimumTurnLayerExpandedNodes}）。
@@ -259,6 +274,12 @@ public final class BeamSolver {
     /** 设并行展开的 lane 数；1 = 串行（测试用来做逐位对照）。 */
     public BeamSolver withParallelLanes(int lanes) {
         this.parallelLanes = Math.max(1, lanes);
+        return this;
+    }
+
+    /** 药水对账闸开关（默认开）；测试里用 {@code false} 看「不设闸会怎么喝」。 */
+    public BeamSolver withPotionCostGate(boolean enabled) {
+        this.potionCostGate = enabled;
         return this;
     }
 
@@ -366,6 +387,9 @@ public final class BeamSolver {
         lastZeroCostPrefixes = 0;
         lastZeroCostAttempts = 0;
         lastZeroCostImproved = false;
+        lastPotionStrategicCost = 0;
+        lastPotionHpSaved = 0;
+        lastPotionSpendRejected = false;
 
         // 固定前缀先单独验一遍：验不过就整条作废（蓝本 ApplyFixedPrefix 的 null 分支）。
         // 放在这里是为了**别让搜索跑完整趟才发现前缀是废的**，也避免下面的加宽循环误判成「没打赢」。
@@ -424,6 +448,9 @@ public final class BeamSolver {
         // 所以放在同一份 deadline 内、紧跟主搜索 —— 顺序与蓝本一致（rescue 在 mid-combat 之前，
         // 我们还没搬 mid-combat）。前缀搜索自己就是 sub-solver，不能递归触发补搜。
         if (fixedPrefix.isEmpty()) {
+            // 药水对账在前（蓝本 post-search 也是先药水后免费牌）：它可能把路线换成不喝药的，
+            // 换完之后「第一步是结束回合」的补搜条件才有机会成立。
+            selected = gatePotionSpending(root, selected, deadline);
             selected = zeroCostOpeningRescue(root, selected, deadline);
         }
 
@@ -1438,6 +1465,87 @@ public final class BeamSolver {
                 selected.set(slots.get(index), replacements.get(index));
             }
         }
+    }
+
+    // ================================================================================
+    // 药水战略成本对账 —— 蓝本 PotionUsePolicy.StrategicHpCost + FinalPlanOrdering 的
+    // `PolicyHpDeficit` / `HealthResourceCost` 那两条轴的最小可搬切片
+    // ================================================================================
+
+    /** 跑一趟「不喝药」基线至少要剩这么多毫秒（蓝本药水救援也是这个量级）。 */
+    static final int POTION_GATE_MIN_REMAINING_MILLIS = 5_000;
+
+    /** 这条路线里所有「显式用药」的战略成本合计（蓝本 {@code ExplicitPotionStrategicCost}）。 */
+    int potionStrategicCost(SearchNode node) {
+        int total = 0;
+        for (SearchNode cursor = node; cursor != null && cursor.action != null;
+             cursor = cursor.parent) {
+            if (cursor.action.kind == PlanAction.Kind.USE_POTION && cursor.cardKey != null) {
+                total += io.github.youqing.sts1solver.mirror.PotionValuation
+                        .strategicHpCost(cursor.cardKey);
+            }
+        }
+        return total;
+    }
+
+    /**
+     * 喝药必须**买回成本**，否则退回不喝药的那条路线。
+     *
+     * <p>蓝本 {@code PotionUsePolicy}：一条路线里每瓶药水都有 {@code StrategicHpCost}
+     * （9 / 14 / 18 血，见 {@code PotionValuation}），整条路线要满足
+     * {@code Σ cost ≤ PotionHpSaved = (不喝药的赤字 - 这条的赤字)} 才算合格；
+     * 达不到就换成不喝药的结果（{@code potionBranchesRejected}）。
+     *
+     * <p>为什么要这一层：搜索自己能喝药之后，会拿药水去换「早一回合结束」这种不省血的好处
+     * （最终排序里 {@code CombatEndedTurn} 排在敌方血之前）。药水是稀缺资源，
+     * 蓝本用这道闸把「用掉了但没买到血」的路线挡在外面。
+     *
+     * <p>我们没搬的部分：{@code SolverPotionPolicy} 的档位（Smart / RequireAtLeastOne / Disabled）、
+     * 强制用药指令、琥珀（Ambergris）限制、{@code PotionRewardOutlook}（腾出槽位能换一份奖励）。
+     * 这几个都依赖 UI 侧栏额度输入，记在 {@code blueprint-parity} 药水那行。
+     */
+    private SearchNode gatePotionSpending(SimState root, SearchNode selected, long deadline) {
+        if (!potionCostGate || selected == null) {
+            return selected;
+        }
+        int cost = potionStrategicCost(selected);
+        lastPotionStrategicCost = cost;
+        if (cost <= 0) {
+            return selected;                 // 一滴药没喝，不用对账（省掉一整趟基线搜索）
+        }
+        long remaining = remainingMillis(deadline);
+        if (remaining != Long.MAX_VALUE && remaining <= POTION_GATE_MIN_REMAINING_MILLIS) {
+            return selected;                 // 没预算跑基线就别硬跑，保持原答案
+        }
+        BeamSolver baseline = new BeamSolver(energyPerTurn, handSize, beamWidth, depth,
+                nodeLimit, cardBranchLimit).withMaxPotionUses(0);
+        long budget = remaining == Long.MAX_VALUE ? Long.MAX_VALUE : remaining - 1_000;
+        long subDeadline = budget == Long.MAX_VALUE
+                ? Long.MAX_VALUE
+                : System.nanoTime() + budget * 1_000_000L;
+        SearchNode free = baseline.searchToDepth(root, Math.max(1, depth), beamWidth,
+                cardBranchLimit, nodeLimit, subDeadline);
+        lastNodes += baseline.lastNodes;
+        if (free == null || baseline.hitNodeLimit || baseline.lastPassCutShort) {
+            return selected;                 // 基线没跑完，不算成绩（蓝本同口径）
+        }
+        if (isCompleteVictory(free) != isCompleteVictory(selected)) {
+            // 胜负不同就没法比赤字：不喝药会输、喝药能赢 → 药水买到的是「这场胜利」，当然留。
+            if (isCompleteVictory(selected)) {
+                lastPotionHpSaved = Integer.MAX_VALUE;      // 哨兵：整场胜利，不是血量算术
+            }
+            return selected;
+        }
+        int saved = strategicHpDeficit(free) - strategicHpDeficit(selected);
+        lastPotionHpSaved = saved;
+        boolean rejected = saved < cost;
+        Trace.info("POTION_GATE cost=" + cost + " hp_saved=" + saved
+                + " potions=" + selected.potionsUsed + " rejected=" + rejected);
+        if (rejected) {
+            lastPotionSpendRejected = true;
+            return free;
+        }
+        return selected;
     }
 
     // ================================================================================

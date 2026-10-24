@@ -134,6 +134,11 @@ class SimStateFingerprintTest {
         s.rng.put(SimState.RngKind.MONSTER, RngStream.from(11L, 22L, 4));
         states.add(s);
         s = copy(); s.rng.clear(); states.add(s);
+
+        // 2026-10-24 补进指纹的三个字段（原来只在 toJson 之外，会被误判成同一局面）
+        s = copy(); s.turn = 7; states.add(s);
+        s = copy(); s.hpLossCount = 3; states.add(s);
+        s = copy(); s.potionSlots = 3; states.add(s);
         return states;
     }
 
@@ -143,12 +148,19 @@ class SimStateFingerprintTest {
     }
 
     /**
-     * 核心判据：任意两个状态，「老口径认为相同」⟺「新口径认为相同」。
+     * 核心判据：新口径只能**更细**，不能更粗。
      *
-     * <p>配对的等价类完全一致 ⇒ 剪枝去重、转置表的判定一个都不会变 ⇒ 搜索结果不变。
+     * <p>2026-10-24 补进 `turn` / `hpLossCount` / `potionSlots` 之后，等价类**故意**变细了
+     * （原来「同血量、不同挨打次数」会被当成同一局面，那是静默算错）。所以判据改成单向：
+     *
+     * <pre>
+     * 新口径说「同一个」 ⇒ 老口径也必须说「同一个」
+     * </pre>
+     *
+     * 反过来不成立 —— 只允许在那三个补进去的字段上分得更细，别的地方必须一致。
      */
     @Test
-    void newFingerprintKeepsExactlyTheSameEquivalenceClasses() {
+    void newFingerprintIsNeverCoarserThanTheOldOne() {
         List<SimState> states = corpus();
         assertTrue(states.size() >= 30, "语料太小，覆盖不到全部字段：" + states.size());
         for (int i = 0; i < states.size(); i++) {
@@ -157,39 +169,40 @@ class SimStateFingerprintTest {
                         .equals(legacyFingerprint(states.get(j)));
                 boolean currentSame = states.get(i).fingerprint()
                         .equals(states.get(j).fingerprint());
-                assertEquals(legacySame, currentSame,
-                        "状态 #" + i + " 与 #" + j + " 的等价判定变了（漏字段或多了字段）");
+                if (currentSame) {
+                    assertTrue(legacySame,
+                            "状态 #" + i + " 与 #" + j + " 被新口径**错误地合并**了（漏字段）");
+                }
             }
         }
+    }
+
+    /** 补进去的三个字段必须真的起作用：它们不同 → 指纹必须不同。 */
+    @Test
+    void turnHpLossCountAndPotionSlotsNowSplitStates() {
+        SimState a = copy();
+        SimState turnDiffers = copy();
+        turnDiffers.turn = 7;
+        assertFalse(a.fingerprint().equals(turnDiffers.fingerprint()), "turn 必须进指纹");
+
+        SimState hpLossDiffers = copy();
+        hpLossDiffers.hpLossCount = 3;
+        assertFalse(a.fingerprint().equals(hpLossDiffers.fingerprint()),
+                "hpLossCount 决定浴血奋战的动态费用，必须进指纹");
+
+        SimState slotsDiffer = copy();
+        slotsDiffer.potionSlots = 3;
+        assertFalse(a.fingerprint().equals(slotsDiffer.fingerprint()), "potionSlots 必须进指纹");
     }
 
     /** 语料里每个变体都该被区分开（除了显式的「内容相同」那一条）。 */
     @Test
     void everyVariationIsDistinguished() {
         List<SimState> states = corpus();
-        java.util.Set<String> legacy = new java.util.HashSet<String>();
         java.util.Set<String> current = new java.util.HashSet<String>();
         for (SimState state : states) {
-            legacy.add(legacyFingerprint(state));
             current.add(state.fingerprint());
         }
-        assertEquals(legacy.size(), current.size(), "不同状态的数量必须与老口径一致");
         assertEquals(states.size() - 1, current.size(), "只有 base 与 copy 允许撞成同一条");
-    }
-
-    /** 指纹里仍然不含 turn / hpLossCount / potionSlots —— 这是**保留现状**，不是这次改的。 */
-    @Test
-    void knownGapTurnAndHpLossCountStillNotHashed() {
-        SimState a = copy();
-        SimState b = copy();
-        b.turn = 7;
-        assertEquals(a.fingerprint(), b.fingerprint(), "turn 仍不进指纹（口径未变）");
-        SimState c = copy();
-        c.hpLossCount = 3;
-        assertEquals(a.fingerprint(), c.fingerprint(), "hpLossCount 仍不进指纹（口径未变）");
-        SimState d = copy();
-        d.potionSlots = 3;
-        assertFalse(a.fingerprint().equals(""), "指纹不该为空");
-        assertEquals(a.fingerprint(), d.fingerprint(), "potionSlots 仍不进指纹（口径未变）");
     }
 }
