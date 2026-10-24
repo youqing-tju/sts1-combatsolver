@@ -226,6 +226,17 @@ public final class SimState {
                 } catch (Throwable ignored) {
                     // 字段不可见就保持空历史：没镜像的怪走 IntentLearning，镜像的怪按「第一招」算
                 }
+                // 卡面伤害（原版 damage 列表的 base）：不少怪的伤害是开战随机抽的，
+                // 影子复现不了那个随机，直接读真机的值（AbstractMonster.damage 是 public）
+                try {
+                    if (m.damage != null) {
+                        for (com.megacrit.cardcrawl.cards.DamageInfo info : m.damage) {
+                            monster.damageBase.add(Integer.valueOf(info == null ? 0 : info.base));
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    // 拿不到就留空：机器会退回字节码里的默认档
+                }
                 s.monsters.add(monster);
             }
         }

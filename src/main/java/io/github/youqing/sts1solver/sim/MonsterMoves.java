@@ -61,6 +61,18 @@ public final class MonsterMoves {
             return !history.isEmpty() && history.get(history.size() - 1).intValue() == id;
         }
 
+        /**
+         * 捕获来的卡面伤害第 {@code index} 项；没捕获到就用 {@code fallback}（字节码默认档）。
+         *
+         * <p>不少怪的伤害是**开战随机**的（虱子 5-7 / A2 起 6-8、奴隶主、大颚虫…），
+         * 那是构造器里 {@code MathUtils.random} 抽的，影子复现不出来 —— 所以优先用真机值。
+         */
+        public int baseDamage(int index, int fallback) {
+            return monster != null && index >= 0 && index < monster.damageBase.size()
+                    ? monster.damageBase.get(index).intValue()
+                    : fallback;
+        }
+
         /** 原版 {@code lastTwoMoves(byte)}。 */
         public boolean lastTwoMoves(int id) {
             int size = history.size();
@@ -104,6 +116,11 @@ public final class MonsterMoves {
         MACHINES.put("JawWorm", new JawWormMachine());
         MACHINES.put("AcidSlime_S", new AcidSlimeMachine());
         MACHINES.put("SpikeSlime_M", new SpikeSlimeMMachine());
+        MACHINES.put("FungiBeast", new FungiBeastMachine());
+        MACHINES.put("SlaverBlue", new SlaverBlueMachine());
+        MACHINES.put("LouseNormal", new LouseMachine("LouseNormal", true));
+        MACHINES.put("LouseDefensive", new LouseMachine("LouseDefensive", false));
+        MACHINES.put("GremlinWizard", new GremlinWizardMachine());
     }
 
     private MonsterMoves() {
@@ -418,6 +435,124 @@ public final class MonsterMoves {
             }
             boolean repeatedLick = c.ascension >= 17 ? c.lastMove(4) : c.lastTwoMoves(4);
             return repeatedLick ? attack : lick;
+        }
+    }
+
+    /**
+     * 菌类怪兽（FungiBeast）。
+     *
+     * <pre>
+     * getMove:  num &lt; 60: lastTwoMoves(1) ? 2(Grow) : 1(Bite)
+     *           否则:     lastMove(2) ? 1 : 2
+     * takeTurn: 1 → 一段 bite；2(Grow) → 自己 +strAmt 力量（A17: strAmt+1）
+     * 常数:     bite 6（卡面随机档）、strAmt 3 (A2: 4)、HP 22-28 (A7: 24-28)
+     * </pre>
+     */
+    static final class FungiBeastMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int bite = c.baseDamage(0, 6);
+            int strAmt = c.ascension >= 2 ? 4 : 3;
+            MonsterMove grow = MonsterMove.buff(2, "Strength", c.ascension >= 17 ? strAmt + 1 : strAmt);
+            if (c.num < 60) {
+                return c.lastTwoMoves(1) ? grow : MonsterMove.attack(1, bite);
+            }
+            return c.lastMove(2) ? MonsterMove.attack(1, bite) : grow;
+        }
+    }
+
+    /**
+     * 蓝奴隶主（SlaverBlue）。
+     *
+     * <pre>
+     * getMove:  num &gt;= 40 且不是连续两招 1 → 1(Stab)
+     *           否则 A17+: lastMove(4) ? 1 : 4；其余: lastTwoMoves(4) ? 1 : 4
+     * takeTurn: 1 → 一段 stab；4(Rake) → 一段 rake + 玩家 Weak（A17: 2）
+     * 常数:     stab 12 (A2: 13)、rake 7 (A2: 8)、weakAmt 1、HP 46-50 (A7: 48-52)
+     * </pre>
+     */
+    static final class SlaverBlueMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int stab = c.baseDamage(0, c.ascension >= 2 ? 13 : 12);
+            int rake = c.baseDamage(1, c.ascension >= 2 ? 8 : 7);
+            int weak = c.ascension >= 17 ? 2 : 1;
+            if (c.num >= 40 && !c.lastTwoMoves(1)) {
+                return MonsterMove.attack(1, stab);
+            }
+            boolean repeatedRake = c.ascension >= 17 ? c.lastMove(4) : c.lastTwoMoves(4);
+            return repeatedRake
+                    ? MonsterMove.attack(1, stab)
+                    : MonsterMove.attackDebuff(4, rake, "Weakened", weak);
+        }
+    }
+
+    /**
+     * 虱子（FuzzyLouseNormal / FuzzyLouseDefensive）—— 两只只差「4 号招干什么」。
+     *
+     * <pre>
+     * getMove:  A17+: num &lt; 25 ? (lastMove(4) ? 3 : 4) : (lastTwoMoves(3) ? 4 : 3)
+     *           其余: num &lt; 25 ? (lastTwoMoves(4) ? 3 : 4) : (lastTwoMoves(3) ? 4 : 3)
+     * takeTurn: 3(Bite) → 一段 bite
+     *           4 → 普通虱子：自己 +3 力量（A17: 4）＝Grow
+     *               防御虱子：玩家 Weak 2＝Web
+     * 常数:     bite 5-7（A2: 6-8，**开战随机**，用捕获值）、HP 10-15 / 11-17（A7: 11-16 / 12-18）
+     * </pre>
+     */
+    static final class LouseMachine implements Machine {
+        private final String type;
+        private final boolean grows;
+
+        LouseMachine(String type, boolean grows) {
+            this.type = type;
+            this.grows = grows;
+        }
+
+        @Override
+        public MonsterMove next(Context c) {
+            int bite = c.baseDamage(0, c.ascension >= 2 ? 7 : 6);
+            MonsterMove four = grows
+                    ? MonsterMove.buff(4, "Strength", c.ascension >= 17 ? 4 : 3)
+                    : MonsterMove.attackDebuff(4, 0, "Weakened", 2);
+            if (c.num < 25) {
+                boolean repeatedFour = c.ascension >= 17 ? c.lastMove(4) : c.lastTwoMoves(4);
+                return repeatedFour ? MonsterMove.attack(3, bite) : four;
+            }
+            return c.lastTwoMoves(3) ? four : MonsterMove.attack(3, bite);
+        }
+
+        @Override
+        public String toString() {
+            return type + "Machine";
+        }
+    }
+
+    /**
+     * 小鬼法师（GremlinWizard）。
+     *
+     * <pre>
+     * getMove:  永远 2(Charging)
+     * takeTurn: 2 → currentCharge++；到 3 → 排 1(Ultimate Blast)，否则继续 2
+     *           1 → currentCharge = 0；打 damage[0]；A17+ 再排一次 1（连轰），否则排 2
+     * 常数:     blast 25 (A2: 30)、HP 21-25 (A7: 22-26)、currentCharge 初值 1
+     * </pre>
+     *
+     * <p>蓄力计数从 {@code moveHistory} 反推：开场那次算 1 点（构造器初值），
+     * 之后每打一次 2 就 +1；打过一次大招（1）之后清零。
+     */
+    static final class GremlinWizardMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int blast = c.baseDamage(0, c.ascension >= 2 ? 30 : 25);
+            int charge = c.history.contains(Integer.valueOf(1)) ? 0 : 1;
+            for (int i = c.history.size() - 1; i >= 0 && c.history.get(i).intValue() == 2; i--) {
+                charge++;
+            }
+            // A17 起放完大招还会再来一发（字节码：打完之后 SetMove 又是 1）
+            if (c.ascension >= 17 && c.lastMove(1) && !c.lastMoveBefore(1)) {
+                return MonsterMove.attack(1, blast);
+            }
+            return charge >= 2 ? MonsterMove.attack(1, blast) : MonsterMove.none(2);
         }
     }
 }

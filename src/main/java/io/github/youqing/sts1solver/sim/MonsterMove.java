@@ -71,6 +71,11 @@ public final class MonsterMove {
         return new MonsterMove(id, damage, hits, 0, 0, null, 0, null, 0, null, 0);
     }
 
+    /** 什么也不做（GremlinWizard 的 Charging：只是把蓄力计数 +1）。 */
+    public static MonsterMove none(int id) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0);
+    }
+
     public static MonsterMove block(int id, int block) {
         return new MonsterMove(id, 0, 0, block, 0, null, 0, null, 0, null, 0);
     }

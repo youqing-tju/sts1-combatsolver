@@ -53,6 +53,21 @@ class MonsterMovesTest {
         return z ^ (z >>> 31);
     }
 
+    /** 带卡面伤害的 Context（模拟捕获来的 {@code damageBase}）。 */
+    private static MonsterMove decideWithBase(String type, java.util.List<Integer> history, int num,
+                                              int ascension, int... damageBase) {
+        SimState state = new SimState();
+        state.ascension = ascension;
+        state.rng.put(SimState.RngKind.AI, RngStream.from(11L, 22L, 0));
+        SimMonster monster = new SimMonster(type, 40, 40, 0, NO_POWERS);
+        monster.moveHistory.addAll(history);
+        for (int base : damageBase) {
+            monster.damageBase.add(Integer.valueOf(base));
+        }
+        return MonsterMoves.machineFor(type).next(
+                new MonsterMoves.Context(state, monster, monster.moveHistory, 1, 0, num, ascension));
+    }
+
     /** 整副牌里有多少张 Dazed。 */
     private static int countDazed(SimState s) {
         int n = 0;
@@ -500,5 +515,88 @@ class MonsterMovesTest {
 
         // 连续两招攻击后 num<30 必定 Lick
         assertEquals(4, decide("SpikeSlime_M", history(1, 1), 10, 0, 0).id);
+    }
+
+    // ============================ 第四批：FungiBeast / SlaverBlue / Louse ×2 / GremlinWizard ============================
+
+    /** 菌菇：连打两下才 Grow；num>=60 时反过来。 */
+    @Test
+    void fungiBeastGrowsAfterTwoBites() {
+        assertEquals(1, decide("FungiBeast", history(), 10, 0, 0).id, "第一招 Bite");
+        assertEquals(1, decide("FungiBeast", history(1), 10, 0, 0).id, "只打一下还是 Bite");
+        MonsterMove grow = decide("FungiBeast", history(1, 1), 10, 0, 0);
+        assertEquals(2, grow.id, "连打两下 → Grow");
+        assertEquals("Strength", grow.selfBuff);
+        assertEquals(3, grow.selfBuffAmount, "默认 +3 力量");
+        assertEquals(4, decide("FungiBeast", history(1, 1), 10, 0, 2).selfBuffAmount, "A2 起 +4");
+        assertEquals(5, decide("FungiBeast", history(1, 1), 10, 0, 17).selfBuffAmount, "A17 起 +5");
+
+        assertEquals(1, decide("FungiBeast", history(2), 90, 0, 0).id, "num>=60 且刚 Grow → Bite");
+        assertEquals(2, decide("FungiBeast", history(1), 90, 0, 0).id, "num>=60 且刚 Bite → Grow");
+    }
+
+    /** 菌菇的伤害用捕获值（开战随机 5-7），不是写死的常数。 */
+    @Test
+    void fungiBeastUsesCapturedBaseDamage() {
+        assertEquals(7, decideWithBase("FungiBeast", history(), 10, 0, 7).damage, "捕获 7 → 打 7");
+        assertEquals(6, decide("FungiBeast", history(), 10, 0, 0).damage, "没捕获 → 退回默认档 6");
+    }
+
+    /** 蓝奴隶主：num>=40 先刺一下，否则 Rake（带 Weak）。 */
+    @Test
+    void slaverBlueStabsOrRakes() {
+        assertEquals(1, decide("SlaverBlue", history(), 50, 0, 0).id, "num>=40 → Stab");
+        assertEquals(12, decide("SlaverBlue", history(), 50, 0, 0).damage);
+        assertEquals(13, decide("SlaverBlue", history(), 50, 0, 2).damage, "A2 起 13");
+
+        MonsterMove rake = decide("SlaverBlue", history(), 10, 0, 0);
+        assertEquals(4, rake.id, "num<40 → Rake");
+        assertEquals(7, rake.damage);
+        assertEquals("Weakened", rake.playerDebuff);
+        assertEquals(1, rake.playerDebuffAmount);
+        assertEquals(2, decide("SlaverBlue", history(), 10, 0, 17).playerDebuffAmount, "A17 起 Weak 2");
+
+        // 连续两招 Stab 之后，即使 num>=40 也要换 Rake
+        assertEquals(4, decide("SlaverBlue", history(1, 1), 50, 0, 0).id);
+    }
+
+    /** 普通虱子：4 号招给自己加力量（A17 起 +4）。 */
+    @Test
+    void normalLouseGrowsWithStrength() {
+        MonsterMove grow = decide("LouseNormal", history(), 10, 0, 0);
+        assertEquals(4, grow.id);
+        assertEquals("Strength", grow.selfBuff);
+        assertEquals(3, grow.selfBuffAmount);
+        assertEquals(4, decide("LouseNormal", history(), 10, 0, 17).selfBuffAmount, "A17 起 +4");
+
+        assertEquals(3, decide("LouseNormal", history(), 90, 0, 0).id, "num>=25 且没连打 → Bite");
+        assertEquals(4, decide("LouseNormal", history(3, 3), 90, 0, 0).id, "连打两下 → Grow");
+        // 连续两次 Grow 之后必须打（num<25 分支）
+        assertEquals(3, decide("LouseNormal", history(4, 4), 10, 0, 0).id);
+    }
+
+    /** 防御虱子：4 号招是 Web（玩家 Weak 2），不给自己加力量。 */
+    @Test
+    void defensiveLouseWebsThePlayer() {
+        MonsterMove web = decide("LouseDefensive", history(), 10, 0, 0);
+        assertEquals(4, web.id);
+        assertEquals("Weakened", web.playerDebuff);
+        assertEquals(2, web.playerDebuffAmount);
+        assertEquals(0, web.selfBuffAmount, "不给自己加力量");
+    }
+
+    /** 小鬼法师：蓄力两次放大招；放完重新蓄力（A17 起连放两发）。 */
+    @Test
+    void gremlinWizardChargesThenBlasts() {
+        assertEquals(2, decide("GremlinWizard", history(), 50, 0, 0).id, "开场蓄力");
+        assertEquals(1, decide("GremlinWizard", history(2), 50, 0, 0).id, "蓄力两次 → 放大招");
+        assertEquals(25, decide("GremlinWizard", history(2), 50, 0, 0).damage);
+        assertEquals(30, decide("GremlinWizard", history(2), 50, 0, 2).damage, "A2 起 30");
+        assertEquals(2, decide("GremlinWizard", history(2, 1), 50, 0, 0).id, "放完重新蓄力");
+        assertEquals(2, decide("GremlinWizard", history(2, 1, 2), 50, 0, 0).id, "还要再蓄一次");
+        assertEquals(1, decide("GremlinWizard", history(2, 1, 2, 2), 50, 0, 0).id, "蓄够再放");
+        // A17：放完大招直接再来一发
+        assertEquals(1, decide("GremlinWizard", history(2, 1), 50, 0, 17).id, "A17 连轰");
+        assertEquals(2, decide("GremlinWizard", history(2, 1, 1), 50, 0, 17).id, "连轰完才重新蓄力");
     }
 }

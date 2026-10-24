@@ -48,6 +48,17 @@ public final class SimMonster {
      */
     public int pendingMoveId = -1;
 
+    /**
+     * 捕获来的**卡面伤害**（原版 {@code AbstractMonster.damage} 里每个 {@code DamageInfo.base}）。
+     *
+     * <p>为什么要它：不少怪的伤害是**开战时随机**的（虱子 bite 5-7 / A2 起 6-8、红蓝奴隶主、
+     * 大颚虫…），那是 {@code MathUtils.random} 在构造器里抽的，影子复现不出来。
+     * 捕获时直接读真机的 {@code damage} 列表，机器就有一份**准确**的底数可用。
+     *
+     * <p>⚠️ 它整场不变，所以不进指纹（与 {@code intentDmg} 同口径）。
+     */
+    public final java.util.ArrayList<Integer> damageBase = new java.util.ArrayList<Integer>();
+
     public SimMonster(String type, int hp, int maxHp, int block, Map<String, Integer> powers) {
         this.type = type;
         this.hp = hp;
@@ -63,6 +74,7 @@ public final class SimMonster {
         c.moveHistory.addAll(moveHistory);
         c.pendingMove = pendingMove;
         c.pendingMoveId = pendingMoveId;
+        c.damageBase.addAll(damageBase);
         return c;
     }
 
