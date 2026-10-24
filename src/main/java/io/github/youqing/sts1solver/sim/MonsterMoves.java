@@ -91,6 +91,12 @@ public final class MonsterMoves {
             return ai != null && ai.randomBoolean(chance);
         }
 
+        /** 原版 {@code Random.randomBoolean()}（无阈值版，走 {@code nextBoolean()}）。 */
+        public boolean randomBoolean() {
+            RngStream ai = state.rng.get(SimState.RngKind.AI);
+            return ai != null && ai.randomBoolean();
+        }
+
         /** 原版 {@code lastMoveBefore(byte)}：上上招是不是它（历史至少两招）。 */
         public boolean lastMoveBefore(int id) {
             int size = history.size();
@@ -115,11 +121,13 @@ public final class MonsterMoves {
         MACHINES.put("GremlinTsundere", new GremlinTsundereMachine());
         MACHINES.put("JawWorm", new JawWormMachine());
         MACHINES.put("AcidSlime_S", new AcidSlimeMachine());
+        MACHINES.put("AcidSlime_M", new AcidSlimeMMachine());
         MACHINES.put("SpikeSlime_M", new SpikeSlimeMMachine());
         MACHINES.put("FungiBeast", new FungiBeastMachine());
         MACHINES.put("SlaverBlue", new SlaverBlueMachine());
         MACHINES.put("SlaverRed", new SlaverRedMachine());
         MACHINES.put("Lagavulin", new LagavulinMachine());
+        MACHINES.put("GremlinNob", new GremlinNobMachine());
         MACHINES.put("LouseNormal", new LouseMachine("LouseNormal", true));
         MACHINES.put("LouseDefensive", new LouseMachine("LouseDefensive", false));
         MACHINES.put("GremlinWizard", new GremlinWizardMachine());
@@ -651,6 +659,81 @@ public final class MonsterMoves {
                 return c.lastTwoMoves(3) ? siphon : MonsterMove.attack(3, attackDmg);
             }
             return siphon;
+        }
+    }
+
+    /**
+     * 小鬼头目（GremlinNob，第一章精英）。
+     *
+     * <pre>
+     * getMove:  第一次 → 3(Bellow)，并关掉 usedBellow
+     *           A18+：最近两招都没出过 2 → 2(Skull Bash)；否则连续两招 1 → 2；否则 1(Rush)
+     *           其余：num &lt; 33 → 2；否则连续两招 1 → 2；否则 1
+     * takeTurn: 3 → 给自己挂 **Enrage 2**（A18: 3）；2(Skull Bash) → 一段 bash + 玩家易伤 2；
+     *           1(Rush) → 一段 rush
+     * 常数:     bash 6 (A3: 8)、rush 14 (A3: 16)、HP 82-86 (A8: 85-90)
+     * </pre>
+     *
+     * <p>Enrage 的效果不在这个类里 —— 它挂在 {@code Hooks.onCardUsed}（打技能牌 → 主人 +力量）。
+     */
+    static final class GremlinNobMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int bash = c.baseDamage(1, c.ascension >= 3 ? 8 : 6);
+            int rush = c.baseDamage(0, c.ascension >= 3 ? 16 : 14);
+            MonsterMove skullBash = MonsterMove.attackDebuff(2, bash, "Vulnerable", 2);
+            if (c.history.isEmpty()) {
+                return MonsterMove.buff(3, "Enrage", c.ascension >= 18 ? 3 : 2);
+            }
+            boolean bashAgain = c.ascension >= 18
+                    ? (!c.lastMove(2) && !c.lastMoveBefore(2)) || c.lastTwoMoves(1)
+                    : c.num < 33 || c.lastTwoMoves(1);
+            return bashAgain ? skullBash : MonsterMove.attack(1, rush);
+        }
+    }
+
+    /**
+     * 中酸液史莱姆（AcidSlime_M）。
+     *
+     * <pre>
+     * getMove:  A17+: num&lt;40 → (连续两招 1 ? randBool() ? 2 : 4 : 1)
+     *                 num&lt;80 → (连续两招 2 ? randBool(0.5) ? 1 : 4 : 2)
+     *                 否则    → (lastMove(4) ? randBool(0.4) ? 1 : 2 : 4)
+     *           其余:  num&lt;30 → (连续两招 1 ? randBool() ? 2 : 4 : 1)
+     *                 num&lt;70 → (lastMove(2) ? randBool(0.4) ? 1 : 4 : 2)
+     *                 否则    → (连续两招 4 ? randBool(0.4) ? 1 : 2 : 4)
+     * takeTurn: 1(Corrosive Spit) → 一段 dmg[0] + 往弃牌堆塞 1 张 Slimed
+     *           2(Tackle) → 一段 dmg[1]
+     *           4(Lick) → 玩家 Weak 1
+     * 常数:     spit 7 (A2: 8)、tackle 10 (A2: 12)、HP 28-32 (A7: 29-34)
+     * </pre>
+     */
+    static final class AcidSlimeMMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int spit = c.baseDamage(0, c.ascension >= 2 ? 8 : 7);
+            int tackle = c.baseDamage(1, c.ascension >= 2 ? 12 : 10);
+            MonsterMove spitMove = MonsterMove.attackStatus(1, spit, "Slimed", 1);
+            MonsterMove tackleMove = MonsterMove.attack(2, tackle);
+            MonsterMove lick = MonsterMove.attackDebuff(4, 0, "Weakened", 1);
+            boolean a17 = c.ascension >= 17;
+            if (c.num < (a17 ? 40 : 30)) {
+                if (c.lastTwoMoves(1)) {
+                    return c.randomBoolean() ? tackleMove : lick;
+                }
+                return spitMove;
+            }
+            boolean midBand = a17 ? c.num < 80 : c.num < 70;
+            if (midBand) {
+                if (a17 ? c.lastTwoMoves(2) : c.lastMove(2)) {
+                    return c.randomBoolean(0.5f) ? spitMove : lick;
+                }
+                return tackleMove;
+            }
+            if (a17 ? c.lastMove(4) : c.lastTwoMoves(4)) {
+                return c.randomBoolean(0.4f) ? spitMove : tackleMove;
+            }
+            return lick;
         }
     }
 }

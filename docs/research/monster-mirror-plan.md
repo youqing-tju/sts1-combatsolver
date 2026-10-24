@@ -25,6 +25,8 @@
 | `GremlinWizard` | 1 | 蓄力两次 → 大招 25（A2: 30）；A17 连轰 |
 | `SlaverRed` | 1 | 首招必刺；num>=75 缠身（禁攻击牌，机制早就齐）；Scrape 带易伤 |
 | `Lagavulin` | 1（精英） | 睡 3 回合→醒→砍两下→吸血；**挨打即醒（格挡全吸收不算）** |
+| `GremlinNob` | 1（精英） | 先 Bellow 挂**激怒**（打技能牌 → 它 +力量）；Skull Bash / Rush 交替 |
+| `AcidSlime_M` | 1 | 三档 num + 两处 `randomBoolean`；喷吐塞 Slimed |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 

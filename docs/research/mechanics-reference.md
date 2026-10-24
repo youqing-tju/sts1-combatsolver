@@ -2162,3 +2162,41 @@ takeTurn: 5 → idleCount++；到 3 就 OPEN 并排 3(ATTACK)
 验证 3 条：机器序列（睡 3 回合→醒→砍两下→吸血，A3/A18 数值）、
 「挨打即醒 + 金属化被拿掉 + 醒着再挨打不改招」、端到端（睡着每回合 +8 格挡 /
 格挡没打穿不醒 / 打穿后 STUN 那回合不造成伤害 / 自己回合开始清格挡）。全量 **274 条**。
+
+### 33.17 第六批：小鬼头目（GremlinNob）+ 激怒（Enrage）+ 中酸液史莱姆（2026-10-25）
+
+**Enrage 是新机制**（之前全库 0 命中）：`Hooks.onCardUsed` 里补了怪物侧分支 ——
+玩家每打出一张 **技能牌**，身上有 `Enrage` 的怪就 `+amount` 力量
+（`EnragePower.onUseCard`，判据 `card.type == SKILL`）。
+
+不建模的后果：搜索会以为「多打技能牌没代价」，在小鬼头目面前狂甩防御，
+然后被 Rush 14（A3: 16）一拳打醒。这是**方向性错误**，不是精度问题。
+
+`GremlinNob`：
+
+```
+getMove:  第一次 → 3(Bellow)；此后
+          A18+：最近两招没出过 2 → 2(Skull Bash)；否则连续两招 1 → 2；否则 1(Rush)
+          其余：num < 33 → 2；否则连续两招 1 → 2；否则 1
+takeTurn: 3 → 挂 Enrage 2（A18: 3）；2(Skull Bash) → 一段 + 玩家易伤 2；1(Rush) → 一段
+常数:     bash 6(A3: 8)、rush 14(A3: 16)、HP 82-86(A8: 85-90)
+```
+
+⚠️ `canVuln` 是构造器参数（有些场合造出来不允许上易伤），影子**没有捕获它**，
+一律按「能上易伤」处理 —— 这是已知近似，记在这里。
+
+`AcidSlime_M`：
+
+```
+getMove:  A17+: num<40 → 连续两招 1 ? (randBool() ? 2 : 4) : 1
+                num<80 → 连续两招 2 ? (randBool(0.5) ? 1 : 4) : 2
+                否则    → lastMove(4) ? (randBool(0.4) ? 1 : 2) : 4
+          其余:  num<30 / num<70，判据分别换成 lastMove(2) / lastTwoMoves(4)
+takeTurn: 1 → 一段 spit + 塞 1 张 Slimed；2 → 一段 tackle；4 → 玩家 Weak 1
+常数:     spit 7(A2: 8)、tackle 10(A2: 12)、HP 28-32(A7: 29-34)
+```
+
+`Context.randomBoolean()`（无参版）也补上了 —— 中酸液史莱姆有两处用的就是它。
+
+验证 3 条（Nob 招序 + 数值、Enrage 只认技能牌、中史莱姆三档 num 含随机二选一），
+全量 **277 条**通过。

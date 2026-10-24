@@ -64,6 +64,35 @@ public final class Hooks {
             }
         }
         RelicHooks.onCardUsed(state, card);
+        monsterOnCardUsed(state, card);
+    }
+
+    /**
+     * 怪物侧的 {@code onUseCard}（目前只有**激怒 Enrage**）。
+     *
+     * <p>{@code EnragePower.onUseCard}：玩家每打出一张 **技能牌**，主人就 +amount 力量
+     * （字节码直读：{@code card.type == SKILL → ApplyPowerAction(owner, owner, Strength(amount))}）。
+     * 这是 GremlinNob 的核心机制 —— 不建模的话搜索会以为「多打技能牌没有代价」，
+     * 在小鬼头目面前疯狂甩防御。
+     *
+     * <p>⚠️ 只看得到**能力表里现有的**激怒层数；捕获时 {@code SimState.capture} 会把
+     * {@code EnragePower.ID}（"Enrage"）带进来，所以真机打着打着也会准。
+     */
+    private static void monsterOnCardUsed(SimState state, SimCard card) {
+        if (!"SKILL".equals(card.type)) {
+            return;
+        }
+        for (SimMonster monster : state.monsters) {
+            if (monster.hp <= 0) {
+                continue;
+            }
+            Integer enrage = monster.powers.get("Enrage");
+            if (enrage == null || enrage <= 0) {
+                continue;
+            }
+            Integer strength = monster.powers.get("Strength");
+            monster.powers.put("Strength", (strength == null ? 0 : strength) + enrage);
+        }
     }
 
     /**

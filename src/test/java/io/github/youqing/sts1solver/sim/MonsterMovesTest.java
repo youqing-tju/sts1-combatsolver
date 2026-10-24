@@ -729,4 +729,87 @@ class MonsterMovesTest {
         assertEquals(hpBefore, s.hp, "STUN 那回合不造成伤害");
         assertEquals(0, lag.block, "它自己的回合开始会清格挡");
     }
+
+    // ============================ 第六批：GremlinNob（精英）/ AcidSlime_M ============================
+
+    /** 小鬼头目：先 Bellow（挂激怒），之后 Skull Bash 与 Rush 交替。 */
+    @Test
+    void gremlinNobBellowsThenAlternates() {
+        MonsterMove bellow = decide("GremlinNob", history(), 50, 0, 0);
+        assertEquals(3, bellow.id, "首招 Bellow");
+        assertEquals("Enrage", bellow.selfBuff, "挂的是激怒");
+        assertEquals(2, bellow.selfBuffAmount);
+        assertEquals(3, decide("GremlinNob", history(), 50, 0, 18).selfBuffAmount, "A18 起 3 层");
+
+        // 低进阶时「打不打 Skull Bash」看 num（<33 打），所以这里必须给 num=10
+        MonsterMove bash = decide("GremlinNob", history(3), 10, 0, 0);
+        assertEquals(2, bash.id, "Bellow 之后 num<33 → Skull Bash");
+        assertEquals("Vulnerable", bash.playerDebuff);
+        assertEquals(2, bash.playerDebuffAmount);
+        assertEquals(6, bash.damage);
+        assertEquals(8, decide("GremlinNob", history(3), 10, 0, 3).damage, "A3 起 8");
+        assertEquals(1, decide("GremlinNob", history(3), 50, 0, 0).id, "num>=33 → Rush");
+
+        assertEquals(1, decide("GremlinNob", history(3, 2), 50, 0, 0).id, "打过头 → Rush");
+        assertEquals(14, decide("GremlinNob", history(3, 2), 50, 0, 0).damage);
+        assertEquals(1, decide("GremlinNob", history(3, 2, 1), 50, 0, 0).id, "不能连着 Rush");
+        assertEquals(2, decide("GremlinNob", history(3, 2, 1, 1), 50, 0, 0).id,
+                "连续两下 Rush 之后必须 Skull Bash");
+
+        // 低进阶看 num：num<33 一律 Skull Bash
+        assertEquals(2, decide("GremlinNob", history(3, 2), 10, 0, 0).id);
+        assertEquals(1, decide("GremlinNob", history(3, 2), 90, 0, 0).id);
+    }
+
+    /** 激怒：玩家每打一张技能牌，头目 +力量；攻击牌不触发。 */
+    @Test
+    void enrageTriggersOnSkillCardsOnly() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        s.energy = 5;
+        SimMonster nob = new SimMonster("GremlinNob", 82, 86, 0, NO_POWERS);
+        nob.powers.put("Enrage", Integer.valueOf(2));
+        s.monsters.add(nob);
+        s.hand.add(new SimCard("Defend_R", false, 1, -1, "SKILL"));
+        s.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, -1);
+        assertEquals(Integer.valueOf(2), nob.powers.get("Strength"), "打技能牌 → +2 力量");
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+        assertEquals(Integer.valueOf(2), nob.powers.get("Strength"), "打攻击牌不触发");
+    }
+
+    /** 中酸液史莱姆：三档 num，喷吐会塞 Slimed。 */
+    @Test
+    void mediumAcidSlimePicksByNumBands() {
+        MonsterMove spit = decide("AcidSlime_M", history(), 10, 0, 0);
+        assertEquals(1, spit.id, "num<30 → Corrosive Spit");
+        assertEquals(7, spit.damage);
+        assertEquals("Slimed", spit.statusCard);
+
+        assertEquals(2, decide("AcidSlime_M", history(), 50, 0, 0).id, "30..69 → Tackle");
+        assertEquals(10, decide("AcidSlime_M", history(), 50, 0, 0).damage);
+        assertEquals(12, decide("AcidSlime_M", history(), 50, 0, 2).damage, "A2 起 12");
+
+        MonsterMove lick = decide("AcidSlime_M", history(), 90, 0, 0);
+        assertEquals(4, lick.id, "num>=70 且没连着舔 → Lick");
+        assertEquals("Weakened", lick.playerDebuff);
+        assertEquals(1, lick.playerDebuffAmount);
+
+        // 连着两下 Tackle 之后，num 仍在中档 → 只能在 1 / 4 里选
+        java.util.Set<Integer> afterTackle = new java.util.HashSet<Integer>();
+        for (int seed = 1; seed <= 20; seed++) {
+            SimState st = new SimState();
+            st.rng.put(SimState.RngKind.AI, RngStream.from(mix(seed), 0x9E3779B97F4A7C15L, 0));
+            SimMonster m = new SimMonster("AcidSlime_M", 30, 30, 0, NO_POWERS);
+            m.moveHistory.add(Integer.valueOf(2));
+            m.moveHistory.add(Integer.valueOf(2));
+            afterTackle.add(Integer.valueOf(MonsterMoves.machineFor("AcidSlime_M").next(
+                    new MonsterMoves.Context(st, m, m.moveHistory, 1, 0, 50, 0)).id));
+        }
+        assertTrue(afterTackle.contains(Integer.valueOf(1)), "可能喷吐");
+        assertTrue(afterTackle.contains(Integer.valueOf(4)), "可能舔");
+    }
 }
