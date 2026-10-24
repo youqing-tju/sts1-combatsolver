@@ -18,6 +18,14 @@
 | `JawWorm` | 1 | num 三档 + `randomBoolean(chance)`，一次决策可能消耗两次 aiRng |
 | `AcidSlime_S` | 1 | **不用 getMove**：takeTurn 自带 SetMoveAction，1→2 死循环 |
 | `SpikeSlime_M` | 1 | 攻击塞 Slimed，Lick 上 Frail |
+| `FungiBeast` | 1 | 连打两下才 Grow（力量），否则 Bite |
+| `SlaverBlue` | 1 | num>=40 刺，否则 Rake + Weak |
+| `LouseNormal` | 1 | 4 号招 Grow（力量 3 / A17: 4） |
+| `LouseDefensive` | 1 | 4 号招 Web（玩家 Weak 2） |
+| `GremlinWizard` | 1 | 蓄力两次 → 大招 25（A2: 30）；A17 连轰 |
+
+**刻意不搬（缺机制，不是缺时间）**：`SlaverRed`（Entangle 禁攻击牌）、
+`GremlinThief` / `Looter`（逃逸 + 偷金币）、`Lagavulin`（睡眠状态机 + 受伤即醒的钩子）。
 
 ## 二、分类（用 `javap -c` 扫 `getMove` 得到，见 `monster-mirror-scan.txt`）
 

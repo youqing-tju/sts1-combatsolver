@@ -2041,3 +2041,32 @@ Slimed + Frail）。全量 **262 条**通过。
 顺带修了一条被误伤的旧测试：`DeathSaveRelicTest` 原来拿 `JawWorm` 当「意图 100」的木桩，
 可它现在是镜像怪、招式由机器决定，写死的 intentDmg 会被覆盖 → 换成未镜像的 `Looter`。
 **教训：拿真怪当木桩会随镜像进度悄悄失效，木桩一律用没镜像的类型。**
+
+### 33.12 第四批：五只怪 + 捕获卡面伤害（2026-10-25）
+
+| 怪物 | 决策 | 招式 | 数值 |
+|---|---|---|---|
+| `FungiBeast` | `num<60`：连打两下 → Grow，否则 Bite；`num>=60` 反过来 | Bite / Grow（自己力量） | bite 6、力量 3（A2: 4 / A17: 5） |
+| `SlaverBlue` | `num>=40` 且非连续两刺 → Stab；否则 Rake | Stab / Rake（+Weak） | 12/7（A2: 13/8）、Weak 1（A17: 2） |
+| `LouseNormal` | `num<25` 看 4 号招是否重复，否则看 3 号招是否连续 | Bite / **Grow**（自己力量 3，A17: 4） | bite 5-7（A2: 6-8 随机） |
+| `LouseDefensive` | 同上（字节码与普通虱子逐条相同） | Bite / **Web**（玩家 Weak 2） | 同上 |
+| `GremlinWizard` | 永远排 2(Charging)；蓄力到 3 排大招 | Charging / Ultimate Blast | blast 25（A2: 30） |
+
+**新增基础设施：`SimMonster.damageBase`**
+
+不少怪的伤害是**构造器里 `MathUtils.random` 抽的**（虱子 5-7 / A2 起 6-8、奴隶主、
+大颚虫…）。那个随机发生在 `AbstractMonster` 子类构造器里，影子复现不出来 ——
+所以捕获时直接读真机的 `damage` 列表（public 字段，每项是 `DamageInfo.base`），
+机器优先用它，没有才退回字节码默认档（`Context.baseDamage(i, fallback)`）。
+
+⚠️ 它整场不变，所以**不进指纹**（与 `intentDmg` 同口径）。
+
+### 33.13 三只刻意没搬的怪（理由）
+
+| 怪物 | 卡在哪 | 缺什么 |
+|---|---|---|
+| `SlaverRed` | `Entangle` 给玩家挂 `EntanglePower`，**禁用攻击牌** | 影子没有「本回合不能打攻击牌」这个状态，硬搬会让搜索以为还能全力输出 |
+| `GremlinThief` / `Looter` | `escapeNext` → `SetMove(99, ESCAPE)` 离场 | 没有逃逸模型（也没有偷金币）；不建模就会让它们永远站着挨打 |
+| `Lagavulin` | `isOut` / `idleCount` / `debuffTurnCount` 三个类字段，且 `damage()` 被重写 —— **睡着时被打会立刻醒并晕** | 需要「每只怪自定义状态」+「怪物受伤时的钩子」 |
+
+这三块都不是照抄能解决的，要么先补机制，要么明确不搬 —— 先记在这里。
