@@ -23,9 +23,10 @@
 | `LouseNormal` | 1 | 4 号招 Grow（力量 3 / A17: 4） |
 | `LouseDefensive` | 1 | 4 号招 Web（玩家 Weak 2） |
 | `GremlinWizard` | 1 | 蓄力两次 → 大招 25（A2: 30）；A17 连轰 |
+| `SlaverRed` | 1 | 首招必刺；num>=75 缠身（禁攻击牌，机制早就齐）；Scrape 带易伤 |
 
-**刻意不搬（缺机制，不是缺时间）**：`SlaverRed`（Entangle 禁攻击牌）、
-`GremlinThief` / `Looter`（逃逸 + 偷金币）、`Lagavulin`（睡眠状态机 + 受伤即醒的钩子）。
+**刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币）、
+`Lagavulin`（睡眠状态机 + 受伤即醒的钩子）。
 
 ## 二、分类（用 `javap -c` 扫 `getMove` 得到，见 `monster-mirror-scan.txt`）
 

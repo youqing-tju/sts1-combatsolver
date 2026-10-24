@@ -2065,8 +2065,34 @@ Slimed + Frail）。全量 **262 条**通过。
 
 | 怪物 | 卡在哪 | 缺什么 |
 |---|---|---|
-| `SlaverRed` | `Entangle` 给玩家挂 `EntanglePower`，**禁用攻击牌** | 影子没有「本回合不能打攻击牌」这个状态，硬搬会让搜索以为还能全力输出 |
+| ~~`SlaverRed`~~ → ✅ **已搬**（见 §33.14） | — | 原先以为缺「禁用攻击牌」状态，查证后发现两侧**早就都有** |
 | `GremlinThief` / `Looter` | `escapeNext` → `SetMove(99, ESCAPE)` 离场 | 没有逃逸模型（也没有偷金币）；不建模就会让它们永远站着挨打 |
 | `Lagavulin` | `isOut` / `idleCount` / `debuffTurnCount` 三个类字段，且 `damage()` 被重写 —— **睡着时被打会立刻醒并晕** | 需要「每只怪自定义状态」+「怪物受伤时的钩子」 |
 
 这三块都不是照抄能解决的，要么先补机制，要么明确不搬 —— 先记在这里。
+
+### 33.14 红奴隶主：缠身（Entangle）—— 查证后其实早就齐了
+
+本来把它列进「缺机制」，查证后推翻：**禁攻击牌这条链两侧都是现成的**。
+
+- 施加侧：`EntanglePower.ID = "Entangled"`、`amount = 1`、`isTurnBased`；
+  `atEndOfTurn(isPlayer)` 里 `RemoveSpecificPowerAction` —— 也就是「挂上之后，到玩家下一个回合末自动消失」。
+- 拦截侧：`CardPlayer.play` 早就有一行 `isAttack(card) && power(state, "Entangled") > 0 → ActionRejected`。
+- 移除侧：`PowerHooks` 里注册了 `Entangled` 的 `END_OF_TURN` 处理器。
+
+所以这只怪只需要补机器，不需要新机制：
+
+```
+getMove:  firstTurn → 1(Stab)
+          num >= 75 且还没缠过 → 2(Entangle)
+          num >= 55 且缠过 且非连续两刺 → 1(Stab)
+          否则 A17+: lastMove(3) ? 1 : 3；其余: lastTwoMoves(3) ? 1 : 3
+takeTurn: 1 → 一段 stab 13（A2: 14）；2 → 玩家缠身；
+          3(Scrape) → 一段 scrape 8（A2: 9）+ 玩家 Vulnerable 1（A17: 2）
+```
+
+两个类字段都从历史反推：`firstTurn` = 历史为空，`usedEntangle` = 历史里出现过 2。
+
+验证 2 条：机器分支（首招必刺 / num>=75 缠身 / 缠过不再缠 / Scrape 带易伤 / A17 易伤 2 / 连续两 Scrape 换刺），
+以及**端到端**——红奴隶主真把缠身挂上玩家后，`Strike` 被拒（错误信息里带 `Entangled`）、
+`Defend` 照常打出。全量 **270 条**通过。

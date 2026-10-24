@@ -599,4 +599,55 @@ class MonsterMovesTest {
         assertEquals(1, decide("GremlinWizard", history(2, 1), 50, 0, 17).id, "A17 连轰");
         assertEquals(2, decide("GremlinWizard", history(2, 1, 1), 50, 0, 17).id, "连轰完才重新蓄力");
     }
+
+    /** 红奴隶主：首招必刺；num>=75 且没缠过 → 缠身；之后 Scrape 带易伤。 */
+    @Test
+    void slaverRedEntanglesThenScrapes() {
+        assertEquals(1, decide("SlaverRed", history(), 50, 0, 0).id, "首招 Stab");
+        assertEquals(13, decide("SlaverRed", history(), 50, 0, 0).damage);
+
+        MonsterMove entangle = decide("SlaverRed", history(1), 80, 0, 0);
+        assertEquals(2, entangle.id, "num>=75 → Entangle");
+        assertEquals("Entangled", entangle.playerDebuff);
+        assertEquals(0, entangle.damage, "缠身那回合不打人");
+
+        assertEquals(1, decide("SlaverRed", history(1, 2), 80, 0, 0).id,
+                "缠过一次就不再缠（num>=55 且有历史 → Stab）");
+
+        MonsterMove scrape = decide("SlaverRed", history(1), 10, 0, 0);
+        assertEquals(3, scrape.id);
+        assertEquals(8, scrape.damage);
+        assertEquals("Vulnerable", scrape.playerDebuff);
+        assertEquals(1, scrape.playerDebuffAmount);
+        assertEquals(2, decide("SlaverRed", history(1), 10, 0, 17).playerDebuffAmount, "A17 起易伤 2");
+        assertEquals(1, decide("SlaverRed", history(3, 3), 10, 0, 0).id, "连续两下 Scrape → Stab");
+    }
+
+    /** 端到端：红奴隶主真的把「缠身」挂上玩家，然后攻击牌打不出、技能牌还能打。 */
+    @Test
+    void entangleActuallyBlocksAttackCards() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        s.energy = 3;
+        SimMonster slaver = monster("SlaverRed");
+        slaver.pendingMove = MonsterMove.attackDebuff(2, 0, "Entangled", 1);
+        slaver.pendingMoveId = 2;
+        s.monsters.add(slaver);
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(Integer.valueOf(1), s.playerPowers.get("Entangled"), "缠身挂到玩家身上");
+
+        s.energy = 3;
+        s.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        try {
+            io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+            throw new AssertionError("缠身期间攻击牌必须打不出");
+        } catch (io.github.youqing.sts1solver.mirror.ActionRejected expected) {
+            assertTrue(expected.getMessage().contains("Entangled"), "拒绝理由要说清是缠身：" + expected.getMessage());
+        }
+        s.hand.add(new SimCard("Defend_R", false, 1, -1, "SKILL"));
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 1, -1);
+        assertTrue(s.block > 0, "技能牌不受缠身影响");
+    }
 }

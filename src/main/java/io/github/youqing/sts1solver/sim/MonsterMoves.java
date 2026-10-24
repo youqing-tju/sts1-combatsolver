@@ -118,6 +118,7 @@ public final class MonsterMoves {
         MACHINES.put("SpikeSlime_M", new SpikeSlimeMMachine());
         MACHINES.put("FungiBeast", new FungiBeastMachine());
         MACHINES.put("SlaverBlue", new SlaverBlueMachine());
+        MACHINES.put("SlaverRed", new SlaverRedMachine());
         MACHINES.put("LouseNormal", new LouseMachine("LouseNormal", true));
         MACHINES.put("LouseDefensive", new LouseMachine("LouseDefensive", false));
         MACHINES.put("GremlinWizard", new GremlinWizardMachine());
@@ -553,6 +554,49 @@ public final class MonsterMoves {
                 return MonsterMove.attack(1, blast);
             }
             return charge >= 2 ? MonsterMove.attack(1, blast) : MonsterMove.none(2);
+        }
+    }
+
+    /**
+     * 红奴隶主（SlaverRed）。
+     *
+     * <pre>
+     * getMove:  firstTurn → 1(Stab)，关掉标志
+     *           num &gt;= 75 且还没缠身 → 2(Entangle)
+     *           num &gt;= 55 且已缠身 且非连续两刺 → 1(Stab)
+     *           否则 A17+: lastMove(3) ? 1 : 3；其余: lastTwoMoves(3) ? 1 : 3
+     * takeTurn: 1 → 一段 stab；2(Entangle) → 玩家 **缠身**（禁攻击牌，回合末自动消）；
+     *           3(Scrape) → 一段 scrape + 玩家 Vulnerable 1（A17: 2）
+     * 常数:     stab 13 (A2: 14)、scrape 8 (A2: 9)、HP 46-50 (A7: 48-52)
+     * </pre>
+     *
+     * <p>两个类字段都能从历史反推：{@code firstTurn} = 历史为空，
+     * {@code usedEntangle} = 历史里出现过 2。
+     *
+     * <p>「缠身」的禁攻击牌由 {@code CardPlayer.play} 拦（原版可打出判定里查
+     * {@code hasPower("Entangled") && type == ATTACK}），回合末移除由
+     * {@code PowerHooks} 的 END_OF_TURN 钩子做 —— 两侧都已存在，这里只负责施加。
+     */
+    static final class SlaverRedMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int stab = c.baseDamage(0, c.ascension >= 2 ? 14 : 13);
+            int scrape = c.baseDamage(1, c.ascension >= 2 ? 9 : 8);
+            int vuln = c.ascension >= 17 ? 2 : 1;
+            if (c.history.isEmpty()) {
+                return MonsterMove.attack(1, stab);
+            }
+            boolean usedEntangle = c.history.contains(Integer.valueOf(2));
+            if (c.num >= 75 && !usedEntangle) {
+                return MonsterMove.attackDebuff(2, 0, "Entangled", 1);
+            }
+            if (c.num >= 55 && usedEntangle && !c.lastTwoMoves(1)) {
+                return MonsterMove.attack(1, stab);
+            }
+            boolean repeatedScrape = c.ascension >= 17 ? c.lastMove(3) : c.lastTwoMoves(3);
+            return repeatedScrape
+                    ? MonsterMove.attack(1, stab)
+                    : MonsterMove.attackDebuff(3, scrape, "Vulnerable", vuln);
         }
     }
 }
