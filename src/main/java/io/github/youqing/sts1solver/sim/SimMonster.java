@@ -26,6 +26,28 @@ public final class SimMonster {
 
     public final TreeMap<String, Integer> powers;
 
+    /**
+     * 已经执行过的招（原版 {@code AbstractMonster.moveHistory} 的字节值，按时间顺序）。
+     *
+     * <p>镜像表靠它判断「连续两次同一招」「这是第一招」这类分支；捕获时直接从真机读。
+     */
+    public final java.util.ArrayList<Integer> moveHistory = new java.util.ArrayList<Integer>();
+
+    /**
+     * 本回合要执行的招（{@link MonsterMoves} 算出来的）；{@code null} = 这只怪还没镜像，
+     * 走老的「按意图伤害打一下」路径。
+     */
+    public MonsterMove pendingMove;
+
+    /**
+     * 本回合要执行的招的**原版字节值**（{@code AbstractMonster.nextMove}）。
+     *
+     * <p>捕获时真机只给得出这个字节（含义在怪物类里），所以它单独存一份：
+     * 回合结束时用它把「刚打过的招」记进 {@link #moveHistory}，哪怕这一招我们没算过
+     * （{@code pendingMove} 为 null，伤害仍用捕获来的意图值）。
+     */
+    public int pendingMoveId = -1;
+
     public SimMonster(String type, int hp, int maxHp, int block, Map<String, Integer> powers) {
         this.type = type;
         this.hp = hp;
@@ -38,6 +60,9 @@ public final class SimMonster {
         SimMonster c = new SimMonster(type, hp, maxHp, block, powers);
         c.intentDmg = intentDmg;
         c.intentAttack = intentAttack;
+        c.moveHistory.addAll(moveHistory);
+        c.pendingMove = pendingMove;
+        c.pendingMoveId = pendingMoveId;
         return c;
     }
 

@@ -214,6 +214,18 @@ public final class SimState {
                 } catch (Throwable ignored) {
                     monster.intentAttack = false;
                 }
+                // 招式历史 + 本回合的招式字节：镜像表要靠它们判断分支（原版
+                // AbstractMonster.moveHistory / nextMove 都是 public 字段）
+                try {
+                    if (m.moveHistory != null) {
+                        for (java.util.Iterator<Byte> it = m.moveHistory.iterator(); it.hasNext(); ) {
+                            monster.moveHistory.add(Integer.valueOf(it.next().byteValue()));
+                        }
+                    }
+                    monster.pendingMoveId = m.nextMove;
+                } catch (Throwable ignored) {
+                    // 字段不可见就保持空历史：没镜像的怪走 IntentLearning，镜像的怪按「第一招」算
+                }
                 s.monsters.add(monster);
             }
         }

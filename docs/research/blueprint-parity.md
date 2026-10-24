@@ -59,6 +59,7 @@ read_when:
 | `ContextualRankingModel.cs`（上下文排序模型） | — | ❌ 未做 |
 | `CardChoiceSupport*` / `CardChoiceMirrors` / `CardChoiceResolution`（牌内选择估值） | — | ❌ 未做 |
 | 药水动作（`BlockPotionInsertion` / `PotionChoiceContinuation` / `SolverPotionPolicy`） | `expandPotion` 的三种形态 + `gatePotionSpending` | 🔶 **部分**：动作空间（目标 / 单选 / 多选）与成本闸有了；`BlockPotionInsertion`（把药水插进已解路线）与 `PotionChoiceContinuation`（药水开出的选牌续搜）未做，`SolverPotionPolicy` 档位未做 |
+| （无对应文件）怪物 AI 镜像 | `sim/MonsterMoves` + `SimMonster.moveHistory` | 🔶 **逐只推进**（2026-10-24 起）：原来只建模意图伤害（`IntentLearning`），现在按字节码翻译 `getMove`+`takeTurn`，把**格挡与减益**也带进影子。已镜像：`SphericGuardian`（`mechanics-reference` §33）。其余怪继续走老路，行为不变 |
 
 ## 3. 执行层（对应 Runtime/）
 

@@ -46,6 +46,32 @@ public final class DamageCalc {
         return Math.max(0, dmg);
     }
 
+    /**
+     * 怪物打玩家的伤害（原版 {@code DamageInfo.applyPowers} 的出手方是怪物那种情况）。
+     *
+     * <p>顺序与玩家向完全一致，只是「谁的力量 / 谁的虚弱 / 谁的易伤」对调：
+     * <pre>
+     * base → + 怪物力量 → ×0.75（怪物虚弱）→ ×1.5（玩家易伤）
+     * </pre>
+     * 每步都是 float 乘完再截断（与原版一致，不是四舍五入）。
+     */
+    public static int monsterAttackDamage(SimState state, int base, SimMonster attacker) {
+        int dmg = base;
+        if (attacker != null) {
+            Integer strength = attacker.powers.get(STRENGTH);
+            dmg += strength == null ? 0 : strength.intValue();
+            Integer weak = attacker.powers.get(WEAKENED);
+            if (weak != null && weak.intValue() > 0) {
+                dmg = (int) Math.floor(dmg * 0.75f);
+            }
+        }
+        Integer vulnerable = state.playerPowers.get(VULNERABLE);
+        if (vulnerable != null && vulnerable.intValue() > 0) {
+            dmg = (int) Math.floor(dmg * 1.5f);
+        }
+        return Math.max(0, dmg);
+    }
+
     /** Block gained from a skill card. */
     public static int blockAmount(SimState state, int base) {
         // NoBlockPower.modifyBlockLast 直接 return 0.0f —— 有它就完全不能获得格挡

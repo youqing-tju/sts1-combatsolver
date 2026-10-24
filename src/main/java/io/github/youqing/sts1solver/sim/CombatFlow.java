@@ -52,7 +52,29 @@ public final class CombatFlow {
         // 反过来写（先清后打）会让格挡完全失效 —— 搜索于是永远不防御，
         // 这正是 BeamSolverTest 抓到的问题。
         for (SimMonster m : state.monsters) {
-            if (m.hp > 0 && m.intentDmg > 0) {
+            if (m.hp <= 0) {
+                continue;
+            }
+            if (m.pendingMove != null) {
+                // 已镜像的怪：按原版 takeTurn() 逐段结算，格挡/荆棘都按段算
+                MonsterMove move = m.pendingMove;
+                for (int hit = 0; hit < move.hits; hit++) {
+                    int damage = io.github.youqing.sts1solver.mirror.DamageCalc
+                            .monsterAttackDamage(state, move.damage, m);
+                    if (damage > 0) {
+                        hitPlayer(state, damage, m);
+                    }
+                }
+                if (move.block > 0) {
+                    m.block += move.block;
+                }
+                if (move.playerDebuff != null && move.playerDebuffAmount > 0) {
+                    Integer prior = state.playerPowers.get(move.playerDebuff);
+                    state.playerPowers.put(move.playerDebuff,
+                            (prior == null ? 0 : prior) + move.playerDebuffAmount);
+                }
+            } else if (m.intentDmg > 0) {
+                // 未镜像的怪：沿用「意图伤害」单段结算（老路径，行为不变）
                 hitPlayer(state, m.intentDmg, m);
             }
         }
@@ -90,7 +112,30 @@ public final class CombatFlow {
         // ⑥ 进入下一回合：按「意图学习表」刷新怪物意图（查不到就沿用当前值）
         state.turn = state.turn + 1;
         for (SimMonster m : state.monsters) {
-            if (m.hp > 0) {
+            if (m.hp <= 0) {
+                continue;
+            }
+            // 本回合打过的招进历史（原版 moveHistory 在 takeTurn 后追加，RollMoveAction 再决策）
+            if (m.pendingMove != null) {
+                m.moveHistory.add(Integer.valueOf(m.pendingMove.id));
+            } else if (m.pendingMoveId >= 0) {
+                // 捕获来的那一招（我们没算过它，但它是历史的一部分）
+                m.moveHistory.add(Integer.valueOf(m.pendingMoveId));
+            }
+            m.pendingMove = null;
+            m.pendingMoveId = -1;
+            if (MonsterMoves.supported(m.type)) {
+                MonsterMove planned = MonsterMoves.next(m.type, m.moveHistory, state.turn);
+                m.pendingMove = planned;
+                m.pendingMoveId = planned.id;
+                // 意图伤害只用于估值/展示：多段按「基础伤害经力量/虚弱/易伤修正后 × 段数」合计
+                int perHit = planned.attacks()
+                        ? io.github.youqing.sts1solver.mirror.DamageCalc
+                                .monsterAttackDamage(state, planned.damage, m)
+                        : 0;
+                m.intentDmg = perHit * planned.hits;
+                m.intentAttack = planned.attacks();
+            } else {
                 m.intentDmg = IntentLearning.predict(m.type, state.turn, m.intentDmg);
             }
         }

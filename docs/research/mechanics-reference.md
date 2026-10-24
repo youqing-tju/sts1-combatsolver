@@ -1883,3 +1883,70 @@ delta 恒为 0、完全看不见能力牌 —— 这是给单测/面板用的口
 - Retention 批 3（Pareto 支配）/ 批 5（承诺代表）/ `SelectEarlyTurnFrontier` 前沿分桶**仍未接**：
   它们需要的是「快照上能读出的多维量」，本批只补了 `PersistentBuffValue` 一维。
 - `LatentSetupValue`（手牌/牌堆里未打出的能力牌）仍是按张数估的默认档。
+
+## 33. 怪物出招镜像（MonsterMoves）—— 清单 3 的第一批（A｜字节码，2026-10-24）
+
+### 33.1 为什么要重写
+
+原来怪物只建模一件事：**意图伤害**（`SimMonster.intentDmg`，来自 `getIntentDmg()`），
+未来回合靠 `IntentLearning` 观测表猜（"同类型同回合的意图"）。
+这条路的三个缺口：
+
+1. 未观测过的回合只能退化成"沿用当前意图"；
+2. **格挡完全没建模** —— 怪加块（如球体守卫 DEFEND 25）在影子里等于不存在；
+3. **减益没建模** —— 球体守卫的 5 层 Frail、掠夺者的 Weak 都不会进影子。
+
+`MonsterMoves` 换掉这三处：逐个怪物翻译 `getMove(int)`（决定出哪招）+ `takeTurn()`
+（决定这招产生什么），数值全部来自字节码常量。
+
+### 33.2 结构
+
+| 概念 | 原版 | 我们 |
+|---|---|---|
+| 出招决策 | `AbstractMonster.getMove(int)` / `rollMove()` | `MonsterMoves.Machine.next(history, turn)` |
+| 招式历史 | `AbstractMonster.moveHistory`（`ArrayList<Byte>`，public） | `SimMonster.moveHistory`（捕获时直接读） |
+| 本回合的招 | `AbstractMonster.nextMove`（byte，public） | `SimMonster.pendingMoveId`（捕获时读）+ `pendingMove`（算出来的） |
+| 执行 | `takeTurn()` 里的 `DamageAction` / `GainBlockAction` / `ApplyPowerAction` | `CombatFlow.endTurn` ④：逐段 `hitPlayer`、加格挡、上减益 |
+| 伤害公式 | `DamageInfo.applyPowers`（base → +力量 → ×0.75 虚弱 → ×1.5 易伤，每步 float 截断） | `DamageCalc.monsterAttackDamage` |
+
+**没登记的怪物走老路**（`IntentLearning` + 单段意图伤害），所以覆盖率可以一只一只加，
+加之前的行为逐位不变（`MonsterMovesTest.unmirroredMonstersKeepTheOldBehaviour` 钉住）。
+
+### 33.3 为什么不翻译 `getMove` 的 `num` 参数
+
+原版 `rollMove()` = `getMove(AbstractDungeon.aiRng.random(99))` —— **每次决策都消耗一次 aiRng**。
+我们的影子虽然也有 aiRng 快照，但在别处少消耗一次就会让整条随机序列错位。
+所以第一批只收「`num` 不影响分支」的确定性循环怪；带随机分支的要连 aiRng 的消耗次数一起对齐，
+单独一批做（记在 `blueprint-parity`）。
+
+### 33.4 已镜像：球体守卫 SphericGuardian
+
+字节码（`javap -c com.megacrit.cardcrawl.monsters.city.SphericGuardian`）：
+
+```
+getMove(num):  firstMove  → 2 (DEFEND)
+               secondMove → 4 (ATTACK_DEBUFF, dmg)
+               否则 lastMove(1) → 3 (ATTACK_DEFEND, dmg) : 1 (ATTACK, dmg × 2 段)
+takeTurn:      1 → 两段 dmg          2 → 格挡 25（A17+: 35）
+               3 → 格挡 15 + 一段 dmg 4 → 一段 dmg + 玩家 Frail 5
+常数:          HP 20、基础伤害 10（A2+: 11）、Frail 5
+```
+
+“firstMove / secondMove” 两个标志用 `history.size()` 等价表达（第 1 次决策历史为空、
+第 2 次恰好 1 条）—— 比在影子里多存两个布尔更不容易漂。
+
+⚠️ 进阶档（A2 伤害 11、A17 格挡 35）**没做**：影子目前不带 `ascension` 进怪物决策
+（`SimState.ascension` 有，但机器还没读）。记在这里，等哪天跑进阶再补。
+
+### 33.5 验证
+
+`MonsterMovesTest` 6 条：
+
+1. 机器序列（空历史 → 2；[2] → 4；[2,4] → 1 两段；[2,4,1] → 3；[2,4,1,3] → 1）；
+2. 回合流程按**段数**结算（10×2 = 20）、历史追加、下一招预告；
+3. 格挡 25 落到怪身上、Frail 5 落到玩家身上；
+4. 每段都吃「怪物力量 + 玩家易伤」（(10+3)×1.5 截断 → 19×2 = 38）；
+5. 未镜像的怪行为不变；
+6. 伤害公式四档（10 / 10×0.75=7 / 7×1.5=10 / 10×1.5=15）。
+
+全量 **249 条**通过。
