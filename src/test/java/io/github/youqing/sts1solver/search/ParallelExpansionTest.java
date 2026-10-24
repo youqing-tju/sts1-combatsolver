@@ -107,14 +107,15 @@ class ParallelExpansionTest {
     }
 
     /**
-     * 默认是**串行**（1），并钉住这个决定 —— 见 {@link BeamSolver#defaultParallelLanes()} 上的实测记录。
+     * 默认是**串行**（1）—— 实测钉死的决定，理由见 {@link BeamSolver#defaultParallelLanes()}：
+     * 修完指纹后并行反而更慢（每层太小，派发开销盖过收益）。
      *
-     * <p>同时验一下蓝本那条规则还算得出来（1..8），它现在只当「真要开时填几」的参考上限。
+     * <p>同时验一下蓝本那条规则还算得出来（1..8），它只当「真要开时填几」的参考上限。
      */
     @Test
-    void defaultsToSerialBecauseParallelDoesNotPayOffYet() {
+    void defaultsToSerialBecauseOurLayersAreTooSmallToParallelize() {
         assertEquals(1, BeamSolver.defaultParallelLanes(),
-                "默认必须串行：实测 8 lane 只有 1.03×，而单线程剪枝的指纹占掉四成时间");
+                "默认必须串行：新指纹下 2/4/8 lane 都比串行慢");
         int reference = ParallelExpansion.defaultDegree();
         assertTrue(reference >= 1 && reference <= ParallelExpansion.MAX_DEGREE,
                 "蓝本规则的参考并行度必须在 1..16，实际 " + reference);

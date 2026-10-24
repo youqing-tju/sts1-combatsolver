@@ -1624,7 +1624,22 @@ STS1 Ironclad 逐项对应（`BeamSolver.offensiveProgressOf`）：
   30.7 万子状态 ≈ 0.65 s，占整趟搜索约四成。这一段并行碰不到（Amdahl 上限 ≈1.6×）。
 
 所以：蓝本默认 8 lane，我们**默认 1（串行）**，`-Dsts1solver.searchLanes=N` 可开。
-代码与开关留着，等指纹那步优化完再复测 —— 顺序不能反。
+
+**后续（同日，§29 修完指纹之后复测）——原先的假设被否掉**：
+
+| 配置 | 3 次测量 | 结论 |
+|---|---|---|
+| 旧指纹 + 1 lane | 1507 ms | 基线 |
+| 新指纹 + 1 lane | 524 / 562 / 536 ms | **≈2.8×，全靠指纹** |
+| 新指纹 + 2 lane | 655 / 680 / 649 ms | 比串行慢 |
+| 新指纹 + 4 lane | 614 / 619 / 635 ms | 比串行慢 |
+| 新指纹 + 8 lane | 572 / 578 / 571 ms | 仍比串行慢 |
+
+也就是说「先修指纹、并行就能用」不成立。真正的限制是**层太小**：每层只有 beam 宽
+（45–135）个父节点、每个约 30µs，而每层派发一次的线程唤醒 + 切片合并要几百 µs，
+开销盖过收益。蓝本每层的工作重得多（要 fork 整套预测模拟器），所以它 8 lane 划算。
+→ 结论：代码与开关留着，**默认关**；等单节点展开变重（例如把怪物 AI 状态机也镜像进来）
+再复测，别凭「应该更快」开。
 
 ### 28.4 顺带改的一处线程安全
 
@@ -1632,3 +1647,60 @@ STS1 Ironclad 逐项对应（`BeamSolver.offensiveProgressOf`）：
 （每展开一个回合边界就查一次）—— 并行一开就变成全局串行点。改成
 `ConcurrentHashMap` + `AtomicInteger` 计数，**读写语义完全不变**（`putIfAbsent` 保持
 「同 type+turn 只写一次」），只是不再拿同一把锁。
+
+## 29. 指纹换算法：免拼字符串的直接哈希（A｜实测，2026-10-24）
+
+### 29.1 问题
+
+`SimState.fingerprint()` 原来是 `fingerprintOf(toJson())`：先拼一份完整 JSON
+（几百到几千字符），再 `getBytes("UTF-8")`，最后 FNV-1a。实测 **2241 ns/次**。
+而它躺在剪枝热路径上 —— `prune` 对每个候选算一次、`noCostFrontier` 也对每个候选算一次。
+30 万子状态 × 2.1µs ≈ 0.65 s，占整趟搜索四成（这也是并行展开只有 1.03× 的原因）。
+
+### 29.2 改法
+
+`fingerprint()` 直接把这些字段喂进混洗器，**一个字符串都不拼**：
+
+| 段 | 参与哈希的字段（与 `toJson` 逐个对应） |
+|---|---|
+| meta | act / floor / ascension |
+| player | hp / maxHp / block / energy / deathSaveUsed / deathSaveUseCount / deathSaveHpRestored / playerPowers / powerAux |
+| 四个牌堆 | 张数 + 每张的**牌名 key**（原版 JSON 也只写 key，`cost`/`damage` 本来就不进指纹） |
+| 其他 | relics / potions（**空格要占位**）/ monsters（type、hp、maxHp、block、powers；**意图本来就不参与**）/ rng（每个流 counter+s0+s1，缺席要占位） |
+
+迭代顺序与 JSON 一致（`powerAux` / `relics` 是 TreeMap 有序，`playerPowers` 是
+LinkedHashMap 的施加顺序）。混洗器：黄金比例步进 + murmur 收官（两轮 xor-shift-multiply），
+字符串先走一遍逐字符 FNV 再把结果折进来。
+
+**结果：2241 ns → 244 ns（9.2×）**，整趟搜索 1507 ms → 约 540 ms（**2.8×**）。
+
+### 29.3 验收：等价类必须一模一样（这是唯一的安全判据）
+
+换算法不谈「哈希值」—— 值本来就该变，它只用于「这两条路线是不是同一个局面」。
+危险的是**漏字段**：漏一个就是静默撞库，两条不同路线被当成同一条，搜索莫名丢分支，
+不报错、不崩溃。
+
+`SimStateFingerprintTest` 造了 38 个状态的语料（覆盖上表每一个字段的「改值」与「换序」），
+判据是**等价类相等**：
+
+```
+对任意 i<j：  fingerprintOf(toJson_i).equals(fingerprintOf(toJson_j))
+           ⟺ fingerprint_i.equals(fingerprint_j)
+```
+
+外加「不同状态的数量与老口径一致」「只有 base 与它的 copy 允许同指纹」两条。
+
+### 29.4 ⚠️ 顺带查出来的口径缺口（原样保留，未改）
+
+`toJson()` 里**没有** `turn` / `hpLossCount` / `potionSlots` / `gold`，
+所以这几个字段不同的两个状态会被判成同一个局面：
+
+- `turn` 不进指纹：`TranspositionTable` 那段注释写「键含回合号」是**错的**（注释待改）；
+  实践中回合前进必然伴随抽牌/洗牌，局面会变，所以暂时没炸；
+- `hpLossCount` 不进指纹：它决定浴血奋战（Blood for Blood）的动态费用 ——
+  「同样血量、挨打次数不同」的两条路线会被去重掉一条；
+- `potionSlots` 是常量（铁甲 2 格），`gold` 战斗内不变。
+
+**这是语义变更**（补进去 = 等价类变细 = 去重变少 = 节点数变多、结果可能变），
+所以要用户拍板，不擅自改。§29.2 的哈希字段严格按现有口径排列，就是为了让这一步
+可以独立决定。

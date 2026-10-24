@@ -263,15 +263,23 @@ public final class BeamSolver {
     }
 
     /**
-     * 默认并行度：**默认 1（串行）**，只有显式给 {@code -Dsts1solver.searchLanes=N} 才开。
+     * 默认并行度：**1（串行）**，`-Dsts1solver.searchLanes=N` 才开。
      *
-     * <p>蓝本默认开（{@code ResolveDefaultSearchMaxDegreeOfParallelism}，大机器 8 lane），
-     * 我们实测开不起来 —— 2026-10-24 量过：64k 父节点 / 307k 子状态的搜索，
-     * 1 lane 1589ms、8 lane 1544ms（≈1.03×，2 lane 反而更慢）。
-     * 原因不在展开：一个父节点展开只要几十微秒，而**单线程的剪枝**里每个候选都要做一次
-     * {@code SimState.fingerprint()}（JSON 序列化 + FNV，实测 2.1µs），
-     * 30 万子状态 ≈ 0.65s，占掉整趟搜索的四成 —— 那一段并行碰不到。
-     * 结论：先优化指纹，再开并行才有意义；代码与开关留着，等那一步做完再复测。
+     * <p>🔴 2026-10-24 同一场景 A/B（beam 135 / depth 40 / 40 万节点上限，各跑 3 遍取分布）：
+     * <pre>
+     * 旧指纹 + 1 lane ：1507 ms      ← 换算法之前
+     * 新指纹 + 1 lane ： 524 / 562 / 536 ms   （≈2.8× 于旧串行，全靠指纹）
+     * 新指纹 + 2 lane ： 655 / 680 / 649 ms   ← 比串行慢
+     * 新指纹 + 4 lane ： 614 / 619 / 635 ms
+     * 新指纹 + 8 lane ： 572 / 578 / 571 ms
+     * </pre>
+     * 原先的假设「先修指纹、并行就能用」**被实测否掉了**：修完指纹之后并行反而更亏。
+     * 原因是层太小 —— 每层只有 beam 宽（45–135）个父节点、每个约 30µs，
+     * 而每层派发一次的线程唤醒 + 切片合并就要几百 µs，开销盖过收益。
+     * 蓝本每层的工作比这重得多（要 fork 整套预测模拟器），所以它开 8 lane 划算。
+     *
+     * <p>结论：**留着代码和开关，默认关**。等哪天单节点展开变重（比如把怪物 AI 状态机
+     * 也镜像进来）再复测，别凭「应该更快」开。
      */
     public static int defaultParallelLanes() {
         Integer override = Integer.getInteger(ParallelExpansion.DEGREE_PROPERTY);
