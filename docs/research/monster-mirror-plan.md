@@ -1,0 +1,51 @@
+# 怪物镜像施工表（M3.3 全量重写）
+
+> 目标：把 65 只怪物（`monsters/exordium|city|beyond` 里的具体类）逐个翻译成 `sim/MonsterMoves` 的机器，
+> 替掉「只学意图伤害」的 `IntentLearning`。
+> 框架与第一只的细节见 `mechanics-reference` §33。原始扫描数据：`monster-mirror-scan.txt`。
+
+## 一、已镜像
+
+| 怪物 | 幕 | 备注 |
+|---|---|---|
+| `SphericGuardian` | 2 | 确定性循环；格挡 25 / 15、Frail 5 都建了模 |
+
+## 二、分类（用 `javap -c` 扫 `getMove` 得到，见 `monster-mirror-scan.txt`）
+
+### A. `num` 不用、也不用 RNG（22 只，**可以直接逐只搬**）
+
+`Deca` `Donu` `Exploder` `SnakeDagger` `Transient` `BanditBear` `BanditLeader`
+`BanditPointy` `BronzeAutomaton` `TorchHead` `Cultist` `GremlinFat` `GremlinThief`
+`GremlinTsundere` `GremlinWarrior` `GremlinWizard` `Hexaghost` `Lagavulin` `Sentry`
+`SlimeBoss` `SpikeSlime_S` `TheGuardian`
+
+⚠️ 但「不用 RNG」不等于「不用环境」：`Sentry` 的 `getMove` 用
+`AbstractDungeon.getMonsters().monsters.lastIndexOf(this) % 2` —— 依赖**自己在怪物组里的位次**。
+这类要在 `MonsterMoves` 的机器签名里多给一个「怪物下标」，别硬编码。
+
+### B. `getMove(num)` 里用 `num`（43 只，需要先对齐 aiRng）
+
+这些的 `rollMove()` 是 `getMove(aiRng.random(99))`，**每次决策消耗一次 aiRng**。
+搬它们之前必须先决定一件事：
+
+- **要不要让影子也消耗 aiRng？**
+  消耗 → 与原版同分布，但我们别处（怪物内部随机、意图重掷）少消耗一次就整条序列错位；
+  不消耗 → 确定、可复现，但和原版的后续随机不同源。
+  现在的选择是**先不搬**，等这一批 A 跑完再单独做这一决策（属于「新问题」，见 §四）。
+
+## 三、搬运流程（每只怪）
+
+1. `javap -p -c` 看三处：构造器（血量/伤害常量）、`getMove`（分支）、`takeTurn`（伤害段数/格挡/减益）；
+2. 在 `MonsterMoves` 里加一个 `Machine`，把分支逐条写成 if/else，**不许「差不多」**；
+3. `MonsterMovesTest` 加 1-2 条：机器序列 + 一条接进 `CombatFlow.endTurn` 的落点断言；
+4. 文档里记一行「字节码要点」，便于复查。
+
+⚠️ `javap` 不在 PATH：`C:\Program Files\Java\jdk-24\bin\javap.exe`。
+
+## 四、🔴 需要拍板的新问题
+
+1. **aiRng 消耗口径**（上面 B 类）：影子要不要模拟「每次怪物决策消耗一次 aiRng」？
+   影响 43 只怪和一切跨回合随机。我的倾向：**不消耗**，因为影子是投影不是重放，
+   而且我们没有任何跨回合随机对拍能验证它；但要写进文档，别让人以为「和原版完全同源」。
+2. **进阶档**：`SphericGuardian` 的伤害 11（A2+）、格挡 35（A17+）还没做 ——
+   机器目前不读 `SimState.ascension`。要不要给所有怪都补进阶数值？（工作量约 +20%）

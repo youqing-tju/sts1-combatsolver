@@ -283,7 +283,7 @@ python tools/coverage_report.py
 |---|---|---|
 | 1 | 指纹口径缺口 | ✅ **已补**（2026-10-24）：`turn` / `hpLossCount` / `potionSlots` 三个都进了指纹；判据改成单向「新口径只能更细，不能更粗」（`SimStateFingerprintTest`） |
 | 2 | 药水战略成本 | ✅ **第一切片已做**（`mechanics-reference` §31）：三档成本 + 对账闸（喝药必须比不喝药基线多省 ≥ Σ成本）。⚠️ 档位映射只有 3 瓶有蓝本同形对应，其余 18 张按基准档，**映射表待你核对**；`SolverPotionPolicy` 档位与额度输入仍未做 |
-| 3 | Act 2-4 怪物镜像（M3.3） | ⏳ **待你选路线**：①把 `exordium/city/beyond/ending` 四包（31/23/18/4 个 class）里每只怪的 `getMove` 状态机按字节码重写（最准，量大）；②继续 `IntentLearning` 观测学习（便宜，但要真机跑图）；③折中：抽出各怪的**确定性主循环**成表，只有随机分支留观测 |
+| 3 | 怪物镜像（M3.3，全量重写） | 🔨 **进行中**：框架 + 第一只 `SphericGuardian` 已落地（`mechanics-reference` §33，格挡/减益/多段都进了影子）；65 只的分类与施工流程见 `docs/research/monster-mirror-plan.md`。**待你拍板两件**：① 43 只用 `getMove(num)` 的怪，影子要不要也消耗 aiRng（倾向不消耗）；② 进阶数值（A2/A17）要不要一并补 |
 | 4 | `BeamPortfolioSelector` | ⏳ **待你拍板**：它不是规则代码，是**训练出来的决策树 JSON**（32 特征 + 程序集 GUID 校验）。搬运行器没意义（没有模型文件）；要就得先建自对弈数据 + 训练管线。倾向先记 ⛔ |
 | 5 | 能力估值模型族（`PersistentBuffValue`） | ✅ **第一批已做**（`mechanics-reference` §32）：五维模型 + 7 个能力专门分支 + 默认档，已接进 Beam 排序。⚠️ 查证结果：`Combust` / `Metallicize` / `FireBreathing` / `Evolve` / `Brutality` 在蓝本**全库 0 命中**，只能走蓝本默认档。Retention 批 3/5 与前沿分桶仍缺其它维度 |
 | 6 | `CyclePlanning` | 🔜 **你已说「可搬」** → 按批推进：批 1 = 同回合内的动作周期检测（`CycleShapeKey` + 周期 ≤32）；批 2 = 周期退出探测（probe 预算）；批 3 = 周期族（family）状态机 |
