@@ -24,7 +24,11 @@ class BeamSolverTest {
         s.maxHp = 80;
         s.energy = 3;
         for (String id : hand) {
-            s.hand.add(new SimCard(id, false, 1));
+            // 类型与面板伤害都填上：真实捕获里它们是有值的，缺了会让「攻击牌投影」算成 0
+            boolean attack = id.startsWith("Strike") || id.startsWith("Twin") || id.startsWith("Bash")
+                    || id.startsWith("Pommel") || id.startsWith("Cleave") || id.startsWith("Anger")
+                    || id.startsWith("Sword");
+            s.hand.add(new SimCard(id, false, 1, attack ? 6 : -1, attack ? "ATTACK" : "SKILL"));
         }
         SimMonster m = new SimMonster("TestMonster", monsterHp, monsterHp, 0,
                 Collections.<String, Integer>emptyMap());

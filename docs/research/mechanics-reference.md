@@ -1804,3 +1804,82 @@ score += (double)(relicCounters.HpCredit + relicCounters.HealingHpCredit) * hpWe
 
 喝药时会多跑一趟「不喝药」基线搜索（同样的节点上限、同一份 deadline 里扣预算）。
 蓝本也是这么做的（`PotionFreePolicyBaseline`），所以这是对齐而非新增开销。
+
+## 32. 能力估值模型族（PowerValuation）—— 清单 5 的第一批（A｜蓝本源码，2026-10-24）
+
+### 32.1 蓝本怎么写
+
+`StrategicEffectModel.Evaluate(power, context)`（`src/Search/StrategicEffectModel.cs:476-560`）
+给每层能力算一个**五维向量**，加起来就是它的保留价值：
+
+```
+DamagePotential        这层能力最终能多打出多少伤害（按敌方总血封顶）
+PreventionPotential    能挡多少伤害（按「意图伤害 × 最多 2 回合」封顶）
+ResourcePotential      省/赚多少能量（1 能量 ≈ 一张牌的平均价值）
+CardAccessPotential    多给多少张可打的牌（同样折成牌价值）
+ScalingPotential       前面都算不进去时的兜底（每层 1 点）
+RetentionValue = clamp(五项和, 0, MAX)
+```
+
+`PersistentBuffValue` = 所有能力 RetentionValue 之和；Beam 排序里用的是
+`min(4, max(0, 本节点值 - 起点值)) × 150_000`（`Ranking.cs:925-929` +
+`SolverWeights.StandardPersistentBuffDeltaBeamCap/Value`）。
+
+### 32.2 我们搬了什么
+
+| 能力 | 蓝本分支 | 公式 |
+|---|---|---|
+| Gain Strength / Strength | `StrengthPower` | `Damage(amount × AttackHits)` |
+| Dexterity | `DexterityPower` | `Prevention(amount × BlockSkillPlays)` |
+| Demon Form | `DemonFormPower` | `Damage(amount × ⌊AttackPlays/T⌋ × T(T+1)/2)` |
+| Feel No Pain | `FeelNoPainPower` | `Prevention(amount × ExhaustPlays)` |
+| Dark Embrace | `DarkEmbracePower` | `CardAccess(amount × ExhaustPlays × AverageCardValue)` |
+| Corruption | `CorruptionPower` | `Resource(SkillEnergySpend × max(3, AverageCardValue))` |
+| Thorns | `ThornsPower` | `Damage(amount × IncomingHitCount)` |
+| 其余 18 个（Metallicize / Combust / Juggernaut / Rupture / Barricade / Berserk / Brutality / Evolve / Fire Breathing / Flame Barrier / Rage / Double Tap / Mayhem / Magnetism / Sadistic / Panache / …） | **默认档** `_ => Scaling(amount)` | 每层 1 点 |
+
+🔴 关于「燃烧并非 STS1 独有」：查了蓝本全库，`Combust` / `Metallicize` / `FireBreathing` /
+`Evolve` / `Sadistic` / `Brutality` **0 命中** —— STS2 没有这几个能力，所以它们走的是蓝本
+自己的默认档 `_ => Scaling(amount)`。这是**蓝本的兜底**，不是我们自创。
+
+### 32.3 两处近似（必须记住）
+
+| 量 | 蓝本 | 我们 |
+|---|---|---|
+| `IncomingHitCount` | 本回合会打过来的**段数**（连击算多段） | 有意图伤害的怪物**只数**（怪物招式段数未建模） |
+| `AverageCardValue` | `CardChoiceSupport.CardValue`（含效果价值） | 牌堆攻击牌的**平均面板伤害**，没有攻击牌时退 1 |
+
+另外 `BlockSkillPlays` 的「给格挡的技能」用从镜像表抽出来的 28 条固定名单（蓝本读
+`DynamicVars` 的 `Block` 变量）；`ExhaustPlays` 直接读 `CardMirror.exhaustsOnPlay`，不另维护名单。
+
+### 32.4 接线
+
+`Score.of(state, root, actions)` 里算 `persistentBuffValue`，`Score.Root` 里算
+`initialPersistentBuffValue`（起点快照），`beamTotal` 用两者的差 —— 与蓝本同口径：
+**算的是「相对起点新增的价值」，不是「能力层数」**（原来是 `scalingPowers + strength`
+按层封顶，拿数量冒充价值）。
+
+单参 `Score.of(state)` 把起点按「没有能力」算（`Root(state, true)`），否则独立估值里
+delta 恒为 0、完全看不见能力牌 —— 这是给单测/面板用的口径，搜索走三参版本。
+
+**性能**：投影要扫一遍三个牌堆 + 怪物，所以在 `playerPowers` 为空时整段跳过。
+同一时间窗 A/B（beam 135 / depth 40 / 40 万节点）：改动前 808–880ms，改动后 634–790ms
+—— 差异在噪声内，投影开销可忽略。
+
+### 32.5 验证与测试夹具修正
+
+三条既有测试因为口径变化需要修正（不是放松断言，是夹具本身不真实）：
+
+1. `BeamSolverTest.state()` 原来用 `new SimCard(id, false, 1)`（**type 为空、面板伤害 -1**），
+   投影算不出「攻击牌」，恶魔形态的潜力变成 0 → 改成带 `type` 与 `baseDamage`；
+2. `ScoreAndTranspositionTest` 的两条（力量加分 / 恶魔形态更值钱）在**空牌堆**上断言 ——
+   按蓝本口径「层数 × 吃得到的攻击量」，没有攻击牌时任何攻击型能力都该是 0 →
+   夹具补 5 张攻击牌（蓝本同口径）。
+
+全量 **243 条**通过。
+
+### 32.6 还没做
+
+- Retention 批 3（Pareto 支配）/ 批 5（承诺代表）/ `SelectEarlyTurnFrontier` 前沿分桶**仍未接**：
+  它们需要的是「快照上能读出的多维量」，本批只补了 `PersistentBuffValue` 一维。
+- `LatentSetupValue`（手牌/牌堆里未打出的能力牌）仍是按张数估的默认档。

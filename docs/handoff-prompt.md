@@ -2,8 +2,8 @@
 
 > **用法**：把整份内容贴进新对话，第一条消息就给全上下文，避免反复补背景。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`
-> **当前状态**：2026-10-24 深夜，测试 **243 条全绿**，
-> HEAD = `feat(potion): 药水战略成本 + 对账闸` 那一笔
+> **当前状态**：2026-10-25 凌晨，测试 **243 条全绿**，
+> HEAD = `feat(eval): 能力估值模型族第一批` 那一笔
 
 ---
 
@@ -285,5 +285,5 @@ python tools/coverage_report.py
 | 2 | 药水战略成本 | ✅ **第一切片已做**（`mechanics-reference` §31）：三档成本 + 对账闸（喝药必须比不喝药基线多省 ≥ Σ成本）。⚠️ 档位映射只有 3 瓶有蓝本同形对应，其余 18 张按基准档，**映射表待你核对**；`SolverPotionPolicy` 档位与额度输入仍未做 |
 | 3 | Act 2-4 怪物镜像（M3.3） | ⏳ **待你选路线**：①把 `exordium/city/beyond/ending` 四包（31/23/18/4 个 class）里每只怪的 `getMove` 状态机按字节码重写（最准，量大）；②继续 `IntentLearning` 观测学习（便宜，但要真机跑图）；③折中：抽出各怪的**确定性主循环**成表，只有随机分支留观测 |
 | 4 | `BeamPortfolioSelector` | ⏳ **待你拍板**：它不是规则代码，是**训练出来的决策树 JSON**（32 特征 + 程序集 GUID 校验）。搬运行器没意义（没有模型文件）；要就得先建自对弈数据 + 训练管线。倾向先记 ⛔ |
-| 5 | 能力估值模型族（`PersistentBuffValue`） | ⏳ **待你立项**：要给铁甲每个能力写 `DamagePotential` / `ScalingPotential` / `RetentionValue` 三项（对着 `StrategicEffectModel` 逐 power 分支）。一次解锁 Retention 批 3 / 批 5 / 前沿分桶三处 |
+| 5 | 能力估值模型族（`PersistentBuffValue`） | ✅ **第一批已做**（`mechanics-reference` §32）：五维模型 + 7 个能力专门分支 + 默认档，已接进 Beam 排序。⚠️ 查证结果：`Combust` / `Metallicize` / `FireBreathing` / `Evolve` / `Brutality` 在蓝本**全库 0 命中**，只能走蓝本默认档。Retention 批 3/5 与前沿分桶仍缺其它维度 |
 | 6 | `CyclePlanning` | 🔜 **你已说「可搬」** → 按批推进：批 1 = 同回合内的动作周期检测（`CycleShapeKey` + 周期 ≤32）；批 2 = 周期退出探测（probe 预算）；批 3 = 周期族（family）状态机 |

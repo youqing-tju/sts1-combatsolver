@@ -19,6 +19,11 @@ class ScoreAndTranspositionTest {
         s.maxHp = 80;
         s.energy = 2;
         s.block = 7;
+        // 牌堆里得有攻击牌：力量/恶魔形态的价值是「层数 × 吃得到的攻击量」，
+        // 空牌堆下任何攻击型能力的潜力都是 0（蓝本 StrategicEffectModel 同口径）
+        for (int i = 0; i < 5; i++) {
+            s.draw.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
         if (enemyHp > 0) {
             s.monsters.add(new SimMonster("T", enemyHp, enemyHp, 0,
                     Collections.<String, Integer>emptyMap()));

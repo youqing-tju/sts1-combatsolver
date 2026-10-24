@@ -23,7 +23,7 @@ read_when:
 | `BeamRetentionPolicy.Ranking.cs:892` `BeamRankScore`（能量 / 持续成长 / 延迟收益 / 攻击总量成长 / 易伤 / 虚弱 / 力量削减 / 动作数） | `Score.beamTotal()` | ✅ |
 | `FinalPlanOrdering.cs:253-271` 词典序 | `BeamSolver.better()` | 🔶 部分：17 条键里搬了 6 条（有 STS1 对应物的） |
 | `ActEndingBossPolicy.StrategicHpDeficit` | `BeamSolver.strategicHpDeficit` | ✅（`BossHpRelief.None` 档） |
-| `StateEvaluation.cs` `StrategicEffects` / 逐能力 RetentionValue | 按层数的近似 | 🔶 近似：没有 STS2 那张能力价值表 |
+| `StateEvaluation.cs` `StrategicEffects` / 逐能力 RetentionValue | `mirror/PowerValuation` + `Score.persistentBuffValue` | 🔶 **部分（2026-10-24）**：`StrategicEffectModel` 的五维模型 + 7 个能力的专门分支已搬（力量/敏捷/恶魔形态/无痛/黑暗拥抱/腐化/荆棘），其余走蓝本自己的默认档 `Scaling(amount)`（`mechanics-reference` §32）。⚠️ 两处近似：`IncomingHitCount` 用怪物只数、`AverageCardValue` 用面板伤害。仍缺：`LatentSetupValue` 逐卡表、`ReplayPotentialValue`（⛔ 无对应）、`DelayedDamage`/`ReactiveDamage`（铁甲无施加源） |
 | `LatentCardSetupValue` 逐卡分值表 | 走默认分支（能力牌 2 点） | 🔶 部分：表是 STS2 卡，不臆造 |
 | `ReplayPotentialValue`（附魔重放次数） | — | ⛔ 不适用：STS1 无附魔/重放机制（唯一接近的是双发/爆发，但那是「下一次打两次」，不是可重放卡） |
 | 药水估值（`PotionStrategicCost` / `SmartRequiredHpSaved`） | `mirror/PotionValuation` + `BeamSolver.gatePotionSpending` | 🔶 **部分（2026-10-24）**：`PotionUsePolicy.StrategicHpCost` 三档成本（9/14/18，逐值照抄 `SolverWeights`）+ **对账闸**已搬 —— 喝药必须比「不喝药基线」多省 ≥ Σ成本，否则退回不喝药的路线（`mechanics-reference` §31）。仍缺：`SolverPotionPolicy` 档位（Smart / RequireAtLeastOne / Disabled）、强制用药指令、`PotionRewardOutlook`（腾槽位换奖励）—— 都要 UI 侧栏额度输入；药水镜像仍只 21 张 |

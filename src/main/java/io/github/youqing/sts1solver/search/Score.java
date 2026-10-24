@@ -265,6 +265,10 @@ public final class Score {
     public final int deathSaveUseCount;
     /** 战后遗物回血画像（燃烧之血 / 黑血 / 带骨肉）；判定阈值回血用。 */
     public final io.github.youqing.sts1solver.mirror.PostCombatRelicHeal postCombatHeal;
+    /** 当前节点上所有能力的保留价值之和（蓝本 {@code PersistentBuffValue}）。 */
+    public final int persistentBuffValue;
+    /** 路线起点的同一量（蓝本 {@code InitialPersistentBuffValue}）。 */
+    public final int initialPersistentBuffValue;
 
     private Score(Builder b) {
         this.aliveEnemies = b.aliveEnemies;
@@ -297,6 +301,8 @@ public final class Score {
         this.deathSaveHpRestored = b.deathSaveHpRestored;
         this.deathSaveUseCount = b.deathSaveUseCount;
         this.postCombatHeal = b.postCombatHeal;
+        this.persistentBuffValue = b.persistentBuffValue;
+        this.initialPersistentBuffValue = b.initialPersistentBuffValue;
     }
 
     /** 会「每个回合都变强」的能力：层数越打越值钱（蓝本按能力逐个估 RetentionValue，这里统一按层）。 */
@@ -327,8 +333,20 @@ public final class Score {
          * 阈值那部分进基础分（{@link #baseTotal()}），单调那部分进终局排序的赤字（另一个轴）。
          */
         final io.github.youqing.sts1solver.mirror.PostCombatRelicHeal postCombatHeal;
+        /** 路线起点的「能力保留价值」（蓝本 {@code InitialPersistentBuffValue}）。 */
+        final int initialPersistentBuffValue;
 
         public Root(SimState state) {
+            this(state, false);
+        }
+
+        /**
+         * @param buffsAreNew 单参 {@link Score#of(SimState)} 用 true：把局面上现有的能力都当成
+         *                    「这条路线新赚到的」（起点按 0 算），否则「拿当前局面当路线起点」
+         *                    会让 delta 恒为 0，独立估值就完全看不见能力牌的价值。
+         *                    搜索里走的是三参版本，起点是真实战斗根快照。
+         */
+        public Root(SimState state, boolean buffsAreNew) {
             this.hp = state.hp;
             this.maxHp = state.maxHp;
             this.turn = state.turn;
@@ -342,6 +360,12 @@ public final class Score {
             this.retainedAttackValue = attackTotal(state.hand) + attackTotal(state.draw)
                     + attackTotal(state.discard);
             this.postCombatHeal = io.github.youqing.sts1solver.mirror.PostCombatRelicHeal.of(state.relics);
+            // 蓝本 _run.InitialPersistentBuffValue：Beam 排序里算的是「相对起点**新增**的持续收益」，
+            // 否则开局本来就带着的力量也会被当成这一路线的功劳
+            this.initialPersistentBuffValue = buffsAreNew || state.playerPowers.isEmpty()
+                    ? 0
+                    : io.github.youqing.sts1solver.mirror.PowerValuation.persistentBuffValue(
+                            state, io.github.youqing.sts1solver.mirror.PowerValuation.project(state));
         }
     }
 
@@ -379,7 +403,7 @@ public final class Score {
 
     /** 把当前状态当作「路线起点」来估值（单测/面板/回退决策用）。 */
     public static Score of(SimState state) {
-        return of(state, new Root(state), 0);
+        return of(state, new Root(state, true), 0);
     }
 
     /**
@@ -402,6 +426,13 @@ public final class Score {
         b.initialRetainedAttackValue = root.retainedAttackValue;
         b.initialEnemyCount = root.enemyCount;
         b.postCombatHeal = root.postCombatHeal;
+        b.initialPersistentBuffValue = root.initialPersistentBuffValue;
+        // 没有能力时整段跳过：投影要扫一遍三个牌堆 + 怪物，而绝大多数节点身上没有能力，
+        // 白扫一遍会让 Score.of 的耗时翻倍（实测 540ms → 1054ms）。有能力的节点才付这笔钱。
+        b.persistentBuffValue = state.playerPowers.isEmpty()
+                ? 0
+                : io.github.youqing.sts1solver.mirror.PowerValuation.persistentBuffValue(
+                        state, io.github.youqing.sts1solver.mirror.PowerValuation.project(state));
 
         int alive = 0;
         int enemyHp = 0;
@@ -591,9 +622,13 @@ public final class Score {
             // 顺序照蓝本 BeamRankScore：能量 → 持续成长 → 延迟收益 → 攻击总量成长 → 易伤 → 控制
             // 还剩敌人时，手头的资源才有意义；打完这些项全部清零（否则「先防再杀」会靠余量微弱胜出）。
             score += Math.min(ENERGY_CAP, energy) * energyBeamValue;
-            // 力量也算持续成长：蓝本把它并进 PersistentBuffValue 的 DamagePotential 里
-            int persistent = scalingPowers + strength;
-            score += Math.min(PERSISTENT_CAP, persistent) * PERSISTENT_VALUE;
+            // 蓝本 BeamRankScore.cs:925-929：
+            //   min(StandardPersistentBuffDeltaBeamCap(4), max(0, PersistentBuffValue - InitialPersistentBuffValue))
+            //   * StandardPersistentBuffDeltaBeamValue(150_000)
+            // 注意口径：**封的是「相对起点新增的保留价值」**（力量×命中段数、格挡×受击次数…
+            // 折成点数，见 PowerValuation），不是「能力层数」。原来按层数封顶是拿数量冒充价值。
+            int persistentDelta = Math.max(0, persistentBuffValue - initialPersistentBuffValue);
+            score += Math.min(PERSISTENT_CAP, persistentDelta) * PERSISTENT_VALUE;
             // 还没打出去的能力牌 = 延迟收益（蓝本：只在多敌人或 Boss 时启用）
             if (initialEnemyCount > 1) {
                 score += Math.min(LATENT_SETUP_CAP, latentSetupValue) * LATENT_SETUP_VALUE;
@@ -676,6 +711,10 @@ public final class Score {
         boolean won;
         /** 战后遗物回血画像（从根快照带下来）；{@code null} = 用无遗物的默认口径。 */
         io.github.youqing.sts1solver.mirror.PostCombatRelicHeal postCombatHeal;
+        /** 当前节点上所有能力的保留价值之和（蓝本 {@code PersistentBuffValue}）。 */
+        int persistentBuffValue;
+        /** 路线起点的同一量（蓝本 {@code InitialPersistentBuffValue}）。 */
+        int initialPersistentBuffValue;
         int actions;
         int turns;
         int hpLost;
