@@ -8,7 +8,11 @@
 
 | 怪物 | 幕 | 备注 |
 |---|---|---|
-| `SphericGuardian` | 2 | 确定性循环；格挡 25 / 15、Frail 5 都建了模 |
+| `SphericGuardian` | 2 | 确定性循环；格挡 25/35、Frail 5、伤害 10/11（A2）都建了模 |
+| `Cultist` | 1 | 首招 Ritual 3（A2 起 4），之后 6 伤 |
+| `GremlinWarrior` | 1 | 4 伤（A2 起 5） |
+| `GremlinFat` | 1 | 4 伤（A2 起 5）+ Weak 1（A17 起 2） |
+| `SpikeSlime_S` | 1 | 5 伤（A2 起 6） |
 
 ## 二、分类（用 `javap -c` 扫 `getMove` 得到，见 `monster-mirror-scan.txt`）
 
@@ -44,8 +48,6 @@
 
 ## 四、🔴 需要拍板的新问题
 
-1. **aiRng 消耗口径**（上面 B 类）：影子要不要模拟「每次怪物决策消耗一次 aiRng」？
-   影响 43 只怪和一切跨回合随机。我的倾向：**不消耗**，因为影子是投影不是重放，
-   而且我们没有任何跨回合随机对拍能验证它；但要写进文档，别让人以为「和原版完全同源」。
-2. **进阶档**：`SphericGuardian` 的伤害 11（A2+）、格挡 35（A17+）还没做 ——
-   机器目前不读 `SimState.ascension`。要不要给所有怪都补进阶数值？（工作量约 +20%）
+1. ~~aiRng 消耗口径~~ → **已定：复刻蓝本，消耗**（`MonsterMoves.next` 每次抽一次
+   `aiRng.random(99)`，与 `AbstractMonster.rollMove` 同口径）。
+2. ~~进阶档~~ → **已定：补**（机器读 `Context.ascension`）。

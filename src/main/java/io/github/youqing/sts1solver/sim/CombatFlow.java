@@ -73,6 +73,11 @@ public final class CombatFlow {
                     state.playerPowers.put(move.playerDebuff,
                             (prior == null ? 0 : prior) + move.playerDebuffAmount);
                 }
+                if (move.selfBuff != null && move.selfBuffAmount > 0) {
+                    // 原版 ApplyPowerAction(owner, owner, power)：给自己叠层
+                    Integer prior = m.powers.get(move.selfBuff);
+                    m.powers.put(move.selfBuff, (prior == null ? 0 : prior) + move.selfBuffAmount);
+                }
             } else if (m.intentDmg > 0) {
                 // 未镜像的怪：沿用「意图伤害」单段结算（老路径，行为不变）
                 hitPlayer(state, m.intentDmg, m);
@@ -111,7 +116,8 @@ public final class CombatFlow {
 
         // ⑥ 进入下一回合：按「意图学习表」刷新怪物意图（查不到就沿用当前值）
         state.turn = state.turn + 1;
-        for (SimMonster m : state.monsters) {
+        for (int slot = 0; slot < state.monsters.size(); slot++) {
+            SimMonster m = state.monsters.get(slot);
             if (m.hp <= 0) {
                 continue;
             }
@@ -125,7 +131,7 @@ public final class CombatFlow {
             m.pendingMove = null;
             m.pendingMoveId = -1;
             if (MonsterMoves.supported(m.type)) {
-                MonsterMove planned = MonsterMoves.next(m.type, m.moveHistory, state.turn);
+                MonsterMove planned = MonsterMoves.next(state, m, state.turn, slot);
                 m.pendingMove = planned;
                 m.pendingMoveId = planned.id;
                 // 意图伤害只用于估值/展示：多段按「基础伤害经力量/虚弱/易伤修正后 × 段数」合计

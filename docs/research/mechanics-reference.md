@@ -1935,8 +1935,8 @@ takeTurn:      1 → 两段 dmg          2 → 格挡 25（A17+: 35）
 “firstMove / secondMove” 两个标志用 `history.size()` 等价表达（第 1 次决策历史为空、
 第 2 次恰好 1 条）—— 比在影子里多存两个布尔更不容易漂。
 
-⚠️ 进阶档（A2 伤害 11、A17 格挡 35）**没做**：影子目前不带 `ascension` 进怪物决策
-（`SimState.ascension` 有，但机器还没读）。记在这里，等哪天跑进阶再补。
+进阶档（A2 伤害 11、A17 格挡 35）**已补**：机器从 `Context.ascension`（= `SimState.ascension`）读，
+逐条对着字节码里的 `ascensionLevel` 比较。
 
 ### 33.5 验证
 
@@ -1950,3 +1950,40 @@ takeTurn:      1 → 两段 dmg          2 → 格挡 25（A17+: 35）
 6. 伤害公式四档（10 / 10×0.75=7 / 7×1.5=10 / 10×1.5=15）。
 
 全量 **249 条**通过。
+
+
+### 33.6 第二批：aiRng 与进阶（2026-10-25）
+
+按用户拍板「复刻蓝本」「进阶也补」两件事都做了：
+
+1. **每次决策消耗一次 aiRng**。原版 `AbstractMonster.rollMove()` 是
+   `getMove(AbstractDungeon.aiRng.random(99))` —— 字节码直读（`rollMove` 第 0-9 条指令）。
+   蓝本既然照抄这一步，我们也照抄：`MonsterMoves.next` 先 `state.rng(AI).random(99)` 再交给机器。
+   ⚠️ 这意味着「一次决策 = 一次 aiRng 消耗」，等价于原版的消耗次数；
+   `MonsterMovesTest.everyDecisionConsumesOneAiRoll` 钉住它。
+2. **进阶数值**。`Context.ascension` 直接读 `SimState.ascension`，各机器按字节码里的
+   `ascensionLevel >= N` 分支给不同数值。
+
+第二批镜像（全部逐条对字节码）：
+
+| 怪物 | 招式 | 伤害 | 进阶 |
+|---|---|---|---|
+| `Cultist` | 首招 3=INCANTATION（给自己挂 Ritual），之后 1=DARK_STRIKE | 6 | A2 起 Ritual 4；A7 起 HP 50–56 |
+| `GremlinWarrior` | 永远 1=ATTACK | 4 | A2 起 5 |
+| `GremlinFat` | 永远 2=ATTACK_DEBUFF（玩家 Weak 1） | 4 | A2 起 5；A17 起 Weak 2 |
+| `SpikeSlime_S` | 永远 1=ATTACK | 5 | A2 起 6；A7 起 HP 11–15 |
+
+Ritual 走的是原有那条路：`CombatFlow.endTurn` ④.5 的 `atEndOfRound` 把 Ritual 变力量 ——
+`cultistRitualTurnsIntoStrengthAtRoundEnd` 钉住「同一回合就转」（原版 `RitualPower.atEndOfRound`）。
+
+### 33.7 下一批的三个卡点（写下来免得重复试）
+
+| 怪物 | 卡在哪 | 需要的模型扩展 |
+|---|---|---|
+| `GremlinTsundere` | 格挡给的是**随机队友**（`GainBlockRandomMonsterAction`） | `MonsterMove` 要能表达「给别的怪加格挡」+ 选目标的随机 |
+| `Sentry` | 攻击附带**往弃牌堆塞 2 张 Dazed** | `MonsterMove` 要能表达「给玩家牌堆加状态牌」 |
+| `Lagavulin` | 睡 3 回合（带 Metallicize/Plated Armor 变化）+ 醒后重击 | 需要「多回合状态机 + 自身能力变化」 |
+
+另外 `Exploder` / `Transient` / `SnakeDagger` / `TorchHead` 的 `javap` 输出为空
+（类名对不上或没有 `getMove`），下一批先确认它们到底在哪个类里。
+
