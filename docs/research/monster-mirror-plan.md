@@ -31,6 +31,8 @@
 | `SpikeSlime_L` | 1 | 半血分裂成两只中刺史莱姆；Lick = Frail 2（A17: 3） |
 | `SlimeBoss` | 1（boss） | Goop（塞 Slimed 3/A19:5）→ Preparing → Slam 35/A4:38 循环；半血分裂成**一刺一酸**两只大史莱姆 |
 | `TheGuardian` | 1（boss） | 攻/防双循环 + 伤害阈值切姿态；Sharp Hide = 打攻击牌就掉血 |
+| `GremlinThief` | 1 | 查证后：**不偷钱也不逃**，就是每回合打 9（A2: 10） |
+| `Looter` | 1 | 抹两次 → 掷硬币（烟雾弹/突袭）→ 烟雾弹 → **逃跑**（新载荷 escape） |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 
@@ -85,21 +87,3 @@
 
 **结论：先不做半只**。半只 Hexaghost 在 50% 血以下会静默算错（搜索以为还能继续打本体），
 这比不搬更糟。下一轮整块做：先读 `damage()` 重写（找 Divide 触发）与 6 个 orb 的构造参数。
-
-## 下一步：GremlinThief / Looter —— 逃逸时机依赖金币
-
-`escapeNext()` 是 `StealGoldAction` 调用的（偷到钱就标记，下一回合走 99(ESCAPE) 离场）。
-但**影子没有金币**：偷没偷到、偷几次才走，取决于玩家的金币余额 —— 那是战斗外的状态，
-`SimState` 里没有。所以要么补 `gold` 字段（捕获 `AbstractDungeon.player.gold`），
-要么明确不搬。倾向**补 gold**：它只有一个 int，捕获一行，而且顺带能让别的金币相关逻辑可用。
-
-## 补充：GremlinThief / Looter 的逃逸触发点在哪
-
-`GremlinThief.takeTurn` 只**读** `escapeNext`（下一招是 1 还是 99），
-真正**写**它的是 `AbstractMonster.escapeNext()`，而调用方不在这两个类里 ——
-字节码里能看到的是：`DamageAction` 带 `goldAmount` 字段、会读写
-`AbstractCreature.gold`（也就是「打人的同时偷钱」写在 `DamageAction` 里）。
-
-所以下一步要把 `DamageAction.update()` 里 `goldAmount > 0` 那段读全，
-确认它是否顺手调了 `source.escapeNext()`。**确认之前不动手**：
-逃逸时机搞错（早一回合/晚一回合）对搜索的影响比不搬大得多。

@@ -55,6 +55,8 @@ public final class MonsterMove {
     /** 第二个分裂槽（SlimeBoss 一次生成两只**不同**的怪：先刺史莱姆、再酸液史莱姆）。 */
     public final String splitInto2;
     public final int splitCount2;
+    /** 这一招是**逃离战斗**（原版 {@code EscapeAction}）—— 怪直接从场上消失，不算击杀。 */
+    public final boolean escape;
 
     public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
                        String selfBuff, int selfBuffAmount,
@@ -92,6 +94,18 @@ public final class MonsterMove {
                        String statusCard, int statusCount,
                        String splitInto, int splitCount,
                        String splitInto2, int splitCount2) {
+        this(id, damage, hits, block, blockRandomAlly, selfBuff, selfBuffAmount,
+                playerDebuff, playerDebuffAmount, playerDebuff2, playerDebuff2Amount,
+                statusCard, statusCount, splitInto, splitCount, splitInto2, splitCount2, false);
+    }
+
+    public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
+                       String selfBuff, int selfBuffAmount,
+                       String playerDebuff, int playerDebuffAmount,
+                       String playerDebuff2, int playerDebuff2Amount,
+                       String statusCard, int statusCount,
+                       String splitInto, int splitCount,
+                       String splitInto2, int splitCount2, boolean escape) {
         this.id = id;
         this.damage = Math.max(0, damage);
         this.hits = Math.max(0, hits);
@@ -109,6 +123,7 @@ public final class MonsterMove {
         this.splitCount = Math.max(0, splitCount);
         this.splitInto2 = splitInto2;
         this.splitCount2 = Math.max(0, splitCount2);
+        this.escape = escape;
     }
 
     public boolean attacks() {
@@ -173,6 +188,12 @@ public final class MonsterMove {
                 null, 0, null, 0, childType, count);
     }
 
+    /** 逃离战斗（原版 {@code EscapeAction}）：怪从场上消失，不算击杀。 */
+    public static MonsterMove escape(int id) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, true);
+    }
+
     /** 分裂成两只**不同**的怪（SlimeBoss：1 只刺史莱姆 + 1 只酸液史莱姆）。 */
     public static MonsterMove splitTwo(int id, String firstType, int firstCount,
                                        String secondType, int secondCount) {
@@ -194,6 +215,7 @@ public final class MonsterMove {
                 + (playerDebuff2 == null ? "" : ", " + playerDebuff2 + "+" + playerDebuff2Amount)
                 + (statusCard == null ? "" : ", discard+=" + statusCard + "x" + statusCount)
                 + (splitInto == null ? "" : ", split=" + splitInto + "x" + splitCount)
-                + (splitInto2 == null ? "" : " + " + splitInto2 + "x" + splitCount2) + "}";
+                + (splitInto2 == null ? "" : " + " + splitInto2 + "x" + splitCount2)
+                + (escape ? ", ESCAPE" : "") + "}";
     }
 }

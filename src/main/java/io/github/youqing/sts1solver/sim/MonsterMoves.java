@@ -122,6 +122,8 @@ public final class MonsterMoves {
         MACHINES.put("JawWorm", new JawWormMachine());
         MACHINES.put("AcidSlime_S", new AcidSlimeMachine());
         MACHINES.put("AcidSlime_M", new AcidSlimeMMachine());
+        MACHINES.put("GremlinThief", new GremlinThiefMachine());
+        MACHINES.put("Looter", new LooterMachine());
         MACHINES.put("AcidSlime_L", new AcidSlimeLMachine());
         MACHINES.put("SpikeSlime_L", new SpikeSlimeLMachine());
         MACHINES.put("SlimeBoss", new SlimeBossMachine());
@@ -995,6 +997,75 @@ public final class MonsterMoves {
 
         private MonsterMove twinSmash(Context c) {
             return MonsterMove.multiAttack(4, c.baseDamage(3, 8), 2);
+        }
+    }
+
+    /**
+     * 小鬼小偷（GremlinThief）。
+     *
+     * <pre>
+     * getMove: 永远 1(ATTACK)；takeTurn 1 → 一段 thiefDamage
+     *          （代码里还有 `escapeNext ? 99(ESCAPE) : 1` 的分支，但**没有任何地方**
+     *          调 `escapeNext()` —— 见类注释）
+     * 常数: 9（A2: 10）、HP 10-14（A7: 11-15）
+     * </pre>
+     *
+     * <p>🔴 查证结论：这个类的字节码里**一次都没提过 gold/Steal**，
+     * 也就是说它打人**不偷钱**；`escapeNext` 那条分支是死代码（没人置位）。
+     * 所以它就是一只「每回合打 9 的普通怪」，不逃逸、不偷钱 —— 照实写就行。
+     */
+    static final class GremlinThiefMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            return MonsterMove.attack(1, c.baseDamage(0, c.ascension >= 2 ? 10 : 9));
+        }
+    }
+
+    /**
+     * 掠夺者（Looter）。
+     *
+     * <pre>
+     * getMove: 永远 1(ATTACK) —— 后面的招都靠 takeTurn 的 SetMove 排
+     * takeTurn: 1(Mug)      → 一段 swipe（顺带偷 goldAmt 金币），slashCount++；
+     *                         slashCount == 2 时掷硬币：2(Smoke Bomb) 或 4(Lunge)，否则继续 1
+     *           4(Lunge)    → 一段 lunge（也偷钱），排 2
+     *           2(Smoke Bomb)→ 自己 +6 格挡（escapeDef），排 3
+     *           3            → **EscapeAction，逃离战斗**
+     * 常数: swipe 10（A2: 11）、lunge 12（A2: 14）、格挡 6、HP 44-48（A7: 46-50）
+     * </pre>
+     *
+     * <p>偷到的金币影子不建模（`SimState` 没有 gold），但**逃逸时机与金币无关** ——
+     * 它是自己按招序排的（`escapeNext` 在这个类里一次都没出现），所以不影响战斗推进。
+     */
+    static final class LooterMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int swipe = c.baseDamage(0, c.ascension >= 2 ? 11 : 10);
+            int lunge = c.baseDamage(1, c.ascension >= 2 ? 14 : 12);
+            int mugs = 0;
+            for (Integer id : c.history) {
+                if (id.intValue() == 1) {
+                    mugs++;
+                }
+            }
+            if (c.history.isEmpty()) {
+                return MonsterMove.attack(1, swipe);
+            }
+            int last = c.history.get(c.history.size() - 1).intValue();
+            switch (last) {
+                case 1:
+                    if (mugs >= 2) {
+                        return c.randomBoolean() ? MonsterMove.block(2, 6)
+                                : MonsterMove.attack(4, lunge);
+                    }
+                    return MonsterMove.attack(1, swipe);
+                case 4:
+                    return MonsterMove.block(2, 6);
+                case 2:
+                    return MonsterMove.escape(3);
+                default:
+                    return MonsterMove.attack(1, swipe);
+            }
         }
     }
 }

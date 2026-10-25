@@ -144,6 +144,11 @@ public final class CombatFlow {
     /** 结算一只怪这一招的全部载荷（原版 {@code takeTurn()} 排进 action 队列的那些动作）。 */
     private static void takeTurn(SimState state, SimMonster m, int nextTurn) {
         MonsterMove move = m.pendingMove;
+        if (move != null && move.escape) {
+            // 原版 EscapeAction：从怪物组里移除，不算击杀、不结算掉落
+            m.hp = 0;
+            return;
+        }
         if (move != null && ((move.splitInto != null && move.splitCount > 0)
                 || (move.splitInto2 != null && move.splitCount2 > 0))) {
             split(state, m, move, nextTurn);

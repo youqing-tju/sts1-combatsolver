@@ -209,7 +209,7 @@ class MonsterMovesTest {
         SimState s = new SimState();
         s.hp = 50;
         s.maxHp = 80;
-        SimMonster cultist = monster("Looter");   // 还没镜像的怪
+        SimMonster cultist = monster("ApologySlime");   // 还没镜像的怪
         cultist.intentDmg = 6;
         s.monsters.add(cultist);
         for (int i = 0; i < 8; i++) {
@@ -221,7 +221,7 @@ class MonsterMovesTest {
         assertEquals(44, s.hp, "未镜像的怪仍按意图伤害打一下");
         assertNull(cultist.pendingMove, "未镜像的怪不该有镜像招式");
         assertTrue(cultist.moveHistory.isEmpty(), "未镜像的怪不记镜像历史");
-        assertFalse(MonsterMoves.supported("Looter"));
+        assertFalse(MonsterMoves.supported("ApologySlime"));
     }
 
     /** 伤害公式与玩家向同序：力量 → 虚弱 ×0.75 → 易伤 ×1.5，每步 float 截断。 */
@@ -1042,5 +1042,65 @@ class MonsterMovesTest {
 
         assertEquals("STATUS", s.discard.get(s.discard.size() - 1).type, "弃牌堆的 Burn 要带类型");
         assertEquals("STATUS", s.hand.get(s.hand.size() - 1).type, "手牌里的 Wound 要带类型");
+    }
+
+    // ============================ 第十一批：GremlinThief / Looter ============================
+
+    /** 小鬼小偷其实不偷钱也不逃 —— 就是每回合打 9（A2: 10）。 */
+    @Test
+    void gremlinThiefJustAttacks() {
+        MonsterMove hit = decide("GremlinThief", history(), 50, 0, 0);
+        assertEquals(1, hit.id);
+        assertEquals(9, hit.damage);
+        assertEquals(10, decide("GremlinThief", history(), 50, 0, 2).damage, "A2 起 10");
+        assertEquals(1, decide("GremlinThief", history(1, 1, 1), 50, 0, 0).id, "一直打");
+    }
+
+    /** 掠夺者：抹两次 → 掷硬币（烟雾弹/突袭）→ 烟雾弹 → 逃跑。 */
+    @Test
+    void looterMugsThenEscapes() {
+        MonsterMove mug = decide("Looter", history(), 50, 0, 0);
+        assertEquals(1, mug.id);
+        assertEquals(10, mug.damage);
+        assertEquals(11, decide("Looter", history(), 50, 0, 2).damage, "A2 起 11");
+        assertEquals(1, decide("Looter", history(1), 50, 0, 0).id, "第一次之后继续抹");
+
+        // 第二次抹完掷硬币：要么 2(烟雾弹) 要么 4(突袭)
+        java.util.Set<Integer> afterTwoMugs = new java.util.HashSet<Integer>();
+        for (int seed = 1; seed <= 20; seed++) {
+            SimState st = new SimState();
+            st.rng.put(SimState.RngKind.AI, RngStream.from(mix(seed), 0x9E3779B97F4A7C15L, 0));
+            SimMonster m = new SimMonster("Looter", 46, 48, 0, NO_POWERS);
+            m.moveHistory.add(Integer.valueOf(1));
+            m.moveHistory.add(Integer.valueOf(1));
+            afterTwoMugs.add(Integer.valueOf(MonsterMoves.machineFor("Looter").next(
+                    new MonsterMoves.Context(st, m, m.moveHistory, 1, 0, 50, 0)).id));
+        }
+        assertTrue(afterTwoMugs.contains(Integer.valueOf(2)), "可能烟雾弹");
+        assertTrue(afterTwoMugs.contains(Integer.valueOf(4)), "可能突袭");
+
+        MonsterMove lunge = decide("Looter", history(1, 1, 4), 50, 0, 0);
+        assertEquals(2, lunge.id, "突袭完必是烟雾弹");
+        assertEquals(6, lunge.block);
+
+        MonsterMove escape = decide("Looter", history(1, 1, 4, 2), 50, 0, 0);
+        assertEquals(3, escape.id, "烟雾弹之后逃跑");
+        assertTrue(escape.escape, "这一招是逃离战斗");
+    }
+
+    /** 逃跑真的把它从场上拿掉（不算击杀，但也不再打人）。 */
+    @Test
+    void escapingMonsterLeavesTheFight() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        SimMonster looter = monster("Looter");
+        looter.pendingMove = MonsterMove.escape(3);
+        looter.pendingMoveId = 3;
+        s.monsters.add(looter);
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(0, looter.hp, "逃跑后离场");
+        assertEquals(50, s.hp, "逃跑那回合不打人");
     }
 }

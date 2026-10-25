@@ -2327,3 +2327,34 @@ if (!isDying && currentHealth <= maxHealth / 2 && nextMove != 3 && !splitTrigger
 3. `MonsterMoves.next` 对未登记类型必须抛 `IllegalArgumentException`（不静默回退）。
 
 全量 **290 条**通过。
+
+### 33.22 GremlinThief / Looter —— 查证结果和原先的假设不一样（2026-10-25）
+
+两只都曾被记成「卡在金币上」，读完全部字节码后结论**都推翻了**：
+
+| 怪 | 原先的假设 | 实际情况 |
+|---|---|---|
+| `GremlinThief` | 偷金币，然后 `escapeNext` 逃跑 | 类里**一次都没提过 gold/Steal**；`escapeNext` 只有读、**没有任何地方置位**（死代码）→ 它就是每回合打 9（A2: 10）的普通怪 |
+| `Looter` | 逃逸时机看金币 | 逃逸是**自己按招序排的**（`takeTurn` 里直接 `EscapeAction`），与金币无关；金币只影响偷多少 |
+
+`Looter` 的招序（`getMove` 恒为 1，其余靠 `SetMove`）：
+
+```
+1 Mug   → 一段 swipe 10（A2: 11），slashCount++；
+          第 2 次之后掷硬币：2(Smoke Bomb) 或 4(Lunge)，否则继续 1
+4 Lunge → 一段 lunge 12（A2: 14），排 2
+2 Smoke → 自己 +6 格挡，排 3
+3       → EscapeAction：离场
+```
+
+`slashCount` 从历史里数「1 出现了几次」即可（不需要额外状态）。
+
+**新载荷 `MonsterMove.escape`**：`CombatFlow` 里把 `hp` 置 0 并跳过后续结算 ——
+逃离是「离场」不是「被杀」，不结算掉落。胜利判定仍是「全部 hp ≤ 0」，够用。
+
+⚠️ 又一次「木桩」事故：`DeathSaveRelicTest` 的木桩先是被 `JawWorm` 撞、改成 `Looter` 又被撞。
+现在改成 `TestMonster`（游戏里不存在、永远不会被镜像）。**这条规则该记住：
+测试木桩一律用不存在的类型名。**
+
+验证 3 条（小偷只打人 / 掠夺者的抹-掷硬币-烟雾弹-逃跑链 / 逃跑真的离场），
+全量 **293 条**通过。
