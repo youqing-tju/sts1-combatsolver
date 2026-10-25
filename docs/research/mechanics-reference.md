@@ -2248,3 +2248,24 @@ if (!isDying && currentHealth <= maxHealth / 2 && nextMove != 3 && !splitTrigger
 验证 4 条：大酸液喷两张 Slimed + 数值、半血排队（一半以上不排 / 正好半血排 / 不重复排）、
 分裂落地（父体归零 / 两只小怪血 = 父体当时血量 / 出生就有招 / 那回合不打人）、
 大刺史莱姆的招式与数值。全量 **281 条**通过。
+
+### 33.19 史莱姆王（SlimeBoss）—— 复用分裂管线 + 第二个分裂槽
+
+`getMove` 几乎是空的（只有首回合 `firstTurn → 4(Goop Spray)`），**后面每一招都是
+`takeTurn` 末尾用 `SetMoveAction` 排的** —— 又一个「机器要按 takeTurn 写、不能按 getMove 写」的例子：
+
+```
+4(Goop Spray) → 塞 Slimed 3 张（A19: 5），排 2
+2(Preparing)  → 不打人，排 1
+1(Slam)       → 一段 35（A4: 38），排回 4
+3(Split)      → 自杀 + 生成两只不同的怪
+```
+
+分裂这次要**两只不同的怪**（先 `SpikeSlime_L`、再 `AcidSlime_L`，血量都 = 父体当时血量），
+所以 `MonsterMove` 补了第二个分裂槽（`splitInto2` / `splitCount2`），
+`CombatFlow.split` 两个槽依次生成。
+
+半血触发与两只大史莱姆完全同构（同一个 `damage()` 重写写法），所以 `splitMove` 加一行即可。
+
+验证 2 条：招序循环 + Slimed 张数 + A4/A19 数值；半血分裂（排队 / 父体归零 /
+先刺后酸 / 两只各 69 血）。全量 **283 条**通过。

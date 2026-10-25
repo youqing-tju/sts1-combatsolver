@@ -29,6 +29,7 @@
 | `AcidSlime_M` | 1 | 三档 num + 两处 `randomBoolean`；喷吐塞 Slimed |
 | `AcidSlime_L` | 1 | 半血**分裂**成两只中酸液（小怪血 = 父体当时血量）；喷吐塞 2 张 Slimed |
 | `SpikeSlime_L` | 1 | 半血分裂成两只中刺史莱姆；Lick = Frail 2（A17: 3） |
+| `SlimeBoss` | 1（boss） | Goop（塞 Slimed 3/A19:5）→ Preparing → Slam 35/A4:38 循环；半血分裂成**一刺一酸**两只大史莱姆 |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 

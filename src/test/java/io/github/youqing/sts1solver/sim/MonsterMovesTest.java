@@ -904,4 +904,53 @@ class MonsterMovesTest {
 
         assertEquals(4, decide("SpikeSlime_L", history(1, 1), 10, 0, 0).id, "连着两下 → 舔");
     }
+
+    // ============================ 第九批：SlimeBoss ============================
+
+    /** 史莱姆王：Goop → Preparing → Slam → Goop；Goop 塞 3 张 Slimed（A19: 5）。 */
+    @Test
+    void slimeBossLoopsGoopPrepareSlam() {
+        MonsterMove goop = decide("SlimeBoss", history(), 50, 0, 0);
+        assertEquals(4, goop.id, "首招 Goop Spray");
+        assertEquals("Slimed", goop.statusCard);
+        assertEquals(3, goop.statusCount);
+        assertEquals(5, decide("SlimeBoss", history(), 50, 0, 19).statusCount, "A19 起 5 张");
+
+        MonsterMove prep = decide("SlimeBoss", history(4), 50, 0, 0);
+        assertEquals(2, prep.id, "喷完先蓄力");
+        assertEquals(0, prep.damage, "蓄力那回合不打人");
+
+        MonsterMove slam = decide("SlimeBoss", history(4, 2), 50, 0, 0);
+        assertEquals(1, slam.id, "蓄力完砸");
+        assertEquals(35, slam.damage);
+        assertEquals(38, decide("SlimeBoss", history(4, 2), 50, 0, 4).damage, "A4 起 38");
+
+        assertEquals(4, decide("SlimeBoss", history(4, 2, 1), 50, 0, 0).id, "砸完回去喷");
+    }
+
+    /** 半血分裂成**两只不同的**：1 只大刺 + 1 只大酸，血量都等于父体当时血量。 */
+    @Test
+    void slimeBossSplitsIntoTwoDifferentSlimes() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        SimMonster boss = new SimMonster("SlimeBoss", 140, 140, 0, NO_POWERS);
+        boss.hp = 70;
+        boss.pendingMove = MonsterMove.attack(1, 35);
+        boss.pendingMoveId = 1;
+        s.monsters.add(boss);
+
+        DamageCalc.hit(s, boss, 1);
+        assertEquals(3, boss.pendingMove.id, "正好半血 → 排 SPLIT");
+        assertEquals("SpikeSlime_L", boss.pendingMove.splitInto);
+        assertEquals("AcidSlime_L", boss.pendingMove.splitInto2);
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(0, boss.hp, "父体自杀");
+        assertEquals(3, s.monsters.size());
+        assertEquals("SpikeSlime_L", s.monsters.get(1).type, "先刺史莱姆");
+        assertEquals("AcidSlime_L", s.monsters.get(2).type, "再酸液史莱姆");
+        assertEquals(69, s.monsters.get(1).hp, "血量 = 父体分裂时的血量");
+        assertEquals(69, s.monsters.get(2).hp);
+    }
 }

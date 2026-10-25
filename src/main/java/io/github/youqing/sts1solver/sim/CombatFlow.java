@@ -144,7 +144,8 @@ public final class CombatFlow {
     /** 结算一只怪这一招的全部载荷（原版 {@code takeTurn()} 排进 action 队列的那些动作）。 */
     private static void takeTurn(SimState state, SimMonster m, int nextTurn) {
         MonsterMove move = m.pendingMove;
-        if (move != null && move.splitInto != null && move.splitCount > 0) {
+        if (move != null && ((move.splitInto != null && move.splitCount > 0)
+                || (move.splitInto2 != null && move.splitCount2 > 0))) {
             split(state, m, move, nextTurn);
             return;
         }
@@ -220,8 +221,15 @@ public final class CombatFlow {
      */
     private static void split(SimState state, SimMonster parent, MonsterMove move, int nextTurn) {
         int childHp = Math.max(1, parent.hp);
-        for (int i = 0; i < move.splitCount; i++) {
-            SimMonster child = new SimMonster(move.splitInto, childHp, childHp, 0,
+        spawnChildren(state, move.splitInto, move.splitCount, childHp, nextTurn);
+        spawnChildren(state, move.splitInto2, move.splitCount2, childHp, nextTurn);
+        parent.hp = 0;
+    }
+
+    private static void spawnChildren(SimState state, String type, int count, int childHp,
+                                      int nextTurn) {
+        for (int i = 0; i < count; i++) {
+            SimMonster child = new SimMonster(type, childHp, childHp, 0,
                     java.util.Collections.<String, Integer>emptyMap());
             state.monsters.add(child);
             if (MonsterMoves.supported(child.type)) {
@@ -231,7 +239,6 @@ public final class CombatFlow {
                 child.pendingMoveId = first.id;
             }
         }
-        parent.hp = 0;
     }
 
     /** 原版 {@code RollMoveAction}：把打过的招记进历史，再决策下一招（没镜像的走观测表）。 */

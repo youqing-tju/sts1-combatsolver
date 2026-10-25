@@ -52,6 +52,9 @@ public final class MonsterMove {
      */
     public final String splitInto;
     public final int splitCount;
+    /** 第二个分裂槽（SlimeBoss 一次生成两只**不同**的怪：先刺史莱姆、再酸液史莱姆）。 */
+    public final String splitInto2;
+    public final int splitCount2;
 
     public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
                        String selfBuff, int selfBuffAmount,
@@ -77,6 +80,18 @@ public final class MonsterMove {
                        String playerDebuff2, int playerDebuff2Amount,
                        String statusCard, int statusCount,
                        String splitInto, int splitCount) {
+        this(id, damage, hits, block, blockRandomAlly, selfBuff, selfBuffAmount,
+                playerDebuff, playerDebuffAmount, playerDebuff2, playerDebuff2Amount,
+                statusCard, statusCount, splitInto, splitCount, null, 0);
+    }
+
+    public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
+                       String selfBuff, int selfBuffAmount,
+                       String playerDebuff, int playerDebuffAmount,
+                       String playerDebuff2, int playerDebuff2Amount,
+                       String statusCard, int statusCount,
+                       String splitInto, int splitCount,
+                       String splitInto2, int splitCount2) {
         this.id = id;
         this.damage = Math.max(0, damage);
         this.hits = Math.max(0, hits);
@@ -92,6 +107,8 @@ public final class MonsterMove {
         this.statusCount = Math.max(0, statusCount);
         this.splitInto = splitInto;
         this.splitCount = Math.max(0, splitCount);
+        this.splitInto2 = splitInto2;
+        this.splitCount2 = Math.max(0, splitCount2);
     }
 
     public boolean attacks() {
@@ -156,6 +173,13 @@ public final class MonsterMove {
                 null, 0, null, 0, childType, count);
     }
 
+    /** 分裂成两只**不同**的怪（SlimeBoss：1 只刺史莱姆 + 1 只酸液史莱姆）。 */
+    public static MonsterMove splitTwo(int id, String firstType, int firstCount,
+                                       String secondType, int secondCount) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                firstType, firstCount, secondType, secondCount);
+    }
+
     /** 往玩家弃牌堆塞状态牌（Sentry 的 Dazed）。 */
     public static MonsterMove status(int id, String card, int count) {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, card, count);
@@ -169,6 +193,7 @@ public final class MonsterMove {
                 + (playerDebuff == null ? "" : ", " + playerDebuff + "+" + playerDebuffAmount)
                 + (playerDebuff2 == null ? "" : ", " + playerDebuff2 + "+" + playerDebuff2Amount)
                 + (statusCard == null ? "" : ", discard+=" + statusCard + "x" + statusCount)
-                + (splitInto == null ? "" : ", split=" + splitInto + "x" + splitCount) + "}";
+                + (splitInto == null ? "" : ", split=" + splitInto + "x" + splitCount)
+                + (splitInto2 == null ? "" : " + " + splitInto2 + "x" + splitCount2) + "}";
     }
 }

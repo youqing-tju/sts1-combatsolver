@@ -124,6 +124,7 @@ public final class MonsterMoves {
         MACHINES.put("AcidSlime_M", new AcidSlimeMMachine());
         MACHINES.put("AcidSlime_L", new AcidSlimeLMachine());
         MACHINES.put("SpikeSlime_L", new SpikeSlimeLMachine());
+        MACHINES.put("SlimeBoss", new SlimeBossMachine());
         MACHINES.put("SpikeSlime_M", new SpikeSlimeMMachine());
         MACHINES.put("FungiBeast", new FungiBeastMachine());
         MACHINES.put("SlaverBlue", new SlaverBlueMachine());
@@ -150,6 +151,10 @@ public final class MonsterMoves {
         }
         if ("SpikeSlime_L".equals(type)) {
             return MonsterMove.split(3, "SpikeSlime_M", 2);
+        }
+        if ("SlimeBoss".equals(type)) {
+            // 先刺史莱姆、再酸液史莱姆，血都是父体当时血量
+            return MonsterMove.splitTwo(3, "SpikeSlime_L", 1, "AcidSlime_L", 1);
         }
         return null;
     }
@@ -827,6 +832,44 @@ public final class MonsterMoves {
             }
             boolean repeatedLick = c.ascension >= 17 ? c.lastMove(4) : c.lastTwoMoves(4);
             return repeatedLick ? bite : lick;
+        }
+    }
+
+    /**
+     * 史莱姆王（SlimeBoss，第一章 boss）。
+     *
+     * <pre>
+     * getMove:  第一回合 → 4(Goop Spray)；**此后什么也不做**
+     *           —— 后面每一招都是 takeTurn 末尾用 SetMoveAction 排的：
+     *           4 → 2(Preparing) → 1(Slam) → 4 → …
+     * takeTurn: 4 → 往弃牌堆塞 Slimed 3 张（A19: 5），排 2；
+     *           2 → 不打人，排 1(Slam)；
+     *           1 → 一段 slamDmg，排回 4；
+     *           3 → 分裂（见 {@link #splitMove(String)}）
+     * 常数:     slam 35 (A4: 38)、tackle 9 (A4: 10)（tackle 这版没用到）、HP 140 (A9: 150)
+     * </pre>
+     *
+     * <p>所以机器的「招序」按 takeTurn 的 SetMove 写，不按（几乎为空的）getMove 写 ——
+     * 同 {@code AcidSlime_S} 那个坑。
+     */
+    static final class SlimeBossMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int slam = c.baseDamage(1, c.ascension >= 4 ? 38 : 35);
+            if (c.history.isEmpty()) {
+                return goop(c);
+            }
+            if (c.lastMove(4)) {
+                return MonsterMove.none(2);              // Preparing：不打人
+            }
+            if (c.lastMove(2)) {
+                return MonsterMove.attack(1, slam);
+            }
+            return goop(c);
+        }
+
+        private MonsterMove goop(Context c) {
+            return MonsterMove.status(4, "Slimed", c.ascension >= 19 ? 5 : 3);
         }
     }
 }
