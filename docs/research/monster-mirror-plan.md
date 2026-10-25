@@ -43,6 +43,7 @@
 | `BookOfStabbing` | 2（精英） | 多刺段数随历史增长；自带 **Painful Stabs**（每段塞 1 Wound） |
 | `Mugger` | 2 | 抹两次 → 掷硬币 → 烟雾弹 → 逃跑（与 Looter 同构） |
 | `Taskmaster` | 2 | 永远那一鞭：7 伤 + 2 张 Wound（A18: 3 张 + 自身 +1 力量） |
+| `BanditPointy` | 2 | 永远两段 5（A2: 6） |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 
@@ -131,3 +132,17 @@
 - `burnUpgraded` 在哪翻。
 
 **未查清之前不写 Hexaghost** —— 但它已经不影响 Act 1 的覆盖率了（其余 26 只都搬完了）。
+
+## 剩余 28 只的施工顺序（2026-10-25 夜）
+
+已完成 **37 只**（Act 1 除 Hexaghost 外全部 + Act 2 的 11 只）。剩下这些按「需要什么新能力」分组：
+
+| 组 | 怪物 | 缺什么 |
+|---|---|---|
+| **A. 召唤**（可直接复用分裂管线，但要固定血量而非父体血量） | `GremlinLeader`（Rally 召 2 只随机小鬼）、`TheCollector`（召 TorchHead）、`BronzeAutomaton`（召 2 个 BronzeOrb） | `MonsterMove` 加「按类型+固定血量召唤」载荷；小鬼血量是构造器里 `MathUtils.random` 抽的（**不受 run seed 控制**），只能取区间中值并记录近似 |
+| **B. 多阶段** | `Champ`（三阶段 + 狂暴）、`BronzeAutomaton`（半血 STUN + BOOST）、`TheCollector`（半血 BUFF）、`Hexaghost`（开场 6 个 orb + `burnUpgraded`） | 需要「血量阈值触发换招」的通用钩子（Champ/Automaton/Collector 都是 `damage()` 重写）；Hexaghost 还要先搞清 orb 是什么 |
+| **C. 面具强盗事件** | `BanditBear`、`BanditLeader`（`BanditPointy` 已做） | Bear 的 `Bear Stun` / Leader 的「喊话 + 全体格挡」要看 takeTurn 的 SetMove 链 |
+| **D. 第三章**（beyond 包，18 只） | `Darkling`/`OrbWalker`/`Spiker`/`Repulsor`/`SpireGrowth`/`Transient`/`WrithingMass`/`Nemesis`/`GiantHead`/`TimeEater`/`AwakenedOne`/`Deca`/`Donu`/`SpireSpear`/`SpireShield`/`Maw`/`JawWorm`? | 未读；先按 A/B 两组的新基础设施铺完再批量做 |
+
+**下一步建议**：先做 A 组的召唤载荷（一次解锁 GremlinLeader + Collector + Automaton 三只 boss/精英），
+再做 B 组的「血量阈值换招」钩子（同样一次解锁多只）。

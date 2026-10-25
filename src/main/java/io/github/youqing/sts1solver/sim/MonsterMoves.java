@@ -135,6 +135,7 @@ public final class MonsterMoves {
         MACHINES.put("BookOfStabbing", new BookOfStabbingMachine());
         MACHINES.put("Mugger", new MuggerMachine());
         MACHINES.put("Taskmaster", new TaskmasterMachine());
+        MACHINES.put("BanditPointy", new BanditPointyMachine());
         MACHINES.put("AcidSlime_L", new AcidSlimeLMachine());
         MACHINES.put("SpikeSlime_L", new SpikeSlimeLMachine());
         MACHINES.put("SlimeBoss", new SlimeBossMachine());
@@ -1555,6 +1556,21 @@ public final class MonsterMoves {
             return c.ascension >= 18
                     ? MonsterMove.attackStatusBuff(2, dmg, "Wound", wounds, "Strength", 1)
                     : MonsterMove.attackStatus(2, dmg, "Wound", wounds);
+        }
+    }
+
+    /**
+     * 尖头强盗（BanditPointy，面具强盗事件）—— 第二章。
+     *
+     * <pre>
+     * getMove: 永远 1(ATTACK)，两段
+     * 常数:    每段 5（A2: 6）、HP 30（A7: 34）
+     * </pre>
+     */
+    static final class BanditPointyMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            return MonsterMove.multiAttack(1, c.baseDamage(0, c.ascension >= 2 ? 6 : 5), 2);
         }
     }
 }

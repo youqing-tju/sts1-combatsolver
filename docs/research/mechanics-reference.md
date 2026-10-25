@@ -2481,3 +2481,9 @@ if (newCost != card.cost) { card.cost = newCost; card.costForTurn = card.cost; }
 （测试：3 段攻击 → 3 张 Wound）。
 
 全量 **312 条**通过；累计 **36 只**。
+
+### 33.27 BanditPointy（面具强盗事件）2026-10-25
+
+`getMove` 恒为 1（两段攻击），每段 5（A2: 6），HP 30（A7: 34）。没有额外机制 —— 加它是为了覆盖率。
+
+全量 **313 条**通过；累计 **37 只**。

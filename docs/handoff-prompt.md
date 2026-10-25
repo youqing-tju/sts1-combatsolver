@@ -2,7 +2,7 @@
 
 > **用法**：把整份内容贴进新对话，第一条消息就给全上下文，避免反复补背景。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`
-> **当前状态**：2026-10-25 凌晨，测试 **312 条全绿**，
+> **当前状态**：2026-10-25 凌晨，测试 **313 条全绿**，
 > HEAD = `feat(sim): 第二章六只（含 Confusion）` 那一笔
 
 ---
@@ -84,7 +84,7 @@
 - `AutoPilot` = 蓝本 `ApplyCurrentTurn`（每回合重规划，不冻结路线）
 - 面板 `SolverPanel` + 预算档位（低/中/高/极高：beamWidth 45/60/90/135、nodeLimit 6万/12万/25万/50万、time 60/120/180/300 秒）
 
-**测试**：312 条全绿（28 个测试文件）。
+**测试**：313 条全绿（28 个测试文件）。
 
 **文档**（`docs/research/`）：
 - `blueprint-parity.md` —— **蓝本复刻对照表**（蓝本 `src/Search/` 176 个文件逐项列 ✅/🔶/❌/⛔）
@@ -248,7 +248,7 @@ Flex 的能力是 `GainStrengthPower`（ID = `"Gain Strength"`），**不是 `"F
 # 构建
 powershell -File tools/build.ps1
 
-# 测试（312 条）
+# 测试（313 条）
 powershell -File tools/gradle.ps1 test
 
 # 离线实验（ScoreAbTest / moreSearchTimeHelps，默认 skip）
@@ -283,7 +283,7 @@ python tools/coverage_report.py
 |---|---|---|
 | 1 | 指纹口径缺口 | ✅ **已补**（2026-10-24）：`turn` / `hpLossCount` / `potionSlots` 三个都进了指纹；判据改成单向「新口径只能更细，不能更粗」（`SimStateFingerprintTest`） |
 | 2 | 药水战略成本 | ✅ **第一切片已做**（`mechanics-reference` §31）：三档成本 + 对账闸（喝药必须比不喝药基线多省 ≥ Σ成本）。⚠️ 档位映射只有 3 瓶有蓝本同形对应，其余 18 张按基准档，**映射表待你核对**；`SolverPotionPolicy` 档位与额度输入仍未做 |
-| 3 | 怪物镜像（M3.3，全量重写） | 🔨 **进行中，已 36 只**：`SphericGuardian` / `Cultist` / `GremlinWarrior` / `GremlinFat` / `SpikeSlime_S` / `Sentry` / `GremlinTsundere` / `JawWorm` / `AcidSlime_S` / `SpikeSlime_M` / `FungiBeast` / `SlaverBlue` / `LouseNormal` / `LouseDefensive` / `GremlinWizard` / `SlaverRed` / `Lagavulin`（精英）/ `GremlinNob`（精英）/ `AcidSlime_M` / `AcidSlime_L` / `SpikeSlime_L` / `SlimeBoss`（boss）/ `TheGuardian`（boss）/ `GremlinThief` / `Looter` / `ApologySlime` / `Byrd` / `Chosen` / `ShelledParasite` / `Centurion` / `Healer` / `Snecko` / `BookOfStabbing` / `Mugger` / `Taskmaster`（`mechanics-reference` §33）。框架支持多段 / 格挡 / 自身增益 / 玩家减益 / 进阶数值 / aiRng 消耗。施工表：`docs/research/monster-mirror-plan.md`。下一批卡点已列（§33.7）：队友格挡、塞状态牌、多回合睡眠状态机 |
+| 3 | 怪物镜像（M3.3，全量重写） | 🔨 **进行中，已 37 只**：`SphericGuardian` / `Cultist` / `GremlinWarrior` / `GremlinFat` / `SpikeSlime_S` / `Sentry` / `GremlinTsundere` / `JawWorm` / `AcidSlime_S` / `SpikeSlime_M` / `FungiBeast` / `SlaverBlue` / `LouseNormal` / `LouseDefensive` / `GremlinWizard` / `SlaverRed` / `Lagavulin`（精英）/ `GremlinNob`（精英）/ `AcidSlime_M` / `AcidSlime_L` / `SpikeSlime_L` / `SlimeBoss`（boss）/ `TheGuardian`（boss）/ `GremlinThief` / `Looter` / `ApologySlime` / `Byrd` / `Chosen` / `ShelledParasite` / `Centurion` / `Healer` / `Snecko` / `BookOfStabbing` / `Mugger` / `Taskmaster` / `BanditPointy`（`mechanics-reference` §33）。框架支持多段 / 格挡 / 自身增益 / 玩家减益 / 进阶数值 / aiRng 消耗。施工表：`docs/research/monster-mirror-plan.md`。下一批卡点已列（§33.7）：队友格挡、塞状态牌、多回合睡眠状态机 |
 | 4 | `BeamPortfolioSelector` | ⏳ **待你拍板**：它不是规则代码，是**训练出来的决策树 JSON**（32 特征 + 程序集 GUID 校验）。搬运行器没意义（没有模型文件）；要就得先建自对弈数据 + 训练管线。倾向先记 ⛔ |
 | 5 | 能力估值模型族（`PersistentBuffValue`） | ✅ **第一批已做**（`mechanics-reference` §32）：五维模型 + 7 个能力专门分支 + 默认档，已接进 Beam 排序。⚠️ 查证结果：`Combust` / `Metallicize` / `FireBreathing` / `Evolve` / `Brutality` 在蓝本**全库 0 命中**，只能走蓝本默认档。Retention 批 3/5 与前沿分桶仍缺其它维度 |
 | 6 | `CyclePlanning` | 🔜 **你已说「可搬」** → 按批推进：批 1 = 同回合内的动作周期检测（`CycleShapeKey` + 周期 ≤32）；批 2 = 周期退出探测（probe 预算）；批 3 = 周期族（family）状态机 |

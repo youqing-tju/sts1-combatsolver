@@ -1661,4 +1661,14 @@ class MonsterMovesTest {
         assertEquals(1, hard.selfBuffAmount);
         assertEquals(2, decide("Taskmaster", history(2, 2), 50, 0, 0).id, "每回合都是同一招");
     }
+
+    /** 尖头强盗：永远两段 5（A2: 6）。 */
+    @Test
+    void banditPointyAlwaysDoubleStabs() {
+        MonsterMove hit = decide("BanditPointy", history(), 50, 0, 0);
+        assertEquals(2, hit.hits);
+        assertEquals(5, hit.damage);
+        assertEquals(6, decide("BanditPointy", history(), 50, 0, 2).damage, "A2 起 6");
+        assertEquals(1, decide("BanditPointy", history(1, 1, 1), 50, 0, 0).id, "永远同一招");
+    }
 }
