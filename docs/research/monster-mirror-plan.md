@@ -92,3 +92,14 @@
 但**影子没有金币**：偷没偷到、偷几次才走，取决于玩家的金币余额 —— 那是战斗外的状态，
 `SimState` 里没有。所以要么补 `gold` 字段（捕获 `AbstractDungeon.player.gold`），
 要么明确不搬。倾向**补 gold**：它只有一个 int，捕获一行，而且顺带能让别的金币相关逻辑可用。
+
+## 补充：GremlinThief / Looter 的逃逸触发点在哪
+
+`GremlinThief.takeTurn` 只**读** `escapeNext`（下一招是 1 还是 99），
+真正**写**它的是 `AbstractMonster.escapeNext()`，而调用方不在这两个类里 ——
+字节码里能看到的是：`DamageAction` 带 `goldAmount` 字段、会读写
+`AbstractCreature.gold`（也就是「打人的同时偷钱」写在 `DamageAction` 里）。
+
+所以下一步要把 `DamageAction.update()` 里 `goldAmount > 0` 那段读全，
+确认它是否顺手调了 `source.escapeNext()`。**确认之前不动手**：
+逃逸时机搞错（早一回合/晚一回合）对搜索的影响比不搬大得多。

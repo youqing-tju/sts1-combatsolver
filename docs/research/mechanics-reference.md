@@ -2310,3 +2310,20 @@ if (!isDying && currentHealth <= maxHealth / 2 && nextMove != 3 && !splitTrigger
 
 验证 3 条（攻势循环与数值 / 防御循环与数值 / 阈值到点切姿态含 +20 格挡与 CloseUp 载荷），
 全量 **286 条**通过。
+
+### 33.21 镜像表体检（3 条测试）：类型名笔误 + 第一回合崩
+
+23 只怪的机器名全是手写的字符串 key。写错一个字母（`SphericGuardian` 打成
+`SphericGaurdian`）**不会报错**，那只怪只会静默退回 `IntentLearning` ——
+「以为镜像了其实没跑」，而且只有真机打起来才可能发现。
+
+`MonsterRegistryHealthTest` 三件事：
+
+1. 每个登记的类型名必须能在游戏 jar 里找到对应类（四个包依次试）。
+   🔴 必须 `Class.forName(name, false, cl)` —— **带初始化会炸**：
+   怪物类的静态块要读 `CardCrawlGame.languagePack`，测试环境里直接
+   `ExceptionInInitializerError`（踩过）。
+2. 每个机器在**空历史**下都要能出一招 —— 战斗第一回合就走这条路，抛异常等于进场即崩。
+3. `MonsterMoves.next` 对未登记类型必须抛 `IllegalArgumentException`（不静默回退）。
+
+全量 **290 条**通过。
