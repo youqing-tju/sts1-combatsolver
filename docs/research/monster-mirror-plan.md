@@ -109,3 +109,16 @@
 **还差三块**才敢动手：
 ① 分支 1 到底干什么；② `damage()` 重写里 Divide 的触发与生成参数（6 个 `HexaghostOrb` + `HexaghostBody`）；
 ③ `burnUpgraded` 怎么翻（Sear 塞的 Burn 什么时候变 Burn+）。
+
+## 🔴 Hexaghost 的假设被推翻：它**没有** damage()/die() 重写
+
+上一轮我写「半血后 Divide 会分裂成 6 个 orb」——读完发现 `Hexaghost` 类里
+**既没有 `damage()` 也没有 `die()` 重写**，`update()` 只是转发给 `HexaghostBody/orb` 的 update。
+6 个 orb 是 `usePreBattleAction → createOrbs()` **开场就造好的**（不是半血才分裂）。
+
+所以「phase 2」这件事在我脑子里的模型是错的，得重新查：
+- orb 是什么（是不是独立可击杀单位、有没有血）；
+- `changeState` 里 `orbActiveCount = 6 / += 1 / = 0` 三处分别属于哪个状态；
+- `burnUpgraded` 在哪翻。
+
+**未查清之前不写 Hexaghost** —— 但它已经不影响 Act 1 的覆盖率了（其余 26 只都搬完了）。

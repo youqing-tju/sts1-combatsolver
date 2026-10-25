@@ -1118,4 +1118,27 @@ class MonsterMovesTest {
         assertTrue(moves.contains(Integer.valueOf(1)), "可能直接打 3");
         assertTrue(moves.contains(Integer.valueOf(2)), "可能上 Weak");
     }
+
+    // ============================ 第十二批：第二章 · SnakePlant ============================
+
+    /** 蛇草：连咬两下就上减益；最近上过减益就咬。 */
+    @Test
+    void snakePlantBitesThreeTimesOrDebuffs() {
+        MonsterMove chomp = decide("SnakePlant", history(), 10, 0, 0);
+        assertEquals(1, chomp.id);
+        assertEquals(3, chomp.hits, "3 段");
+        assertEquals(7, chomp.damage);
+        assertEquals(8, decide("SnakePlant", history(), 10, 0, 2).damage, "A2 起 8");
+
+        assertEquals(2, decide("SnakePlant", history(1, 1), 10, 0, 0).id, "连咬两下 → 减益");
+        MonsterMove debuff = decide("SnakePlant", history(1, 1), 10, 0, 0);
+        assertEquals("Frail", debuff.playerDebuff);
+        assertEquals(2, debuff.playerDebuffAmount);
+        assertEquals("Weakened", debuff.playerDebuff2);
+
+        assertEquals(1, decide("SnakePlant", history(2), 90, 0, 0).id, "刚上过减益 → 咬");
+        assertEquals(2, decide("SnakePlant", history(1), 90, 0, 0).id, "没上过 → 减益");
+        // A17+：最近两招里有 2 就咬
+        assertEquals(1, decide("SnakePlant", history(1, 2, 1), 90, 0, 17).id);
+    }
 }

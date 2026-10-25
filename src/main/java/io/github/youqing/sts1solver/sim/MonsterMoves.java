@@ -125,6 +125,7 @@ public final class MonsterMoves {
         MACHINES.put("GremlinThief", new GremlinThiefMachine());
         MACHINES.put("Looter", new LooterMachine());
         MACHINES.put("ApologySlime", new ApologySlimeMachine());
+        MACHINES.put("SnakePlant", new SnakePlantMachine());
         MACHINES.put("AcidSlime_L", new AcidSlimeLMachine());
         MACHINES.put("SpikeSlime_L", new SpikeSlimeLMachine());
         MACHINES.put("SlimeBoss", new SlimeBossMachine());
@@ -1088,6 +1089,34 @@ public final class MonsterMoves {
             return c.randomBoolean()
                     ? MonsterMove.attack(1, 3)
                     : MonsterMove.attackDebuff(2, 0, "Weakened", 1);
+        }
+    }
+
+    /**
+     * 蛇草（SnakePlant）—— 第二章。
+     *
+     * <pre>
+     * getMove:  A17+: num&lt;65 → 连续两招 1 ? 2(Enfeebled) : 1(Chomp)
+     *                 否则    → 最近两招里有 2 ? 1 : 2
+     *           其余:  num&lt;65 → 连续两招 1 ? 2 : 1
+     *                 否则    → lastMove(2) ? 1 : 2
+     * takeTurn: 1(Chomp) → **3 段** rainBlowsDmg；2(Enfeebled) → 玩家 Frail 2 + Weak 2
+     * 常数:     rainBlows 7（A2: 8）、HP 75-79（A7: 78-82）
+     * </pre>
+     */
+    static final class SnakePlantMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int dmg = c.baseDamage(0, c.ascension >= 2 ? 8 : 7);
+            MonsterMove chomp = MonsterMove.multiAttack(1, dmg, 3);
+            MonsterMove enfeebled = MonsterMove.doubleDebuff(2, "Frail", 2, "Weakened", 2);
+            if (c.num < 65) {
+                return c.lastTwoMoves(1) ? enfeebled : chomp;
+            }
+            boolean sawDebuff = c.ascension >= 17
+                    ? (c.lastMove(2) || c.lastMoveBefore(2))
+                    : c.lastMove(2);
+            return sawDebuff ? chomp : enfeebled;
         }
     }
 }
