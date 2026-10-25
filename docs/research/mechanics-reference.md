@@ -2200,3 +2200,51 @@ takeTurn: 1 → 一段 spit + 塞 1 张 Slimed；2 → 一段 tackle；4 → 玩
 
 验证 3 条（Nob 招序 + 数值、Enrage 只认技能牌、中史莱姆三档 num 含随机二选一），
 全量 **277 条**通过。
+
+### 33.18 第八批：分裂（Split）—— 大史莱姆 ×2 + 「中途加怪」基础设施（2026-10-25）
+
+这是**第一条「怪物能生出怪物」的机制**，之前影子完全没有。
+
+#### 触发（`damage()` 重写）
+
+```java
+// AcidSlime_L.damage / SpikeSlime_L.damage
+super.damage(info);
+if (!isDying && currentHealth <= maxHealth / 2 && nextMove != 3 && !splitTriggered) {
+    setMove(SPLIT_NAME, (byte) 3, Intent.UNKNOWN);
+    splitTriggered = true;
+}
+```
+
+落在 `DamageCalc.hit`（与 Lagavulin 挨打即醒同一个咽喉）的 `maybeQueueSplit`：
+判据「hp 真的变了 + `hp*2 <= maxHp` + 当前排的不是 3」。
+
+#### 执行（`takeTurn` 的 3 号分支）
+
+原版：`CannotLoseAction` + `HideHealthBarAction` + `SuicideAction(this, false)` +
+两条 `SpawnMonsterAction(new AcidSlime_M(x, y, 0, this.currentHealth), false)`。
+
+我们 `CombatFlow.split` 逐条对：
+
+| 原版 | 我们 |
+|---|---|
+| 小怪血量 = 构造器的第 4 个参数 = **父体分裂那一刻的 currentHealth** | `childHp = parent.hp`（**不减半**） |
+| `SuicideAction`：父体消失、不算击杀 | `parent.hp = 0` |
+| 每只小怪 `init() → getMove(aiRng.random(99))` | `MonsterMoves.next(...)`（各消耗一次 aiRng） |
+| 新怪插进 `MonsterGroup` | `state.monsters.add(child)` |
+
+🔴 **一个必须记住的坑**：`endTurn` 的怪物循环原来按 `state.monsters.size()` 遍历，
+分裂出来的小怪会**当回合就行动**（原版它们要等下一轮）。现在先快照
+`actingCount = state.monsters.size()`，只让开局就在场的怪动；父体自杀后也不再给它
+`rollNextMove`。
+
+#### 两只怪
+
+| 怪物 | 决策 | 招式 |
+|---|---|---|
+| `AcidSlime_L` | 三档 num（30/70 或 40/80）+ 随机（0.6 / 0.4） | 喷吐 11（A2: 12）+ **2 张** Slimed；撞击 16（A2: 18）；Lick = Weak 2 |
+| `SpikeSlime_L` | `num<30` 打、否则舔 | 撞击 16（A2: 18）+ 1 张 Slimed；Lick = Frail 2（A17: 3） |
+
+验证 4 条：大酸液喷两张 Slimed + 数值、半血排队（一半以上不排 / 正好半血排 / 不重复排）、
+分裂落地（父体归零 / 两只小怪血 = 父体当时血量 / 出生就有招 / 那回合不打人）、
+大刺史莱姆的招式与数值。全量 **281 条**通过。

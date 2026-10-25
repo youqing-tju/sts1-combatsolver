@@ -44,6 +44,14 @@ public final class MonsterMove {
     /** 往玩家弃牌堆塞的状态牌 ID（Sentry 的 Dazed）；{@code null} = 不塞。 */
     public final String statusCard;
     public final int statusCount;
+    /**
+     * 分裂：生成几只什么怪（大史莱姆的 SPLIT）；{@code null} = 不分裂。
+     *
+     * <p>分裂完原怪自己消失（{@code SuicideAction}）—— 这条由 {@code CombatFlow} 处理，
+     * 不是「伤害」也不是「死亡」，所以不算击杀、不结算掉落。
+     */
+    public final String splitInto;
+    public final int splitCount;
 
     public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
                        String selfBuff, int selfBuffAmount,
@@ -58,6 +66,17 @@ public final class MonsterMove {
                        String playerDebuff, int playerDebuffAmount,
                        String playerDebuff2, int playerDebuff2Amount,
                        String statusCard, int statusCount) {
+        this(id, damage, hits, block, blockRandomAlly, selfBuff, selfBuffAmount,
+                playerDebuff, playerDebuffAmount, playerDebuff2, playerDebuff2Amount,
+                statusCard, statusCount, null, 0);
+    }
+
+    public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
+                       String selfBuff, int selfBuffAmount,
+                       String playerDebuff, int playerDebuffAmount,
+                       String playerDebuff2, int playerDebuff2Amount,
+                       String statusCard, int statusCount,
+                       String splitInto, int splitCount) {
         this.id = id;
         this.damage = Math.max(0, damage);
         this.hits = Math.max(0, hits);
@@ -71,6 +90,8 @@ public final class MonsterMove {
         this.playerDebuff2Amount = Math.max(0, playerDebuff2Amount);
         this.statusCard = statusCard;
         this.statusCount = Math.max(0, statusCount);
+        this.splitInto = splitInto;
+        this.splitCount = Math.max(0, splitCount);
     }
 
     public boolean attacks() {
@@ -129,6 +150,12 @@ public final class MonsterMove {
         return new MonsterMove(id, damage, 1, 0, 0, null, 0, null, 0, card, count);
     }
 
+    /** 分裂成 {@code count} 只 {@code childType}（大史莱姆的 SPLIT）。 */
+    public static MonsterMove split(int id, String childType, int count) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0,
+                null, 0, null, 0, childType, count);
+    }
+
     /** 往玩家弃牌堆塞状态牌（Sentry 的 Dazed）。 */
     public static MonsterMove status(int id, String card, int count) {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, card, count);
@@ -141,6 +168,7 @@ public final class MonsterMove {
                 + (selfBuff == null ? "" : ", self " + selfBuff + "+" + selfBuffAmount)
                 + (playerDebuff == null ? "" : ", " + playerDebuff + "+" + playerDebuffAmount)
                 + (playerDebuff2 == null ? "" : ", " + playerDebuff2 + "+" + playerDebuff2Amount)
-                + (statusCard == null ? "" : ", discard+=" + statusCard + "x" + statusCount) + "}";
+                + (statusCard == null ? "" : ", discard+=" + statusCard + "x" + statusCount)
+                + (splitInto == null ? "" : ", split=" + splitInto + "x" + splitCount) + "}";
     }
 }

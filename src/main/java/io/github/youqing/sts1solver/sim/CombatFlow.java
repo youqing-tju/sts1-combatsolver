@@ -65,13 +65,18 @@ public final class CombatFlow {
         // 原版就是这个次序（takeTurn 里把 RollMoveAction 排在末尾），所以 aiRng 的消耗次序
         // 也与我们一致；Tsundere 这种「出招时还要抽一次随机队友」的怪才不会错位。
         int nextTurn = state.turn + 1;
-        for (int slot = 0; slot < state.monsters.size(); slot++) {
+        // 只让**这一轮开始时就在场**的怪行动：分裂出来的小史莱姆要到下一轮才动
+        // （原版是它们被 SpawnMonsterAction 插进队列、这轮排在后面，实际上等下一轮）。
+        int actingCount = state.monsters.size();
+        for (int slot = 0; slot < actingCount; slot++) {
             SimMonster m = state.monsters.get(slot);
             if (m.hp <= 0) {
                 continue;
             }
-            takeTurn(state, m);
-            rollNextMove(state, m, slot, nextTurn);
+            takeTurn(state, m, nextTurn);
+            if (m.hp > 0) {
+                rollNextMove(state, m, slot, nextTurn);
+            }
         }
 
         // ④.5 怪物自己的回合末能力（原版 atEndOfTurnPreEndTurnCards / atEndOfRound）
@@ -137,8 +142,12 @@ public final class CombatFlow {
     }
 
     /** 结算一只怪这一招的全部载荷（原版 {@code takeTurn()} 排进 action 队列的那些动作）。 */
-    private static void takeTurn(SimState state, SimMonster m) {
+    private static void takeTurn(SimState state, SimMonster m, int nextTurn) {
         MonsterMove move = m.pendingMove;
+        if (move != null && move.splitInto != null && move.splitCount > 0) {
+            split(state, m, move, nextTurn);
+            return;
+        }
         if (move == null) {
             // 未镜像的怪：沿用「意图伤害」单段结算（老路径，行为不变）
             if (m.intentDmg > 0) {
@@ -193,6 +202,36 @@ public final class CombatFlow {
                 state.discard.add(new SimCard(move.statusCard, false, -2, -1, "STATUS"));
             }
         }
+    }
+
+    /**
+     * 分裂（大史莱姆的 SPLIT）：生成 N 只小怪，原怪自己消失。
+     *
+     * <p>原版 {@code takeTurn} 的 3 号分支是 `CannotLoseAction` + `SuicideAction(this, false)`
+     * + 两条 `SpawnMonsterAction(new AcidSlime_M(x, y, 0, this.currentHealth), false)`。
+     * 所以：
+     * <ul>
+     *   <li>小怪的血量 = **父体分裂那一刻的血量**（不是固定值、也不是减半）；</li>
+     *   <li>原怪是「自杀」不是「被打死」—— 不给击杀计数、不结算掉落，
+     *       我们只把 hp 置 0（搜索的胜利判定是「全部 hp ≤ 0」，够用）；</li>
+     *   <li>每只小怪要掷一次 aiRng：原版 {@code AbstractMonster.<init>} 末尾会走
+     *       {@code init() → getMove(aiRng.random(99))}，这里用 {@link MonsterMoves#next} 等价复刻。</li>
+     * </ul>
+     */
+    private static void split(SimState state, SimMonster parent, MonsterMove move, int nextTurn) {
+        int childHp = Math.max(1, parent.hp);
+        for (int i = 0; i < move.splitCount; i++) {
+            SimMonster child = new SimMonster(move.splitInto, childHp, childHp, 0,
+                    java.util.Collections.<String, Integer>emptyMap());
+            state.monsters.add(child);
+            if (MonsterMoves.supported(child.type)) {
+                int slot = state.monsters.size() - 1;
+                MonsterMove first = MonsterMoves.next(state, child, nextTurn, slot);
+                child.pendingMove = first;
+                child.pendingMoveId = first.id;
+            }
+        }
+        parent.hp = 0;
     }
 
     /** 原版 {@code RollMoveAction}：把打过的招记进历史，再决策下一招（没镜像的走观测表）。 */

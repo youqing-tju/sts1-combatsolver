@@ -812,4 +812,96 @@ class MonsterMovesTest {
         assertTrue(afterTackle.contains(Integer.valueOf(1)), "可能喷吐");
         assertTrue(afterTackle.contains(Integer.valueOf(4)), "可能舔");
     }
+
+    // ============================ 第七批：大史莱姆的分裂 ============================
+
+    /** 大酸液史莱姆：三档 num（30/70 或 40/80），喷吐塞 **2 张** Slimed，Lick 是 Weak 2。 */
+    @Test
+    void largeAcidSlimeThrowsTwoSlimed() {
+        MonsterMove spit = decide("AcidSlime_L", history(), 10, 0, 0);
+        assertEquals(1, spit.id);
+        assertEquals(11, spit.damage);
+        assertEquals("Slimed", spit.statusCard);
+        assertEquals(2, spit.statusCount, "大史莱姆喷两张");
+        assertEquals(12, decide("AcidSlime_L", history(), 10, 0, 2).damage, "A2 起 12");
+
+        assertEquals(2, decide("AcidSlime_L", history(), 50, 0, 0).id, "30..69 → Tackle");
+        assertEquals(16, decide("AcidSlime_L", history(), 50, 0, 0).damage);
+        assertEquals(18, decide("AcidSlime_L", history(), 50, 0, 2).damage, "A2 起 18");
+
+        MonsterMove lick = decide("AcidSlime_L", history(), 90, 0, 0);
+        assertEquals(4, lick.id);
+        assertEquals("Weakened", lick.playerDebuff);
+        assertEquals(2, lick.playerDebuffAmount, "Lick 是 Weak 2");
+    }
+
+    /** 半血挨打 → 下一招变成 SPLIT（3），并且不会重复排队。 */
+    @Test
+    void largeSlimeQueuesSplitAtHalfHp() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        SimMonster slime = new SimMonster("AcidSlime_L", 66, 66, 0, NO_POWERS);
+        slime.pendingMove = MonsterMove.attack(1, 11);
+        slime.pendingMoveId = 1;
+        s.monsters.add(slime);
+
+        DamageCalc.hit(s, slime, 5);
+        assertEquals(61, slime.hp);
+        assertEquals(1, slime.pendingMove.id, "还在一半以上，不分裂");
+
+        DamageCalc.hit(s, slime, 28);
+        assertEquals(33, slime.hp, "正好半血（66/2）");
+        assertEquals(3, slime.pendingMove.id, "半血 → 下一招是 SPLIT");
+        assertEquals("AcidSlime_M", slime.pendingMove.splitInto);
+        assertEquals(2, slime.pendingMove.splitCount);
+
+        DamageCalc.hit(s, slime, 1);
+        assertEquals(3, slime.pendingMove.id, "已经排了 SPLIT，不重复排");
+    }
+
+    /** 分裂真的发生：父体消失、两只小史莱姆血量 = 父体**分裂那一刻**的血量、下一轮才行动。 */
+    @Test
+    void splitSpawnsTwoChildrenWithParentsHp() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        SimMonster slime = new SimMonster("AcidSlime_L", 66, 66, 0, NO_POWERS);
+        slime.hp = 30;
+        slime.pendingMove = MonsterMove.split(3, "AcidSlime_M", 2);
+        slime.pendingMoveId = 3;
+        s.monsters.add(slime);
+
+        int hpBefore = s.hp;
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(0, slime.hp, "父体自杀");
+        assertEquals(3, s.monsters.size(), "多出两只");
+        SimMonster first = s.monsters.get(1);
+        SimMonster second = s.monsters.get(2);
+        assertEquals("AcidSlime_M", first.type);
+        assertEquals(30, first.hp, "小怪血量 = 父体分裂时的血量（不是减半）");
+        assertEquals(30, second.hp);
+        assertNotNull(first.pendingMove, "小怪一出生就有招");
+        assertEquals(hpBefore, s.hp, "分裂那回合不打人");
+    }
+
+    /** 大刺史莱姆：num<30 打，否则舔；舔是 Frail 2（A17: 3）。 */
+    @Test
+    void largeSpikeSlimeTacklesOrLicks() {
+        MonsterMove bite = decide("SpikeSlime_L", history(), 10, 0, 0);
+        assertEquals(1, bite.id);
+        assertEquals(16, bite.damage);
+        assertEquals("Slimed", bite.statusCard);
+        assertEquals(1, bite.statusCount, "大刺史莱姆只塞 1 张");
+        assertEquals(18, decide("SpikeSlime_L", history(), 10, 0, 2).damage, "A2 起 18");
+
+        MonsterMove lick = decide("SpikeSlime_L", history(), 90, 0, 0);
+        assertEquals(4, lick.id);
+        assertEquals("Frail", lick.playerDebuff);
+        assertEquals(2, lick.playerDebuffAmount);
+        assertEquals(3, decide("SpikeSlime_L", history(), 90, 0, 17).playerDebuffAmount, "A17 起 3");
+
+        assertEquals(4, decide("SpikeSlime_L", history(1, 1), 10, 0, 0).id, "连着两下 → 舔");
+    }
 }

@@ -102,8 +102,32 @@ public final class DamageCalc {
         // 这是它作为精英的核心机制（睡着的 3 回合是可以白打的窗口，一旦动手就换它先手）。
         if (target.hp != hpBefore) {
             wakeSleepingLagavulin(target);
+            maybeQueueSplit(target);
         }
         applyThorns(state, target);
+    }
+
+    /**
+     * 大史莱姆半血分裂（{@code AcidSlime_L.damage} / {@code SpikeSlime_L.damage} 的重写）。
+     *
+     * <p>原版判据四条：{@code !isDying && currentHealth <= maxHealth/2
+     * && nextMove != 3 && !splitTriggered}，满足就把下一招改成 3(SPLIT)。
+     * 「还没分裂过」用「当前排的不是 3」等价（改过之后就不会再触发）。
+     */
+    private static void maybeQueueSplit(SimMonster target) {
+        if (target.hp <= 0 || target.hp * 2 > target.maxHp) {
+            return;
+        }
+        if (target.pendingMove != null && target.pendingMove.id == 3) {
+            return;
+        }
+        io.github.youqing.sts1solver.sim.MonsterMove split =
+                io.github.youqing.sts1solver.sim.MonsterMoves.splitMove(target.type);
+        if (split == null) {
+            return;
+        }
+        target.pendingMove = split;
+        target.pendingMoveId = 3;
     }
 
     /**

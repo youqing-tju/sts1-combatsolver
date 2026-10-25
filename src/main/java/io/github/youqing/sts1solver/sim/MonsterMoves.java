@@ -122,6 +122,8 @@ public final class MonsterMoves {
         MACHINES.put("JawWorm", new JawWormMachine());
         MACHINES.put("AcidSlime_S", new AcidSlimeMachine());
         MACHINES.put("AcidSlime_M", new AcidSlimeMMachine());
+        MACHINES.put("AcidSlime_L", new AcidSlimeLMachine());
+        MACHINES.put("SpikeSlime_L", new SpikeSlimeLMachine());
         MACHINES.put("SpikeSlime_M", new SpikeSlimeMMachine());
         MACHINES.put("FungiBeast", new FungiBeastMachine());
         MACHINES.put("SlaverBlue", new SlaverBlueMachine());
@@ -134,6 +136,22 @@ public final class MonsterMoves {
     }
 
     private MonsterMoves() {
+    }
+
+    /**
+     * 半血分裂的那一招（原版大史莱姆 {@code damage()} 重写里塞进来的 3(SPLIT)）。
+     *
+     * <p>判据在 {@code DamageCalc.hit}：血量真的变了 + 当前 ≤ 一半 + 本回合排的不是 3。
+     * 返回 {@code null} 表示这只怪不分裂。
+     */
+    public static MonsterMove splitMove(String type) {
+        if ("AcidSlime_L".equals(type)) {
+            return MonsterMove.split(3, "AcidSlime_M", 2);
+        }
+        if ("SpikeSlime_L".equals(type)) {
+            return MonsterMove.split(3, "SpikeSlime_M", 2);
+        }
+        return null;
     }
 
     /** 取某只怪的机器（测试用来逐分支钉住；运行期走 {@link #next}）。 */
@@ -734,6 +752,81 @@ public final class MonsterMoves {
                 return c.randomBoolean(0.4f) ? spitMove : tackleMove;
             }
             return lick;
+        }
+    }
+
+    /**
+     * 大酸液史莱姆（AcidSlime_L）。
+     *
+     * <pre>
+     * getMove:  A17+: num&lt;40 → 连续两招 1 ? (randBool(0.6) ? 2 : 4) : 1
+     *                 num&lt;70 → 连续两招 2 ? (randBool(0.6) ? 1 : 4) : 2
+     *                 否则    → lastMove(4) ? (randBool(0.4) ? 1 : 2) : 4
+     *           其余:  num&lt;30 → 连续两招 1 ? (randBool() ? 2 : 4) : 1
+     *                 num&lt;70 → lastMove(2) ? (randBool(0.4) ? 1 : 4) : 2
+     *                 否则    → 连续两招 4 ? (randBool(0.4) ? 1 : 2) : 4
+     * takeTurn: 1(Corrosive Spit) → 一段 dmg[0] + **2 张 Slimed**；
+     *           2(Tackle) → 一段 dmg[1]；4(Lick) → 玩家 Weak 2
+     * 常数:     spit 11 (A2: 12)、tackle 16 (A2: 18)、HP 65-69 (A7: 68-72)
+     * </pre>
+     *
+     * <p>3(SPLIT) 不在 getMove 里 —— 它由 {@code damage()} 重写在半血时塞进来
+     * （见 {@link #splitMove(String)} 与 {@code DamageCalc.hit}）。
+     */
+    static final class AcidSlimeLMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int spit = c.baseDamage(0, c.ascension >= 2 ? 12 : 11);
+            int tackle = c.baseDamage(1, c.ascension >= 2 ? 18 : 16);
+            MonsterMove spitMove = MonsterMove.attackStatus(1, spit, "Slimed", 2);
+            MonsterMove tackleMove = MonsterMove.attack(2, tackle);
+            MonsterMove lick = MonsterMove.attackDebuff(4, 0, "Weakened", 2);
+            boolean a17 = c.ascension >= 17;
+            if (c.num < (a17 ? 40 : 30)) {
+                if (c.lastTwoMoves(1)) {
+                    return c.randomBoolean(a17 ? 0.6f : 0.5f) ? tackleMove : lick;
+                }
+                return spitMove;
+            }
+            if (c.num < 70) {
+                if (a17 ? c.lastTwoMoves(2) : c.lastMove(2)) {
+                    return c.randomBoolean(a17 ? 0.6f : 0.4f) ? spitMove : lick;
+                }
+                return tackleMove;
+            }
+            boolean repeatedLick = a17 ? c.lastMove(4) : c.lastTwoMoves(4);
+            if (repeatedLick) {
+                return c.randomBoolean(0.4f) ? spitMove : tackleMove;
+            }
+            return lick;
+        }
+    }
+
+    /**
+     * 大刺史莱姆（SpikeSlime_L）。
+     *
+     * <pre>
+     * getMove:  A17+: num&lt;30 → 连续两招 1 ? 4(Lick) : 1(Tackle)
+     *                 否则    → lastMove(4) ? 1 : 4
+     *           其余:  num&lt;30 → 连续两招 1 ? 4 : 1
+     *                 否则    → 连续两招 4 ? 1 : 4
+     * takeTurn: 1(Tackle) → 一段 dmg + 1 张 Slimed；4(Lick) → 玩家 Frail 2（A17: 3）
+     * 常数:     tackle 16 (A2: 18)、HP 64-70 (A7: 67-73)
+     * </pre>
+     *
+     * <p>3(SPLIT) 同样来自 {@code damage()} 重写，不在 getMove 里。
+     */
+    static final class SpikeSlimeLMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int tackle = c.baseDamage(0, c.ascension >= 2 ? 18 : 16);
+            MonsterMove lick = MonsterMove.attackDebuff(4, 0, "Frail", c.ascension >= 17 ? 3 : 2);
+            MonsterMove bite = MonsterMove.attackStatus(1, tackle, "Slimed", 1);
+            if (c.num < 30) {
+                return c.lastTwoMoves(1) ? lick : bite;
+            }
+            boolean repeatedLick = c.ascension >= 17 ? c.lastMove(4) : c.lastTwoMoves(4);
+            return repeatedLick ? bite : lick;
         }
     }
 }
