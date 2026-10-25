@@ -30,6 +30,7 @@
 | `AcidSlime_L` | 1 | 半血**分裂**成两只中酸液（小怪血 = 父体当时血量）；喷吐塞 2 张 Slimed |
 | `SpikeSlime_L` | 1 | 半血分裂成两只中刺史莱姆；Lick = Frail 2（A17: 3） |
 | `SlimeBoss` | 1（boss） | Goop（塞 Slimed 3/A19:5）→ Preparing → Slam 35/A4:38 循环；半血分裂成**一刺一酸**两只大史莱姆 |
+| `TheGuardian` | 1（boss） | 攻/防双循环 + 伤害阈值切姿态；Sharp Hide = 打攻击牌就掉血 |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 

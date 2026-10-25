@@ -2269,3 +2269,44 @@ if (!isDying && currentHealth <= maxHealth / 2 && nextMove != 3 && !splitTrigger
 
 验证 2 条：招序循环 + Slimed 张数 + A4/A19 数值；半血分裂（排队 / 父体归零 /
 先刺后酸 / 两只各 69 血）。全量 **283 条**通过。
+
+### 33.20 守卫者（TheGuardian）—— 姿态状态机不靠额外状态槽（2026-10-25）
+
+上一轮判断它「需要每只怪自定义状态槽」，**这轮推翻了**：那两个字段在能力表里都有对应物。
+
+| 原版字段 | 影子里的等价物 |
+|---|---|
+| `dmgTaken` | `Mode Shift` 能力的 amount（初值 = `dmgThreshold`，与 `dmgTaken` 同步递减） |
+| `isOpen` | 「身上有没有 `Mode Shift`」—— 进防御时 `RemoveSpecificPowerAction(Mode Shift)` |
+| `dmgThreshold` | 基础 30（A9: 35 / A19: 40）+ 10 × 历史里 CloseUp 出现的次数 |
+| `closeUpTriggered` | 冗余：`damage()` 要求 `isOpen`，切姿态那一刻 `isOpen` 就变假了 |
+
+**两个循环**（每招末尾自己 `SetMove`，`getMove` 只在兜底时用到）：
+
+```
+攻势：ChargeUp(6, +9 格挡) → FierceBash(2, 32/A4:36) → VentSteam(7, Weak2+Vuln2)
+      → Whirlwind(5, 5×4) → ChargeUp(6) → …
+防御：CloseUp(1, +19 格挡 + Sharp Hide 3) → RollAttack(3, 9/A4:10)
+      → TwinSmash(4, 8×2，**移除 Sharp Hide、回攻势**) → Whirlwind(5) → …
+```
+
+切姿态（`damage()` 重写）：`Mode Shift.amount` 被伤害扣到 ≤ 0 →
+移除该能力、立即 `+20` 格挡（`DEFENSIVE_BLOCK`）、下一招改 `CloseUp`。
+落在 `DamageCalc.hit` 的 `maybeShiftGuardian`。
+
+### 新的能力机制：Sharp Hide
+
+`SharpHidePower.onUseCard`：玩家**每打出一张攻击牌**就掉 `amount` 点血
+（`DamageInfo` 类型 `THORNS`，走格挡）。⚠️ 触发点是「你出手」不是「它被打」——
+跟荆棘 `ThornsPower` 完全不同，别混。已挂在 `Hooks.onCardUsed` 的怪物侧。
+
+### ⚠️ 一处推断（未在字节码里直接看到）
+
+「回攻势时**重挂** `Mode Shift`」是推断：`usePreBattleAction` 会
+`ChangeState("Reset Threshold")` 来开局挂能力，而 `useTwinSmash` 切回 `Offensive Mode`
+的分支里没直接看到 `ApplyPowerAction`。不重挂的话第二次姿态切换永远不会发生，
+与游戏行为不符，所以按「重挂、阈值 +10」实现。**下次读 `changeState("Reset Threshold")`
+分支时核实这一条。**
+
+验证 3 条（攻势循环与数值 / 防御循环与数值 / 阈值到点切姿态含 +20 格挡与 CloseUp 载荷），
+全量 **286 条**通过。

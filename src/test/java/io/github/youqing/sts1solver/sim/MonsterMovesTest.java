@@ -953,4 +953,81 @@ class MonsterMovesTest {
         assertEquals(69, s.monsters.get(1).hp, "血量 = 父体分裂时的血量");
         assertEquals(69, s.monsters.get(2).hp);
     }
+
+    // ============================ 第十批：TheGuardian（第一章 boss） ============================
+
+    /** 攻势循环：ChargeUp → FierceBash → VentSteam → Whirlwind → ChargeUp。 */
+    @Test
+    void guardianOffensiveLoop() {
+        MonsterMove charge = decide("TheGuardian", history(), 50, 0, 0);
+        assertEquals(6, charge.id, "首招 Charge Up");
+        assertEquals(9, charge.block, "自己 +9 格挡");
+
+        assertEquals(2, decide("TheGuardian", history(6), 50, 0, 0).id, "蓄力完 Fierce Bash");
+        assertEquals(32, decide("TheGuardian", history(6), 50, 0, 0).damage);
+        assertEquals(36, decide("TheGuardian", history(6), 50, 0, 4).damage, "A4 起 36");
+
+        MonsterMove vent = decide("TheGuardian", history(6, 2), 50, 0, 0);
+        assertEquals(7, vent.id, "Bash 完喷蒸汽");
+        assertEquals("Weakened", vent.playerDebuff);
+        assertEquals(2, vent.playerDebuffAmount);
+        assertEquals("Vulnerable", vent.playerDebuff2, "同时上易伤");
+
+        MonsterMove whirl = decide("TheGuardian", history(6, 2, 7), 50, 0, 0);
+        assertEquals(5, whirl.id, "蒸汽完旋风");
+        assertEquals(4, whirl.hits, "旋风 4 段");
+        assertEquals(5, whirl.damage, "每段 5");
+
+        assertEquals(6, decide("TheGuardian", history(6, 2, 7, 5), 50, 0, 0).id, "旋风完回蓄力");
+    }
+
+    /** 防御循环：CloseUp → RollAttack → TwinSmash → Whirlwind。 */
+    @Test
+    void guardianDefensiveLoop() {
+        // 兜底：历史里没有可识别的招时按 getMove 走 —— 没有 Mode Shift = 防御姿态 → 3
+        SimState bare = new SimState();
+        bare.rng.put(SimState.RngKind.AI, RngStream.from(11L, 22L, 0));
+        SimMonster guardian = new SimMonster("TheGuardian", 240, 240, 0, NO_POWERS);
+        guardian.moveHistory.add(Integer.valueOf(9));
+        assertEquals(3, MonsterMoves.machineFor("TheGuardian")
+                .next(new MonsterMoves.Context(bare, guardian, guardian.moveHistory, 1, 0, 50, 0)).id,
+                "没有 Mode Shift → 防御姿态兜底 Roll Attack");
+
+        MonsterMove roll = decide("TheGuardian", history(1), 50, 0, 0);
+        assertEquals(3, roll.id, "CloseUp 完 Roll Attack");
+        assertEquals(9, roll.damage);
+        assertEquals(10, decide("TheGuardian", history(1), 50, 0, 4).damage, "A4 起 10");
+
+        MonsterMove twin = decide("TheGuardian", history(1, 3), 50, 0, 0);
+        assertEquals(4, twin.id, "Roll 完 Twin Smash");
+        assertEquals(2, twin.hits);
+        assertEquals(8, twin.damage);
+
+        assertEquals(5, decide("TheGuardian", history(1, 3, 4), 50, 0, 0).id, "Twin 完旋风");
+    }
+
+    /** 伤害累计到阈值 → 切防御姿态：加 20 格挡、下一招变 CloseUp（19 格挡 + Sharp Hide 3）。 */
+    @Test
+    void guardianShiftsToDefensiveAtThreshold() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        SimMonster guardian = new SimMonster("TheGuardian", 240, 240, 0, NO_POWERS);
+        guardian.powers.put("Mode Shift", Integer.valueOf(30));
+        guardian.pendingMove = MonsterMove.attack(2, 32);
+        guardian.pendingMoveId = 2;
+        s.monsters.add(guardian);
+
+        DamageCalc.hit(s, guardian, 20);
+        assertEquals(Integer.valueOf(10), guardian.powers.get("Mode Shift"), "还差 10 点");
+        assertEquals(2, guardian.pendingMove.id, "还没切姿态");
+
+        DamageCalc.hit(s, guardian, 15);
+        assertNull(guardian.powers.get("Mode Shift"), "切防御后移除 Mode Shift");
+        assertEquals(20, guardian.block, "切姿态立即 +20 格挡");
+        assertEquals(1, guardian.pendingMove.id, "下一招变 Close Up");
+        assertEquals(19, guardian.pendingMove.block);
+        assertEquals("Sharp Hide", guardian.pendingMove.selfBuff);
+        assertEquals(3, guardian.pendingMove.selfBuffAmount);
+    }
 }

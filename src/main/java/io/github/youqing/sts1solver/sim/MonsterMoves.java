@@ -125,6 +125,7 @@ public final class MonsterMoves {
         MACHINES.put("AcidSlime_L", new AcidSlimeLMachine());
         MACHINES.put("SpikeSlime_L", new SpikeSlimeLMachine());
         MACHINES.put("SlimeBoss", new SlimeBossMachine());
+        MACHINES.put("TheGuardian", new TheGuardianMachine());
         MACHINES.put("SpikeSlime_M", new SpikeSlimeMMachine());
         MACHINES.put("FungiBeast", new FungiBeastMachine());
         MACHINES.put("SlaverBlue", new SlaverBlueMachine());
@@ -157,6 +158,58 @@ public final class MonsterMoves {
             return MonsterMove.splitTwo(3, "SpikeSlime_L", 1, "AcidSlime_L", 1);
         }
         return null;
+    }
+
+    /**
+     * 守卫者（TheGuardian）的「姿态切换」：伤害累计到阈值时进入防御姿态。
+     *
+     * <p>原版 {@code TheGuardian.damage()} 重写：{@code isOpen && !closeUpTriggered &&
+     * hp 变了 && !isDying} → {@code dmgTaken += 伤害}、{@code ModeShift.amount -= 伤害}，
+     * 然后 {@code dmgTaken >= dmgThreshold} 就 {@code ChangeState("Defensive Mode")}。
+     *
+     * <p>两个字段都能从**能力表**读到，不需要额外状态槽：
+     * <ul>
+     *   <li>{@code dmgTaken} 与 {@code ModeShift.amount} 同步递减（初值都 = dmgThreshold），
+     *       所以「累计够了」等价于「Mode Shift 的 amount ≤ 0」；</li>
+     *   <li>{@code isOpen} 等价于「身上还有 Mode Shift」—— 进入防御时它会
+     *       {@code RemoveSpecificPowerAction(Mode Shift)}。</li>
+     * </ul>
+     *
+     * <p>切姿态时原版还做三件事：加 20 格挡、{@code dmgThreshold += 10}、把下一招改成 1(CloseUp)。
+     * 我们照做（阈值增量只影响下次挂 Mode Shift 的初值）。
+     */
+    public static boolean maybeShiftGuardian(SimMonster guardian) {
+        Integer modeShift = guardian.powers.get("Mode Shift");
+        if (modeShift == null || guardian.hp <= 0) {
+            return false;
+        }
+        if (modeShift.intValue() > 0) {
+            return false;
+        }
+        guardian.powers.remove("Mode Shift");
+        guardian.block += 20;                       // DEFENSIVE_BLOCK
+        MonsterMove closeUp = MonsterMove.buffBlock(1, "Sharp Hide", 3, 19);
+        guardian.pendingMove = closeUp;
+        guardian.pendingMoveId = 1;
+        return true;
+    }
+
+    /**
+     * 守卫者回到攻势姿态：重挂 Mode Shift、Sharp Hide 由 TwinSmash 移除。
+     *
+     * <p>阈值 = 基础（30 / A9: 35 / A19: 40）+ 10 × **已经进过几次防御姿态**。
+     * 次数从历史里数「CloseUp（1 号招）」出现了几次 —— 每次防御姿态都以它开场，
+     * 所以不需要额外存 `dmgThreshold` 字段。
+     */
+    public static void reopenGuardian(SimMonster guardian, int ascension) {
+        int base = guardian.ascensionBaseThreshold(ascension);
+        int shifts = 0;
+        for (Integer id : guardian.moveHistory) {
+            if (id.intValue() == 1) {
+                shifts++;
+            }
+        }
+        guardian.powers.put("Mode Shift", Integer.valueOf(base + 10 * shifts));
     }
 
     /** 取某只怪的机器（测试用来逐分支钉住；运行期走 {@link #next}）。 */
@@ -870,6 +923,78 @@ public final class MonsterMoves {
 
         private MonsterMove goop(Context c) {
             return MonsterMove.status(4, "Slimed", c.ascension >= 19 ? 5 : 3);
+        }
+    }
+
+    /**
+     * 守卫者（TheGuardian，第一章 boss）。
+     *
+     * <pre>
+     * getMove:  isOpen ? 6(Charge Up) : 3(Roll Attack)   —— 只在没有 SetMove 兜底时用到
+     * takeTurn 按 nextMove 分派（每招末尾自己排下一招）：
+     *   6 ChargeUp  → 自己 +9 格挡，排 2
+     *   2 FierceBash→ 一段 32（A4: 36），排 7
+     *   7 VentSteam → 玩家 Weak 2 + Vulnerable 2，排 5
+     *   5 Whirlwind → 4 段 5，排 6
+     *   1 CloseUp   → 自己 +19 格挡 + **Sharp Hide 3**，排 3
+     *   3 RollAttack→ 一段 9（A4: 10），排 4
+     *   4 TwinSmash → 2 段 8；**移除 Sharp Hide、回攻势姿态**，排 5
+     * 常数:     HP 240 (A9: 250)、阈值 30 (A9: 35 / A19: 40)、每次 +10
+     * </pre>
+     *
+     * <p>姿态切换（进入防御）不在机器里 —— 由 {@code damage()} 重写触发，
+     * 见 {@link #maybeShiftGuardian}（挂在 {@code DamageCalc.hit}）。
+     */
+    static final class TheGuardianMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            boolean open = c.monster.powers.containsKey("Mode Shift");
+            if (c.history.isEmpty()) {
+                return chargeUp(c);
+            }
+            int last = c.history.get(c.history.size() - 1).intValue();
+            switch (last) {
+                case 6:
+                    return fierceBash(c);
+                case 2:
+                    return ventSteam();
+                case 7:
+                    return whirlwind(c);
+                case 5:
+                    return chargeUp(c);
+                case 1:
+                    return rollAttack(c);
+                case 3:
+                    return twinSmash(c);
+                case 4:
+                    return whirlwind(c);
+                default:
+                    return open ? chargeUp(c) : rollAttack(c);
+            }
+        }
+
+        private MonsterMove chargeUp(Context c) {
+            return MonsterMove.block(6, 9);
+        }
+
+        private MonsterMove fierceBash(Context c) {
+            return MonsterMove.attack(2, c.baseDamage(0, c.ascension >= 4 ? 36 : 32));
+        }
+
+        private MonsterMove ventSteam() {
+            return MonsterMove.doubleDebuff(7, "Weakened", 2, "Vulnerable", 2);
+        }
+
+        private MonsterMove whirlwind(Context c) {
+            return MonsterMove.multiAttack(5, c.baseDamage(2, 5), 4);
+        }
+
+        private MonsterMove rollAttack(Context c) {
+            return MonsterMove.attack(3, c.baseDamage(1, c.ascension >= 4 ? 10 : 9));
+        }
+
+        private MonsterMove twinSmash(Context c) {
+            return MonsterMove.multiAttack(4, c.baseDamage(3, 8), 2);
         }
     }
 }

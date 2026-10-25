@@ -103,6 +103,14 @@ public final class DamageCalc {
         if (target.hp != hpBefore) {
             wakeSleepingLagavulin(target);
             maybeQueueSplit(target);
+            // TheGuardian：Mode Shift 的量与 dmgTaken 同步递减，归零就切防御姿态
+            Integer modeShift = target.powers.get("Mode Shift");
+            if (modeShift != null) {
+                int dealt = hpBefore - target.hp;
+                target.powers.put("Mode Shift",
+                        Integer.valueOf(modeShift.intValue() - dealt));
+                io.github.youqing.sts1solver.sim.MonsterMoves.maybeShiftGuardian(target);
+            }
         }
         applyThorns(state, target);
     }

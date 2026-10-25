@@ -68,6 +68,28 @@ public final class Hooks {
     }
 
     /**
+     * 尖刺外壳（{@code SharpHidePower.onUseCard}，TheGuardian 的防御姿态技能）：
+     * 玩家**每打出一张攻击牌**就掉 {@code amount} 点血（{@code DamageInfo} 类型是 THORNS）。
+     *
+     * <p>注意它不是「被打时反伤」，而是「你出手就扣血」—— 跟荆棘（{@code ThornsPower}）的
+     * 触发点完全不同，别混。
+     */
+    private static void sharpHide(SimState state, SimCard card) {
+        if (!"ATTACK".equals(card.type)) {
+            return;
+        }
+        for (SimMonster monster : state.monsters) {
+            if (monster.hp <= 0) {
+                continue;
+            }
+            Integer amount = monster.powers.get("Sharp Hide");
+            if (amount != null && amount > 0) {
+                io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(state, amount);
+            }
+        }
+    }
+
+    /**
      * 怪物侧的 {@code onUseCard}（目前只有**激怒 Enrage**）。
      *
      * <p>{@code EnragePower.onUseCard}：玩家每打出一张 **技能牌**，主人就 +amount 力量
@@ -79,6 +101,7 @@ public final class Hooks {
      * {@code EnragePower.ID}（"Enrage"）带进来，所以真机打着打着也会准。
      */
     private static void monsterOnCardUsed(SimState state, SimCard card) {
+        sharpHide(state, card);
         if (!"SKILL".equals(card.type)) {
             return;
         }

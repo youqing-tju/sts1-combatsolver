@@ -197,6 +197,12 @@ public final class CombatFlow {
             Integer prior = m.powers.get(move.selfBuff);
             m.powers.put(move.selfBuff, (prior == null ? 0 : prior) + move.selfBuffAmount);
         }
+        // TheGuardian 的 TwinSmash（4 号招）打完就回攻势姿态：移除 Sharp Hide、重挂 Mode Shift。
+        // 原版写在 useTwinSmash 里（ChangeState("Offensive Mode") + RemoveSpecificPowerAction）。
+        if ("TheGuardian".equals(m.type) && move.id == 4 && m.hp > 0) {
+            m.powers.remove("Sharp Hide");
+            MonsterMoves.reopenGuardian(m, state.ascension);
+        }
         if (move.statusCard != null && move.statusCount > 0) {
             // MakeTempCardInDiscardAction(new Dazed(), n)：类型是 STATUS（Evolve 会数它）
             for (int i = 0; i < move.statusCount; i++) {

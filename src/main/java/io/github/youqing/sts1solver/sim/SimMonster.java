@@ -59,6 +59,16 @@ public final class SimMonster {
      */
     public final java.util.ArrayList<Integer> damageBase = new java.util.ArrayList<Integer>();
 
+    /**
+     * 守卫者的**基础**伤害阈值（原版构造器里按进阶给 30 / A9: 35 / A19: 40）。
+     *
+     * <p>⚠️ 影子没有「这只怪是哪一档进阶造出来的」信息，只能用当前 {@code ascension} 推；
+     * 低进阶局里这是准的，进阶局也准 —— 唯一不准的是「战斗中改进阶」，不存在。
+     */
+    public int ascensionBaseThreshold(int ascension) {
+        return ascension >= 19 ? 40 : (ascension >= 9 ? 35 : 30);
+    }
+
     public SimMonster(String type, int hp, int maxHp, int block, Map<String, Integer> powers) {
         this.type = type;
         this.hp = hp;
