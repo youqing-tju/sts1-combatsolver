@@ -124,6 +124,7 @@ public final class MonsterMoves {
         MACHINES.put("AcidSlime_M", new AcidSlimeMMachine());
         MACHINES.put("GremlinThief", new GremlinThiefMachine());
         MACHINES.put("Looter", new LooterMachine());
+        MACHINES.put("ApologySlime", new ApologySlimeMachine());
         MACHINES.put("AcidSlime_L", new AcidSlimeLMachine());
         MACHINES.put("SpikeSlime_L", new SpikeSlimeLMachine());
         MACHINES.put("SlimeBoss", new SlimeBossMachine());
@@ -1066,6 +1067,27 @@ public final class MonsterMoves {
                 default:
                     return MonsterMove.attack(1, swipe);
             }
+        }
+    }
+
+    /**
+     * 道歉史莱姆（ApologySlime）—— 事件/玩笑怪，但行为是确定的。
+     *
+     * <pre>
+     * getMove:  aiRng.randomBoolean() ? 1(ATTACK, damage[0]) : 2(DEBUFF, 玩家 Weak 1)
+     * takeTurn: 1 → 一段 tackle；2 → 玩家 Weak 1
+     * 常数:     tackle 3、Weak 1、HP 8-12
+     * </pre>
+     *
+     * <p>注意：它的 `getMove` 里**又掷了一次** `aiRng.randomBoolean()` ——
+     * 除了 {@link #next} 开头那次 {@code num} 之外再消耗一次，照抄。
+     */
+    static final class ApologySlimeMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            return c.randomBoolean()
+                    ? MonsterMove.attack(1, 3)
+                    : MonsterMove.attackDebuff(2, 0, "Weakened", 1);
         }
     }
 }

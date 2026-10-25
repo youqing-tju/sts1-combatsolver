@@ -33,6 +33,7 @@
 | `TheGuardian` | 1（boss） | 攻/防双循环 + 伤害阈值切姿态；Sharp Hide = 打攻击牌就掉血 |
 | `GremlinThief` | 1 | 查证后：**不偷钱也不逃**，就是每回合打 9（A2: 10） |
 | `Looter` | 1 | 抹两次 → 掷硬币（烟雾弹/突袭）→ 烟雾弹 → **逃跑**（新载荷 escape） |
+| `ApologySlime` | 1 | 掷硬币：打 3 / 玩家 Weak 1 |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 
@@ -87,3 +88,24 @@
 
 **结论：先不做半只**。半只 Hexaghost 在 50% 血以下会静默算错（搜索以为还能继续打本体），
 这比不搬更糟。下一轮整块做：先读 `damage()` 重写（找 Divide 触发）与 6 个 orb 的构造参数。
+
+## Hexaghost 七档已读清（下一轮直接写）
+
+`getMove` 按 `orbActiveCount`（6 → 0，每回合 -1）分档：
+
+| orbActiveCount | 招 |
+|---|---|
+| 6 | 6 = Inferno（3 段） |
+| 5 | 4 = Sear |
+| 4 | 2 = Tackle（fireTackleCount 段） |
+| 3 | 3 = Strengthen（DEFEND_BUFF） |
+| 2 | 4 = Sear |
+| 1 | 2 = Tackle |
+| 0 | 4 = Sear |
+
+`takeTurn` 的 6 个分支（1..6）：5 = Activate/Divider（`damage[2] = 玩家当前血/12 + 1`，6 段）；
+2 = Tackle；3 = Strengthen；4 = Sear；6 = Inferno；1 = ?（119 起的那个分支，疑似把 orbActiveCount 置回 6）。
+
+**还差三块**才敢动手：
+① 分支 1 到底干什么；② `damage()` 重写里 Divide 的触发与生成参数（6 个 `HexaghostOrb` + `HexaghostBody`）；
+③ `burnUpgraded` 怎么翻（Sear 塞的 Burn 什么时候变 Burn+）。

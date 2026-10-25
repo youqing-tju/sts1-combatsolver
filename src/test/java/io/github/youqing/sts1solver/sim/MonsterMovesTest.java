@@ -209,7 +209,7 @@ class MonsterMovesTest {
         SimState s = new SimState();
         s.hp = 50;
         s.maxHp = 80;
-        SimMonster cultist = monster("ApologySlime");   // 还没镜像的怪
+        SimMonster cultist = monster("TestMonster");   // 永远不存在的类型名，不会被镜像
         cultist.intentDmg = 6;
         s.monsters.add(cultist);
         for (int i = 0; i < 8; i++) {
@@ -221,7 +221,7 @@ class MonsterMovesTest {
         assertEquals(44, s.hp, "未镜像的怪仍按意图伤害打一下");
         assertNull(cultist.pendingMove, "未镜像的怪不该有镜像招式");
         assertTrue(cultist.moveHistory.isEmpty(), "未镜像的怪不记镜像历史");
-        assertFalse(MonsterMoves.supported("ApologySlime"));
+        assertFalse(MonsterMoves.supported("TestMonster"));
     }
 
     /** 伤害公式与玩家向同序：力量 → 虚弱 ×0.75 → 易伤 ×1.5，每步 float 截断。 */
@@ -1102,5 +1102,20 @@ class MonsterMovesTest {
         CombatFlow.endTurn(s, 3, 5);
         assertEquals(0, looter.hp, "逃跑后离场");
         assertEquals(50, s.hp, "逃跑那回合不打人");
+    }
+
+    /** 道歉史莱姆：掷硬币决定打人还是上 Weak（两个分支都可能）。 */
+    @Test
+    void apologySlimeFlipsACoin() {
+        java.util.Set<Integer> moves = new java.util.HashSet<Integer>();
+        for (int seed = 1; seed <= 20; seed++) {
+            SimState st = new SimState();
+            st.rng.put(SimState.RngKind.AI, RngStream.from(mix(seed), 0x9E3779B97F4A7C15L, 0));
+            SimMonster m = new SimMonster("ApologySlime", 10, 12, 0, NO_POWERS);
+            moves.add(Integer.valueOf(MonsterMoves.machineFor("ApologySlime").next(
+                    new MonsterMoves.Context(st, m, m.moveHistory, 1, 0, 50, 0)).id));
+        }
+        assertTrue(moves.contains(Integer.valueOf(1)), "可能直接打 3");
+        assertTrue(moves.contains(Integer.valueOf(2)), "可能上 Weak");
     }
 }

@@ -2358,3 +2358,15 @@ if (!isDying && currentHealth <= maxHealth / 2 && nextMove != 3 && !splitTrigger
 
 验证 3 条（小偷只打人 / 掠夺者的抹-掷硬币-烟雾弹-逃跑链 / 逃跑真的离场），
 全量 **293 条**通过。
+
+### 33.23 道歉史莱姆（ApologySlime）+ 木桩规则再钉一次
+
+`getMove`：`aiRng.randomBoolean() ? 1(ATTACK, 3) : 2(DEBUFF, 玩家 Weak 1)` ——
+注意它在 `getMove` 里**又掷了一次** `randomBoolean()`（`next` 开头那次 `num` 之外再消耗一格），照抄。
+HP 8-12、tackle 3、Weak 1。
+
+⚠️ **木桩事故第三次**：`unmirroredMonstersKeepTheOldBehaviour` 用 `ApologySlime` 当「未镜像」样本，
+它这一被搬就又红。现在两处木桩全部改成 `TestMonster` / `"TestMonster"` ——
+游戏里不存在的名字，永远不会被镜像。
+
+规则定死：**测试里凡是要「未镜像」语义的地方，一律用 `TestMonster`，不许用真怪名。**
