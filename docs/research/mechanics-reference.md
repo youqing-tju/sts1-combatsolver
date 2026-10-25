@@ -2464,3 +2464,20 @@ if (newCost != card.cost) { card.cost = newCost; card.costForTurn = card.cost; }
 且至少有一张真被改（否则等于没建模）。
 
 累计 33 只；全量 **308 条**通过。
+
+### 33.26 BookOfStabbing / Mugger / Taskmaster（2026-10-25）
+
+| 怪 | 决策 | 招式 |
+|---|---|---|
+| `BookOfStabbing` | `num<15`：上一招是 2 → 多刺，否则重刺；`num>=15`：连着两发多刺 → 重刺，否则多刺 | 多刺 6（A3: 7）× **stabCount**；重刺 21（A3: 24） |
+| `Mugger` | 与 Looter 同构：抹两次 → 掷硬币（烟雾弹/突袭）→ 烟雾弹 → 逃跑 | 抹 10（A2: 11）；突袭 16（A2: 18）；烟雾弹 11（A17: 17） |
+| `Taskmaster` | 永远 2 | 7 伤 + 2 张 Wound（A18: 3 张 + 自己 +1 力量） |
+
+**stabCount 从历史反推**：初值 1，每打一发多刺就 +1；**A18 起打重刺也 +1**
+（原版在选招那一刻就自增，所以「下一发几段」在选招时就定了 —— 机器用 `count(history)+1` 表达）。
+
+**新机制 Painful Stabs**（BookOfStabbing 开场自带）：`onInflictDamage` 里
+`type != THORNS` → 往玩家弃牌堆塞 1 张 Wound，**每段一次**。落在 `CombatFlow.takeTurn` 的逐段循环里
+（测试：3 段攻击 → 3 张 Wound）。
+
+全量 **312 条**通过；累计 **36 只**。

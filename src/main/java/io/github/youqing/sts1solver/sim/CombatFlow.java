@@ -167,6 +167,11 @@ public final class CombatFlow {
             if (damage > 0) {
                 int playerHpBefore = state.hp;
                 hitPlayer(state, damage, m);
+                // PainfulStabsPower.onInflictDamage：攻击造成伤害时往玩家弃牌堆塞 1 张 Wound
+                // （每段一次；THORNS 类型不触发，我们这里是普通攻击所以都触发）
+                if (m.powers.containsKey("Painful Stabs")) {
+                    state.discard.add(new SimCard("Wound", false, -2, -1, "STATUS"));
+                }
                 // VampireDamageAction：打掉玩家多少血就给自己回多少（ShelledParasite 的 Fell）
                 if (move.vampire) {
                     int dealt = playerHpBefore - state.hp;

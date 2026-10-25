@@ -68,6 +68,19 @@ class MonsterMovesTest {
                 new MonsterMoves.Context(state, monster, monster.moveHistory, 1, 0, num, ascension));
     }
 
+    /** 整副牌里有多少张 Wound。 */
+    private static int countWounds(SimState s) {
+        int n = 0;
+        for (java.util.List<SimCard> pile : java.util.Arrays.asList(s.hand, s.draw, s.discard)) {
+            for (SimCard c : pile) {
+                if ("Wound".equals(c.id)) {
+                    n++;
+                }
+            }
+        }
+        return n;
+    }
+
     /** 整副牌里有多少张 Dazed。 */
     private static int countDazed(SimState s) {
         int n = 0;
@@ -1556,5 +1569,96 @@ class MonsterMovesTest {
             }
         }
         assertTrue(changed, "至少有一张被改成别的费用（否则等于没建模）");
+    }
+
+    // ============================ 第十八批：BookOfStabbing / Mugger / Taskmaster ============================
+
+    /** 刺击之书：多刺段数随历史增长；重刺一下很痛；A18 起重刺也会让下一发多一段。 */
+    @Test
+    void bookOfStabbingGrowsItsMultiStab() {
+        // num>=15 且没连着多刺 → 多刺（段数 = 1 + 这一发自增 = 2）
+        MonsterMove first = decide("BookOfStabbing", history(), 50, 0, 0);
+        assertEquals(1, first.id, "空历史 num>=15 → 多刺");
+        assertEquals(2, first.hits);
+        assertEquals(6, first.damage);
+
+        // num<15 且上一招不是重刺 → 重刺
+        MonsterMove big = decide("BookOfStabbing", history(), 10, 0, 0);
+        assertEquals(2, big.id, "num<15 且上一招不是 2 → 重刺");
+        assertEquals(21, big.damage);
+        assertEquals(24, decide("BookOfStabbing", history(), 10, 0, 3).damage, "A3 起 24");
+
+        // 重刺之后（num<15）接多刺；打过两发 1 → 3 段
+        assertEquals(1, decide("BookOfStabbing", history(2), 10, 0, 0).id);
+        assertEquals(3, decide("BookOfStabbing", history(2, 1), 50, 0, 0).hits, "两次自增 → 3 段");
+        // num>=15 且连着两发多刺 → 重刺
+        assertEquals(2, decide("BookOfStabbing", history(1, 1), 50, 0, 0).id);
+        // A18：重刺也算一次自增
+        assertEquals(3, decide("BookOfStabbing", history(2), 10, 0, 18).hits,
+                "A18 起重刺也自增 → 1+1+1 = 3 段");
+    }
+
+    /** 苦痛之刺：每一段攻击都往弃牌堆塞一张 Wound。 */
+    @Test
+    void painfulStabsAddsWoundPerHit() {
+        SimState s = new SimState();
+        s.hp = 60;
+        s.maxHp = 80;
+        SimMonster book = new SimMonster("BookOfStabbing", 170, 170, 0, NO_POWERS);
+        book.powers.put("Painful Stabs", Integer.valueOf(1));
+        book.pendingMove = MonsterMove.multiAttack(1, 6, 3);
+        book.pendingMoveId = 1;
+        s.monsters.add(book);
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(3, countWounds(s), "3 段 → 3 张 Wound");
+    }
+
+    /** 强盗：抹两次 → 掷硬币（烟雾弹/突袭）→ 烟雾弹 → 逃跑。 */
+    @Test
+    void muggerMugsThenEscapes() {
+        MonsterMove mug = decide("Mugger", history(), 50, 0, 0);
+        assertEquals(1, mug.id);
+        assertEquals(10, mug.damage);
+        assertEquals(11, decide("Mugger", history(), 50, 0, 2).damage, "A2 起 11");
+
+        java.util.Set<Integer> afterTwo = new java.util.HashSet<Integer>();
+        for (int seed = 1; seed <= 20; seed++) {
+            SimState st = new SimState();
+            st.rng.put(SimState.RngKind.AI, RngStream.from(mix(seed), 0x9E3779B97F4A7C15L, 0));
+            SimMonster m = new SimMonster("Mugger", 50, 54, 0, NO_POWERS);
+            m.moveHistory.add(Integer.valueOf(1));
+            m.moveHistory.add(Integer.valueOf(1));
+            afterTwo.add(Integer.valueOf(MonsterMoves.machineFor("Mugger").next(
+                    new MonsterMoves.Context(st, m, m.moveHistory, 1, 0, 50, 0)).id));
+        }
+        assertTrue(afterTwo.contains(Integer.valueOf(2)));
+        assertTrue(afterTwo.contains(Integer.valueOf(4)));
+
+        MonsterMove smoke = decide("Mugger", history(1, 1, 4), 50, 0, 0);
+        assertEquals(2, smoke.id);
+        assertEquals(11, smoke.block, "烟雾弹 11 格挡");
+        assertEquals(17, decide("Mugger", history(1, 1, 4), 50, 0, 17).block, "A17 起 17");
+
+        MonsterMove flee = decide("Mugger", history(1, 1, 4, 2), 50, 0, 0);
+        assertEquals(3, flee.id);
+        assertTrue(flee.escape);
+    }
+
+    /** 工头：永远那一鞭——伤害 + 塞 Wound（A18 起 3 张并自己 +1 力量）。 */
+    @Test
+    void taskmasterWhipsWithWounds() {
+        MonsterMove whip = decide("Taskmaster", history(), 50, 0, 0);
+        assertEquals(2, whip.id);
+        assertEquals(7, whip.damage);
+        assertEquals("Wound", whip.statusCard);
+        assertEquals(2, whip.statusCount);
+        assertNull(whip.selfBuff);
+
+        MonsterMove hard = decide("Taskmaster", history(), 50, 0, 18);
+        assertEquals(3, hard.statusCount, "A18 起塞 3 张");
+        assertEquals("Strength", hard.selfBuff, "A18 起自己也涨 1 力量");
+        assertEquals(1, hard.selfBuffAmount);
+        assertEquals(2, decide("Taskmaster", history(2, 2), 50, 0, 0).id, "每回合都是同一招");
     }
 }

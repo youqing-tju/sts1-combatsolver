@@ -207,6 +207,13 @@ public final class MonsterMove {
         return new MonsterMove(id, 0, 0, 0, 0, power, amount, null, 0, null, 0);
     }
 
+    /** 攻击 + 塞状态牌 + 自己挂能力（Taskmaster：7 伤 + 2 张 Wound + A18 起自己 +1 力量）。 */
+    public static MonsterMove attackStatusBuff(int id, int damage, String card, int count,
+                                               String buff, int buffAmount) {
+        return new MonsterMove(id, damage, 1, 0, 0, buff, buffAmount, null, 0, null, 0,
+                card, count);
+    }
+
     /** 攻击 + 两个玩家减益（Snecko 的 Tail Whip：伤害 + Vulnerable 2 + Weak 2）。 */
     public static MonsterMove attackDoubleDebuff(int id, int damage,
                                                  String first, int firstAmount,

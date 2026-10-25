@@ -40,6 +40,9 @@
 | `Centurion` | 2 | 有队友就加格挡、落单才怒击（看场上活怪数） |
 | `Healer` | 2 | 看全队缺损血量决定治疗；否则全队 +力量 / 攻击 |
 | `Snecko` | 2 | 首招挂 **Confusion**（每抽一张牌随机改费用） |
+| `BookOfStabbing` | 2（精英） | 多刺段数随历史增长；自带 **Painful Stabs**（每段塞 1 Wound） |
+| `Mugger` | 2 | 抹两次 → 掷硬币 → 烟雾弹 → 逃跑（与 Looter 同构） |
+| `Taskmaster` | 2 | 永远那一鞭：7 伤 + 2 张 Wound（A18: 3 张 + 自身 +1 力量） |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 

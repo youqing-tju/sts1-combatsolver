@@ -132,6 +132,9 @@ public final class MonsterMoves {
         MACHINES.put("Centurion", new CenturionMachine());
         MACHINES.put("Healer", new HealerMachine());
         MACHINES.put("Snecko", new SneckoMachine());
+        MACHINES.put("BookOfStabbing", new BookOfStabbingMachine());
+        MACHINES.put("Mugger", new MuggerMachine());
+        MACHINES.put("Taskmaster", new TaskmasterMachine());
         MACHINES.put("AcidSlime_L", new AcidSlimeLMachine());
         MACHINES.put("SpikeSlime_L", new SpikeSlimeLMachine());
         MACHINES.put("SlimeBoss", new SlimeBossMachine());
@@ -1434,6 +1437,124 @@ public final class MonsterMoves {
                 return glare;
             }
             return c.lastTwoMoves(2) ? glare : MonsterMove.attack(2, bite);
+        }
+    }
+
+    /**
+     * 刺击之书（BookOfStabbing）—— 第二章精英。
+     *
+     * <pre>
+     * getMove:  num&lt;15：上一招是 2 → stabCount++ 并 1(多刺, damage[0] ×stabCount)
+     *                     否则 → 2(重刺, damage[1])；**A18 起 stabCount 也 +1**
+     *           否则：  最近两招是 1 → 2(重刺)（A18 起 stabCount +1）
+     *                   否则 → stabCount++ 并 1(多刺)
+     * takeTurn: 1 → stabCount 段 damage[0]；2 → 一段 damage[1]
+     * 常数:     stab 6（A3: 7）、bigStab 21（A3: 24）、stabCount 初值 1
+     * </pre>
+     *
+     * <p>stabCount 从历史反推：初值 1，**每次打 1 都 +1**；A18 起打 2 也 +1
+     * （原版在选招时就自增，所以「下一招的段数」在选招那一刻就定了）。
+     *
+     * <p>开场挂 {@code Painful Stabs}：每次造成攻击伤害往玩家弃牌堆塞 1 张 Wound
+     * （落在 {@code CombatFlow.takeTurn} 的逐段结算里）。
+     */
+    static final class BookOfStabbingMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int stab = c.baseDamage(0, c.ascension >= 3 ? 7 : 6);
+            int big = c.baseDamage(1, c.ascension >= 3 ? 24 : 21);
+            int count = stabCount(c);
+            if (c.num < 15) {
+                if (c.lastMove(2)) {
+                    return MonsterMove.multiAttack(1, stab, count + 1);
+                }
+                return MonsterMove.attack(2, big);
+            }
+            if (c.lastTwoMoves(1)) {
+                return MonsterMove.attack(2, big);
+            }
+            return MonsterMove.multiAttack(1, stab, count + 1);
+        }
+
+        /** 初值 1 + 历史里 1 的个数（每次打 1 都自增）；A18 起打 2 也自增。 */
+        private int stabCount(Context c) {
+            int count = 1;
+            for (Integer id : c.history) {
+                if (id.intValue() == 1 || (c.ascension >= 18 && id.intValue() == 2)) {
+                    count++;
+                }
+            }
+            return count;
+        }
+    }
+
+    /**
+     * 强盗（Mugger）—— 第二章，和 Looter 同构（抹两次 → 掷硬币 → 烟雾弹 → 逃跑）。
+     *
+     * <pre>
+     * getMove: 永远 1（其余靠 takeTurn 的 SetMove 排）
+     * takeTurn: 1 → 一段 swipe，slashCount++；slashCount==2 时掷硬币 → 2(烟雾弹) 或 4(突袭)
+     *           4 → 一段 bigSwipe，排 2
+     *           2 → 自己 +escapeDef 格挡（A17: +escapeDef+6），排 3
+     *           3 → EscapeAction 离场
+     * 常数:     swipe 10（A2: 11）、bigSwipe 16（A2: 18）、escapeDef 11（A17: 17）
+     * </pre>
+     *
+     * <p>它打人时会偷金币（`StealGoldAction`），影子不建模金币 —— 只影响战利品，
+     * 不影响战斗推进（逃跑是招序排的，与偷到多少无关）。
+     */
+    static final class MuggerMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int swipe = c.baseDamage(0, c.ascension >= 2 ? 11 : 10);
+            int big = c.baseDamage(1, c.ascension >= 2 ? 18 : 16);
+            int block = c.ascension >= 17 ? 17 : 11;
+            if (c.history.isEmpty()) {
+                return MonsterMove.attack(1, swipe);
+            }
+            int last = c.history.get(c.history.size() - 1).intValue();
+            if (last == 1) {
+                int slashes = 0;
+                for (Integer id : c.history) {
+                    if (id.intValue() == 1) {
+                        slashes++;
+                    }
+                }
+                if (slashes >= 2) {
+                    return c.randomBoolean()
+                            ? MonsterMove.block(2, block)
+                            : MonsterMove.attack(4, big);
+                }
+                return MonsterMove.attack(1, swipe);
+            }
+            if (last == 4) {
+                return MonsterMove.block(2, block);
+            }
+            if (last == 2) {
+                return MonsterMove.escape(3);
+            }
+            return MonsterMove.attack(1, swipe);
+        }
+    }
+
+    /**
+     * 工头（Taskmaster）—— 第二章（三奴隶主精英）。
+     *
+     * <pre>
+     * getMove: 永远 2(Scouring Whip)
+     * takeTurn: 2 → 一段 damage[1]（7）+ 往玩家弃牌堆塞 woundCount 张 Wound（2 / A18: 3）；
+     *               A18 起再给自己 +1 力量
+     * 常数:     HP 54-60（A8: 57-64）
+     * </pre>
+     */
+    static final class TaskmasterMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int dmg = c.baseDamage(1, 7);
+            int wounds = c.ascension >= 18 ? 3 : 2;
+            return c.ascension >= 18
+                    ? MonsterMove.attackStatusBuff(2, dmg, "Wound", wounds, "Strength", 1)
+                    : MonsterMove.attackStatus(2, dmg, "Wound", wounds);
         }
     }
 }
