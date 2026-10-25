@@ -2435,3 +2435,32 @@ takeTurn: 1 → 10（A2: 12）+ 玩家 Frail 2；2 → 6（A2: 7）×2；
 —— 递归重掷那步要用。
 
 验证 7 条测试，全量 **303 条**通过；累计 **30 只**。
+
+### 33.25 第二章续：Centurion / Healer / Snecko（2026-10-25）
+
+| 怪 | 决策要点 | 新增载荷 |
+|---|---|---|
+| `Centurion` | `num>=65` 且最近两招都不是 2/3 时看**队友**：有队友 → 2（格挡），落单 → 3（怒击） | 复用 `blockRandomAlly` |
+| `Healer` | 先看**全队缺损血量**：>15（A17: 20）且最近两招不是 2 → 治疗；否则 `num>=40` 且没连着打 → 攻击；否则全队加力量 | `healAll` / `buffAll` |
+| `Snecko` | 首招 Tail Whip（只挂 Confusion，**不造成伤害**），之后 `num<40` → Glare，否则 Bite（连咬两口换 Glare） | `attackDoubleDebuff` + **Confusion 建模** |
+
+数值：Centurion slash 12（A2: 14）、fury 6（A2: 7）×3、格挡 15（A17: 20）；
+Healer magic 8（A2: 9）、力量 2（A2: 3 / A17: 4）、治疗 16（A17: 20）、Frail 2；
+Snecko bite 15（A2: 18）、tail 8（A2: 10）、Glare 上 Vulnerable 2（A17 起再加 Weak 2）。
+
+#### Confusion（混乱）—— 这条不建模会让整手牌的费用算错
+
+`ConfusionPower.onCardDraw`（字节码直读）：
+
+```java
+int newCost = AbstractDungeon.cardRandomRng.random(3);   // **每张牌都掷，掷了就算数**
+if (newCost != card.cost) { card.cost = newCost; card.costForTurn = card.cost; }
+```
+
+落点 `CombatFlow.applyConfusion`（在抽牌动作里）：有 `Confused` 时**每抽一张都消耗一次
+`cardRandomRng`**，值不同就替换成一张新 `SimCard`（`cost` 改掉，`costForTurn` 归零）。
+
+测试钉住两件事：**5 张牌 = 计数器 +5**（掷了就要消耗，哪怕结果没变）、每张牌费用落在 0..3
+且至少有一张真被改（否则等于没建模）。
+
+累计 33 只；全量 **308 条**通过。

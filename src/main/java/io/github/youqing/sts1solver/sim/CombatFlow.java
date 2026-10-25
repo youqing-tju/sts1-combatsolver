@@ -216,6 +216,24 @@ public final class CombatFlow {
             m.powers.remove("Sharp Hide");
             MonsterMoves.reopenGuardian(m, state.ascension);
         }
+        if (move.healAllies > 0) {
+            // HealAction：逐只活怪回血，上限是各自 maxHp（可以治自己）
+            for (SimMonster ally : state.monsters) {
+                if (ally.hp > 0) {
+                    ally.hp = Math.min(ally.maxHp, ally.hp + move.healAllies);
+                }
+            }
+        }
+        if (move.buffAlliesPower != null && move.buffAlliesAmount > 0) {
+            for (SimMonster ally : state.monsters) {
+                if (ally.hp <= 0) {
+                    continue;
+                }
+                Integer prior = ally.powers.get(move.buffAlliesPower);
+                ally.powers.put(move.buffAlliesPower,
+                        (prior == null ? 0 : prior) + move.buffAlliesAmount);
+            }
+        }
         if (move.statusCard != null && move.statusCount > 0) {
             // MakeTempCardInDiscardAction(new Dazed(), n)：类型是 STATUS（Evolve 会数它）
             for (int i = 0; i < move.statusCount; i++) {
@@ -277,6 +295,30 @@ public final class CombatFlow {
         } else {
             m.intentDmg = IntentLearning.predict(m.type, turn, m.intentDmg);
         }
+    }
+
+    /**
+     * 混乱（{@code ConfusionPower.onCardDraw}）：**每抽一张牌**都先掷一次
+     * {@code cardRandomRng.random(3)}（0..3，**不管结果变不变都要消耗**），
+     * 掷出来的值与原 {@code cost} 不同时就把这张牌的 {@code cost} 改掉（原版是永久改）。
+     *
+     * <p>这不只是「费用变随机」——它把整手牌的出牌顺序都打乱了，搜索要是按原费用算，
+     * 面对 Snecko 的每条路线都会偏乐观。所以必须建模。
+     */
+    private static SimCard applyConfusion(SimState state, SimCard card) {
+        Integer confused = state.playerPowers.get("Confused");
+        if (confused == null || confused <= 0) {
+            return card;
+        }
+        RngStream rng = state.rng.get(SimState.RngKind.CARD);
+        if (rng == null) {
+            return card;
+        }
+        int newCost = rng.random(3);
+        if (newCost == card.cost) {
+            return card;
+        }
+        return new SimCard(card.id, card.upgraded, newCost, card.baseDamage, card.type);
     }
 
     private static void clearCostForTurn(java.util.List<SimCard> pile) {
@@ -356,6 +398,7 @@ public final class CombatFlow {
             }
             io.github.youqing.sts1solver.sim.SimCard drawn =
                     state.draw.remove(state.draw.size() - 1);
+            drawn = applyConfusion(state, drawn);
             state.hand.add(drawn);
             if ("STATUS".equals(drawn.type)) {
                 statusDrawn++;

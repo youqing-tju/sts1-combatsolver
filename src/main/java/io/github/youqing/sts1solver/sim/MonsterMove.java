@@ -63,6 +63,11 @@ public final class MonsterMove {
      * <p>ShelledParasite 的 Fell 就是它（意图显示 ATTACK_BUFF，那个「buff」其实是回血）。
      */
     public final boolean vampire;
+    /** 给**所有活着的队友**（含自己）回这么多血（Healer 的 Heal，原版逐只 HealAction）。 */
+    public final int healAllies;
+    /** 给所有活着的队友挂的能力（Healer 的 Buff，原版逐只 ApplyPowerAction(Strength)）。 */
+    public final String buffAlliesPower;
+    public final int buffAlliesAmount;
 
     public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
                        String selfBuff, int selfBuffAmount,
@@ -125,6 +130,20 @@ public final class MonsterMove {
                        String statusCard, int statusCount,
                        String splitInto, int splitCount,
                        String splitInto2, int splitCount2, boolean escape, boolean vampire) {
+        this(id, damage, hits, block, blockRandomAlly, selfBuff, selfBuffAmount,
+                playerDebuff, playerDebuffAmount, playerDebuff2, playerDebuff2Amount,
+                statusCard, statusCount, splitInto, splitCount, splitInto2, splitCount2,
+                escape, vampire, 0, null, 0);
+    }
+
+    public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
+                       String selfBuff, int selfBuffAmount,
+                       String playerDebuff, int playerDebuffAmount,
+                       String playerDebuff2, int playerDebuff2Amount,
+                       String statusCard, int statusCount,
+                       String splitInto, int splitCount,
+                       String splitInto2, int splitCount2, boolean escape, boolean vampire,
+                       int healAllies, String buffAlliesPower, int buffAlliesAmount) {
         this.id = id;
         this.damage = Math.max(0, damage);
         this.hits = Math.max(0, hits);
@@ -144,6 +163,9 @@ public final class MonsterMove {
         this.splitCount2 = Math.max(0, splitCount2);
         this.escape = escape;
         this.vampire = vampire;
+        this.healAllies = Math.max(0, healAllies);
+        this.buffAlliesPower = buffAlliesPower;
+        this.buffAlliesAmount = Math.max(0, buffAlliesAmount);
     }
 
     public boolean attacks() {
@@ -185,6 +207,14 @@ public final class MonsterMove {
         return new MonsterMove(id, 0, 0, 0, 0, power, amount, null, 0, null, 0);
     }
 
+    /** 攻击 + 两个玩家减益（Snecko 的 Tail Whip：伤害 + Vulnerable 2 + Weak 2）。 */
+    public static MonsterMove attackDoubleDebuff(int id, int damage,
+                                                 String first, int firstAmount,
+                                                 String second, int secondAmount) {
+        return new MonsterMove(id, damage, 1, 0, 0, null, 0, first, firstAmount,
+                second, secondAmount, null, 0);
+    }
+
     /** 给玩家上减益 + 自己挂能力（Chosen 的「削志」：玩家 Weak 3、自己 +3 力量）。 */
     public static MonsterMove debuffAndBuff(int id, String playerDebuff, int playerDebuffAmount,
                                             String selfBuff, int selfBuffAmount) {
@@ -213,6 +243,18 @@ public final class MonsterMove {
     public static MonsterMove split(int id, String childType, int count) {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0,
                 null, 0, null, 0, childType, count);
+    }
+
+    /** 给所有活着的队友回血（Healer 的 Heal）。 */
+    public static MonsterMove healAll(int id, int amount) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, amount, null, 0);
+    }
+
+    /** 给所有活着的队友挂能力（Healer 的 Buff：全队 +N 力量）。 */
+    public static MonsterMove buffAll(int id, String power, int amount) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, power, amount);
     }
 
     /** 吸血一击（原版 {@code VampireDamageAction}）：打掉玩家多少血就回多少。 */

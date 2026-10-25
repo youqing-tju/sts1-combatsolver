@@ -37,6 +37,9 @@
 | `Byrd` | 2 | 飞/落地状态机：Flight 每段掉 1 层、掉光 STUN；飞着伤害减半 |
 | `Chosen` | 2 | Hex（打非攻击牌塞 Dazed）+ 削志（Weak 3 / 自身 +3 力量） |
 | `ShelledParasite` | 2 | 吸血重击；Plated Armor 破甲即硬直 |
+| `Centurion` | 2 | 有队友就加格挡、落单才怒击（看场上活怪数） |
+| `Healer` | 2 | 看全队缺损血量决定治疗；否则全队 +力量 / 攻击 |
+| `Snecko` | 2 | 首招挂 **Confusion**（每抽一张牌随机改费用） |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 

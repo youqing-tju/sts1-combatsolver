@@ -1388,4 +1388,173 @@ class MonsterMovesTest {
         assertNull(parasite.powers.get("Plated Armor"), "装甲掉光");
         assertEquals(4, parasite.pendingMove.id, "破甲 → STUN");
     }
+
+    // ============================ 第十六批：Centurion / Healer（看队友的招） ============================
+
+    /** 在给定场面里决策（这两只看「场上还有几只怪」，decide() 的单怪场不够用）。 */
+    private static MonsterMove decideIn(SimState state, String type, SimMonster self,
+                                        java.util.List<Integer> history, int num, int ascension) {
+        state.ascension = ascension;
+        state.rng.put(SimState.RngKind.AI, RngStream.from(11L, 22L, 0));
+        self.moveHistory.clear();
+        self.moveHistory.addAll(history);
+        return MonsterMoves.machineFor(type).next(
+                new MonsterMoves.Context(state, self, self.moveHistory, 1, 0, num, ascension));
+    }
+
+    /** 百夫长：有队友时优先加格挡，落单才怒击。 */
+    @Test
+    void centurionDefendsWithAlliesAndRagesAlone() {
+        SimState duo = new SimState();
+        SimMonster centurion = new SimMonster("Centurion", 80, 80, 0, NO_POWERS);
+        duo.monsters.add(centurion);
+        duo.monsters.add(new SimMonster("Healer", 50, 50, 0, NO_POWERS));
+
+        MonsterMove defend = decideIn(duo, "Centurion", centurion, history(), 90, 0);
+        assertEquals(2, defend.id, "有队友 → 加格挡");
+        assertEquals(15, defend.blockRandomAlly);
+        assertEquals(20, decideIn(duo, "Centurion", centurion, history(), 90, 17).blockRandomAlly,
+                "A17 起 20");
+
+        SimState solo = new SimState();
+        SimMonster alone = new SimMonster("Centurion", 80, 80, 0, NO_POWERS);
+        solo.monsters.add(alone);
+        MonsterMove rage = decideIn(solo, "Centurion", alone, history(), 90, 0);
+        assertEquals(3, rage.id, "落单 → 怒击");
+        assertEquals(3, rage.hits);
+        assertEquals(6, rage.damage);
+        assertEquals(7, decideIn(solo, "Centurion", alone, history(), 90, 2).damage, "A2 起 7");
+
+        MonsterMove slash = decideIn(solo, "Centurion", alone, history(), 10, 0);
+        assertEquals(1, slash.id, "num<65 且没连着挥 → 挥击");
+        assertEquals(12, slash.damage);
+        assertEquals(14, decideIn(solo, "Centurion", alone, history(), 10, 2).damage, "A2 起 14");
+        assertEquals(2, decideIn(duo, "Centurion", centurion, history(1, 1), 10, 0).id,
+                "连挥两下 + 有队友 → 格挡");
+    }
+
+    /** 治疗师：队友掉血够多就治疗全队；否则全队加力量 / 攻击。 */
+    @Test
+    void healerHealsThenBuffsThenStrikes() {
+        SimState duo = new SimState();
+        SimMonster healer = new SimMonster("Healer", 50, 56, 0, NO_POWERS);
+        healer.hp = 40;                     // 自己缺 16
+        duo.monsters.add(healer);
+
+        MonsterMove heal = decideIn(duo, "Healer", healer, history(), 10, 0);
+        assertEquals(2, heal.id, "缺 16 血 > 15 → 治疗");
+        assertEquals(16, heal.healAllies);
+        // A17 起门槛抬到「缺损 > 20」，所以要先掉够血才会治
+        healer.hp = 30;
+        assertEquals(20, decideIn(duo, "Healer", healer, history(), 10, 17).healAllies,
+                "A17 起治 20");
+        assertEquals(2, decideIn(duo, "Healer", healer, history(), 10, 17).id,
+                "缺 26 > A17 门槛 20 → 仍然治疗");
+
+        // 只要缺损 ≤ 门槛就不治了（16 < 20）
+        healer.hp = 40;
+        assertEquals(3, decideIn(duo, "Healer", healer, history(), 10, 17).id,
+                "A17 下缺 16 不达门槛 → 改成全队加力量");
+
+        // 回满之后不再治疗：num>=40 且没连着打 → 攻击
+        healer.hp = 56;
+        MonsterMove strike = decideIn(duo, "Healer", healer, history(), 90, 0);
+        assertEquals(1, strike.id);
+        assertEquals(8, strike.damage);
+        assertEquals(9, decideIn(duo, "Healer", healer, history(), 90, 2).damage, "A2 起 9");
+        assertEquals("Frail", strike.playerDebuff);
+        assertEquals(2, strike.playerDebuffAmount);
+
+        MonsterMove buff = decideIn(duo, "Healer", healer, history(1), 10, 0);
+        assertEquals(3, buff.id, "num<40 → 全队加力量");
+        assertEquals("Strength", buff.buffAlliesPower);
+        assertEquals(2, buff.buffAlliesAmount);
+        assertEquals(4, decideIn(duo, "Healer", healer, history(1), 10, 17).buffAlliesAmount,
+                "A17 起 +4");
+    }
+
+    /** 治疗/增益真的落到**所有活着的队友**身上（死掉的不算）。 */
+    @Test
+    void healerEffectsReachEveryLivingAlly() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        SimMonster healer = new SimMonster("Healer", 50, 56, 0, NO_POWERS);
+        healer.hp = 30;
+        healer.pendingMove = MonsterMove.healAll(2, 16);
+        healer.pendingMoveId = 2;
+        SimMonster centurion = new SimMonster("Centurion", 80, 80, 0, NO_POWERS);
+        centurion.hp = 60;
+        SimMonster dead = new SimMonster("Centurion", 80, 80, 0, NO_POWERS);
+        dead.hp = 0;
+        s.monsters.add(healer);
+        s.monsters.add(centurion);
+        s.monsters.add(dead);
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(46, healer.hp, "自己回 16");
+        assertEquals(76, centurion.hp, "队友也回 16");
+        assertEquals(0, dead.hp, "死掉的不治");
+
+        healer.pendingMove = MonsterMove.buffAll(3, "Strength", 3);
+        healer.pendingMoveId = 3;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(Integer.valueOf(3), healer.powers.get("Strength"));
+        assertEquals(Integer.valueOf(3), centurion.powers.get("Strength"), "全队 +3 力量");
+        assertNull(dead.powers.get("Strength"), "死掉的不加");
+    }
+
+    // ============================ 第十七批：Snecko（Confusion 改费用） ============================
+
+    /** 蛇颈龙：开场挂混乱，之后 Glare / Bite 交替。 */
+    @Test
+    void sneckoAppliesConfusionThenAlternates() {
+        MonsterMove whip = decide("Snecko", history(), 50, 0, 0);
+        assertEquals(1, whip.id);
+        assertEquals("Confused", whip.playerDebuff, "开场挂混乱");
+        assertEquals(0, whip.damage, "Tail Whip 本体不造成伤害（原版那一下在 takeTurn 之外）");
+
+        MonsterMove glare = decide("Snecko", history(1), 10, 0, 0);
+        assertEquals(3, glare.id);
+        assertEquals(8, glare.damage);
+        assertEquals("Vulnerable", glare.playerDebuff);
+        assertEquals(2, glare.playerDebuffAmount);
+        assertNull(glare.playerDebuff2, "低进阶只上易伤");
+
+        MonsterMove hardGlare = decide("Snecko", history(1), 10, 0, 17);
+        assertEquals("Weakened", hardGlare.playerDebuff2, "A17 起再加 Weak 2");
+        assertEquals(2, hardGlare.playerDebuff2Amount);
+
+        MonsterMove bite = decide("Snecko", history(1), 90, 0, 0);
+        assertEquals(2, bite.id);
+        assertEquals(15, bite.damage);
+        assertEquals(18, decide("Snecko", history(1), 90, 0, 2).damage, "A2 起 18");
+        assertEquals(3, decide("Snecko", history(2, 2), 90, 0, 0).id, "连咬两口 → Glare");
+    }
+
+    /** 混乱：每抽一张牌都消耗一次 cardRandomRng，并把费用改成掷出来的值。 */
+    @Test
+    void confusionRerollsEveryDrawnCardCost() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        s.energy = 3;
+        s.playerPowers.put("Confused", Integer.valueOf(1));
+        s.rng.put(SimState.RngKind.CARD, RngStream.from(11L, 22L, 0));
+        for (int i = 0; i < 5; i++) {
+            s.draw.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+
+        CombatFlow.endTurn(s, 3, 5);      // 回合末抽 5 张
+
+        assertEquals(5, s.rng.get(SimState.RngKind.CARD).counter(), "每张牌消耗一次");
+        boolean changed = false;
+        for (SimCard card : s.hand) {
+            assertTrue(card.cost >= 0 && card.cost <= 3, "费用必须落在 0..3：" + card.cost);
+            if (card.cost != 1) {
+                changed = true;
+            }
+        }
+        assertTrue(changed, "至少有一张被改成别的费用（否则等于没建模）");
+    }
 }

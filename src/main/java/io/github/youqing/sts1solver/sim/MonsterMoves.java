@@ -129,6 +129,9 @@ public final class MonsterMoves {
         MACHINES.put("Byrd", new ByrdMachine());
         MACHINES.put("Chosen", new ChosenMachine());
         MACHINES.put("ShelledParasite", new ShelledParasiteMachine());
+        MACHINES.put("Centurion", new CenturionMachine());
+        MACHINES.put("Healer", new HealerMachine());
+        MACHINES.put("Snecko", new SneckoMachine());
         MACHINES.put("AcidSlime_L", new AcidSlimeLMachine());
         MACHINES.put("SpikeSlime_L", new SpikeSlimeLMachine());
         MACHINES.put("SlimeBoss", new SlimeBossMachine());
@@ -1314,6 +1317,123 @@ public final class MonsterMoves {
                 return c.lastTwoMoves(2) ? fellMove : doubleMove;
             }
             return c.lastTwoMoves(3) ? doubleMove : fellMove;
+        }
+    }
+
+    /**
+     * 百夫长（Centurion）—— 第二章。
+     *
+     * <pre>
+     * getMove:  num&gt;=65 且最近两招都不是 2/3 → 有队友就 2(格挡) 否则 3(怒击)
+     *           最近两招不是 1 → 1(挥击)
+     *           否则 → 有队友就 2 否则 3
+     * takeTurn: 1 → 一段 slash；2 → **给随机队友**加 blockAmount 格挡（GainBlockRandomMonsterAction）；
+     *           3 → furyHits 段 fury
+     * 常数:     slash 12（A2: 14）、fury 6（A2: 7）×3、格挡 15（A17: 20）、HP 76-80（A7: 78-83）
+     * </pre>
+     *
+     * <p>「有队友」= 活怪数 &gt; 1（原版数 `!isDying && !isEscaping`）。
+     * 和 GremlinTsundere 用的是同一个 Action（`GainBlockRandomMonsterAction`），
+     * 所以共用 {@code blockRandomAlly} 口径。
+     */
+    static final class CenturionMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int slash = c.baseDamage(0, c.ascension >= 2 ? 14 : 12);
+            int fury = c.baseDamage(1, c.ascension >= 2 ? 7 : 6);
+            int block = c.ascension >= 17 ? 20 : 15;
+            MonsterMove defend = MonsterMove.blockAlly(2, block);
+            MonsterMove rage = MonsterMove.multiAttack(3, fury, 3);
+            boolean withAllies = aliveCount(c) > 1;
+            if (c.num >= 65 && !c.lastTwoMoves(2) && !c.lastTwoMoves(3)) {
+                return withAllies ? defend : rage;
+            }
+            if (!c.lastTwoMoves(1)) {
+                return MonsterMove.attack(1, slash);
+            }
+            return withAllies ? defend : rage;
+        }
+    }
+
+    /**
+     * 治疗师（Healer）—— 第二章。
+     *
+     * <pre>
+     * getMove:  全队**缺损血量** &gt; 15（A17: 20）且最近两招不是 2 → 2(治疗)
+     *           num&gt;=40 且「没连着打 1」（A17 看 lastMove、其余看 lastTwoMoves）→ 1(攻击)
+     *           最近两招不是 3 → 3(全队 +力量)
+     *           否则 → 1
+     * takeTurn: 1 → 一段 magicDmg + 玩家 Frail 2
+     *           2 → **治疗全队**（HealAction 每只 healAmt）
+     *           3 → **全队 +strAmt 力量**
+     * 常数:     magicDmg 8（A2: 9）、strAmt 2（A2: 3, A17: 4）、healAmt 16（A17: 20）、
+     *           HP 48-56（A7: 50-58）
+     * </pre>
+     */
+    static final class HealerMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int magic = c.baseDamage(0, c.ascension >= 2 ? 9 : 8);
+            int str = c.ascension >= 17 ? 4 : (c.ascension >= 2 ? 3 : 2);
+            int heal = c.ascension >= 17 ? 20 : 16;
+            MonsterMove strike = MonsterMove.attackDebuff(1, magic, "Frail", 2);
+            int missing = 0;
+            for (SimMonster ally : c.state.monsters) {
+                if (ally.hp > 0) {
+                    missing += Math.max(0, ally.maxHp - ally.hp);
+                }
+            }
+            if (missing > (c.ascension >= 17 ? 20 : 15) && !c.lastTwoMoves(2)) {
+                return MonsterMove.healAll(2, heal);
+            }
+            boolean canStrike = c.num >= 40
+                    && !(c.ascension >= 17 ? c.lastMove(1) : c.lastTwoMoves(1));
+            if (canStrike) {
+                return strike;
+            }
+            return c.lastTwoMoves(3) ? strike : MonsterMove.buffAll(3, "Strength", str);
+        }
+    }
+
+    /** 场上还活着的怪数（原版 `!isDying && !isEscaping`）。 */
+    private static int aliveCount(Context c) {
+        int alive = 0;
+        for (SimMonster monster : c.state.monsters) {
+            if (monster.hp > 0) {
+                alive++;
+            }
+        }
+        return alive;
+    }
+
+    /**
+     * 蛇颈龙（Snecko）—— 第二章。
+     *
+     * <pre>
+     * getMove:  第一回合 → 1(Tail Whip, STRONG_DEBUFF)
+     *           num&lt;40 → 3(Glare, ATTACK_DEBUFF, damage[1])
+     *           最近两招是 2 → 3；否则 → 2(Bite, damage[0])
+     * takeTurn: 1 → 给玩家挂 **Confusion**（每抽一张牌随机改费用）
+     *           2 → 一段 damage[0]（bite）
+     *           3 → 一段 damage[1]（tail）+ 玩家 Vulnerable 2（A17 起再加 Weak 2）
+     * 常数:     bite 15（A2: 18）、tail 8（A2: 10）、HP 114-120（A7: 120-125）
+     * </pre>
+     */
+    static final class SneckoMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int bite = c.baseDamage(0, c.ascension >= 2 ? 18 : 15);
+            int tail = c.baseDamage(1, c.ascension >= 2 ? 10 : 8);
+            if (c.history.isEmpty()) {
+                return MonsterMove.attackDebuff(1, 0, "Confused", 1);
+            }
+            MonsterMove glare = c.ascension >= 17
+                    ? MonsterMove.attackDoubleDebuff(3, tail, "Vulnerable", 2, "Weakened", 2)
+                    : MonsterMove.attackDebuff(3, tail, "Vulnerable", 2);
+            if (c.num < 40) {
+                return glare;
+            }
+            return c.lastTwoMoves(2) ? glare : MonsterMove.attack(2, bite);
         }
     }
 }
