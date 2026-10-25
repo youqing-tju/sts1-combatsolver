@@ -1141,4 +1141,251 @@ class MonsterMovesTest {
         // A17+：最近两招里有 2 就咬
         assertEquals(1, decide("SnakePlant", history(1, 2, 1), 90, 0, 17).id);
     }
+
+    // ============================ 第十三批：Byrd（飞/落地） ============================
+
+    /** 鸟：开场掷硬币（Caw / Peck），飞着按 num 分档，落地后 Stun → Headbutt → 再起飞。 */
+    @Test
+    void byrdFlyGroundCycle() {
+        // 开场两个分支都可能
+        java.util.Set<Integer> firsts = new java.util.HashSet<Integer>();
+        for (int seed = 1; seed <= 20; seed++) {
+            SimState st = new SimState();
+            st.rng.put(SimState.RngKind.AI, RngStream.from(mix(seed), 0x9E3779B97F4A7C15L, 0));
+            SimMonster m = new SimMonster("Byrd", 25, 31, 0, NO_POWERS);
+            firsts.add(Integer.valueOf(MonsterMoves.machineFor("Byrd").next(
+                    new MonsterMoves.Context(st, m, m.moveHistory, 1, 0, 50, 0)).id));
+        }
+        assertTrue(firsts.contains(Integer.valueOf(1)), "可能 Peck");
+        assertTrue(firsts.contains(Integer.valueOf(6)), "可能 Caw");
+
+        // 飞着 num<50：上一招不是 Peck → Peck（history 为空走的是开场掷硬币，见上）
+        MonsterMove peck = decide("Byrd", history(2), 10, 0, 0);
+        assertEquals(1, peck.id);
+        assertEquals(5, peck.hits, "默认 5 段");
+        assertEquals(6, decide("Byrd", history(2), 10, 0, 2).hits, "A2 起 6 段");
+
+        // 飞着 num 50..69：没刚 Swoop 过 → Swoop
+        MonsterMove swoop = decide("Byrd", history(1), 60, 0, 0);
+        assertEquals(3, swoop.id);
+        assertEquals(12, swoop.damage);
+        assertEquals(14, decide("Byrd", history(1), 60, 0, 2).damage, "A2 起 14");
+
+        // 飞着 num>=70：没刚 Caw 过 → Caw（+1 力量）
+        MonsterMove caw = decide("Byrd", history(1), 90, 0, 0);
+        assertEquals(6, caw.id);
+        assertEquals("Strength", caw.selfBuff);
+        assertEquals(1, caw.selfBuffAmount);
+
+        // 落地后：Stun(4) → Headbutt(5) → 起飞(2)
+        assertEquals(5, decide("Byrd", history(2, 1, 4), 10, 0, 0).id, "STUN 完 Headbutt");
+        assertEquals(3, decide("Byrd", history(2, 1, 4), 10, 0, 0).damage, "Headbutt 3 伤");
+        MonsterMove fly = decide("Byrd", history(2, 1, 4, 5), 10, 0, 0);
+        assertEquals(2, fly.id, "Headbutt 完再起飞");
+        assertEquals("Flight", fly.selfBuff);
+        assertEquals(3, fly.selfBuffAmount, "默认 Flight 3");
+        assertEquals(4, decide("Byrd", history(2, 1, 4, 5), 10, 0, 17).selfBuffAmount,
+                "A17 起 Flight 4");
+    }
+
+    /** 落地：每段挨打掉 1 层 Flight，掉光 → 下一招变 STUN；格挡全吃掉不掉层。 */
+    @Test
+    void byrdLosesOneFlightPerHit() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        // 血量给足：中途被打死的话（hp 归零）后续断言就没意义了
+        SimMonster byrd = new SimMonster("Byrd", 100, 100, 0, NO_POWERS);
+        byrd.powers.put("Flight", Integer.valueOf(3));
+        byrd.pendingMove = MonsterMove.attack(3, 12);
+        byrd.pendingMoveId = 3;
+        s.monsters.add(byrd);
+
+        // 飞着的时候伤害**减半**（FlightPower.calculateDamageTakenAmount），
+        // 所以 1 点伤害会被砍成 0 —— 那一击既不掉血也不掉 Flight。
+        DamageCalc.hit(s, byrd, 1);
+        assertEquals(Integer.valueOf(3), byrd.powers.get("Flight"), "减半后 0 伤 → 不掉层");
+
+        DamageCalc.hit(s, byrd, 2);
+        assertEquals(Integer.valueOf(2), byrd.powers.get("Flight"), "减半后 1 伤 → 掉 1 层");
+        DamageCalc.hit(s, byrd, 60);
+        assertEquals(Integer.valueOf(1), byrd.powers.get("Flight"), "一发 30 伤也只掉 1 层");
+        assertEquals(3, byrd.pendingMove.id, "还没掉光，原招不变");
+
+        byrd.block = 10;               // 20 伤害先被减半成 10，正好全吃掉
+        DamageCalc.hit(s, byrd, 20);
+        assertEquals(Integer.valueOf(1), byrd.powers.get("Flight"), "被格挡吃光不掉层");
+
+        byrd.block = 0;
+        int hp = byrd.hp;
+        DamageCalc.hit(s, byrd, 2);
+        assertNull(byrd.powers.get("Flight"), "掉光就移除");
+        assertEquals(4, byrd.pendingMove.id, "掉光 → STUN");
+        assertEquals(hp - 1, byrd.hp);
+    }
+
+    // ============================ 第十四批：Chosen（Hex） ============================
+
+    /** 被选中者：低进阶先双击，然后必放 Hex，之后按 num 与上一招分档。 */
+    @Test
+    void chosenOpensWithPokeOrHexThenAlternates() {
+        MonsterMove poke = decide("Chosen", history(), 50, 0, 0);
+        assertEquals(5, poke.id, "低进阶第一招是双击");
+        assertEquals(2, poke.hits);
+        assertEquals(5, poke.damage);
+        assertEquals(6, decide("Chosen", history(), 50, 0, 2).damage, "A2 起每段 6");
+
+        MonsterMove hex = decide("Chosen", history(5), 50, 0, 0);
+        assertEquals(4, hex.id, "第二招必放 Hex");
+        assertEquals("Hex", hex.playerDebuff);
+
+        assertEquals(4, decide("Chosen", history(), 50, 0, 17).id, "A18+ 开局直接 Hex");
+
+        MonsterMove debilitate = decide("Chosen", history(5, 4), 10, 0, 0);
+        assertEquals(3, debilitate.id);
+        assertEquals(10, debilitate.damage);
+        assertEquals("Vulnerable", debilitate.playerDebuff);
+        assertEquals(2, debilitate.playerDebuffAmount);
+        assertEquals(12, decide("Chosen", history(5, 4), 10, 0, 2).damage, "A2 起 12");
+
+        MonsterMove zap = decide("Chosen", history(5, 4), 90, 0, 0);
+        assertEquals(2, zap.id);
+        assertEquals("Weakened", zap.playerDebuff);
+        assertEquals(3, zap.playerDebuffAmount);
+        assertEquals("Strength", zap.selfBuff, "削志同时给自己加力量");
+        assertEquals(3, zap.selfBuffAmount);
+
+        // 上一招是 3（或 2）时换攻击：num<40 重击、否则双击
+        assertEquals(1, decide("Chosen", history(5, 4, 3), 10, 0, 0).id);
+        assertEquals(18, decide("Chosen", history(5, 4, 3), 10, 0, 0).damage);
+        assertEquals(21, decide("Chosen", history(5, 4, 3), 10, 0, 2).damage, "A2 起 21");
+        assertEquals(5, decide("Chosen", history(5, 4, 3), 90, 0, 0).id, "num>=40 → 双击");
+        assertEquals(5, decide("Chosen", history(5, 4, 2), 90, 0, 0).id,
+                "上一招是 2 也算「刚削过」，走攻击分支；num>=40 → 双击");
+    }
+
+    /** Hex：玩家打非攻击牌就塞 Dazed 进抽牌堆；打攻击牌不触发。 */
+    @Test
+    void hexShufflesDazedOnNonAttackCards() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        s.energy = 5;
+        s.playerPowers.put("Hex", Integer.valueOf(1));
+        // 攻击牌要有个目标，不然 CardPlayer.play 会拒（顺手证明这局不是空场）
+        s.monsters.add(new SimMonster("TestMonster", 200, 200, 0, NO_POWERS));
+        s.hand.add(new SimCard("Defend_R", false, 1, -1, "SKILL"));
+        s.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+
+        assertEquals(0, countDazed(s));
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, -1);
+        assertEquals(1, countDazed(s), "打技能牌塞 1 张 Dazed");
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+        assertEquals(1, countDazed(s), "打攻击牌不触发");
+    }
+
+    // ============================ 第十五批：ShelledParasite（吸血 + 破甲硬直） ============================
+
+    /** 甲壳寄生虫：开场掷硬币（双击/吸血重击），之后三档 num；A17+ 开场直接吸血。 */
+    @Test
+    void shelledParasiteOpensThenAlternates() {
+        java.util.Set<Integer> firsts = new java.util.HashSet<Integer>();
+        for (int seed = 1; seed <= 20; seed++) {
+            SimState st = new SimState();
+            st.rng.put(SimState.RngKind.AI, RngStream.from(mix(seed), 0x9E3779B97F4A7C15L, 0));
+            SimMonster m = new SimMonster("ShelledParasite", 70, 70, 0, NO_POWERS);
+            firsts.add(Integer.valueOf(MonsterMoves.machineFor("ShelledParasite").next(
+                    new MonsterMoves.Context(st, m, m.moveHistory, 1, 0, 50, 0)).id));
+        }
+        assertTrue(firsts.contains(Integer.valueOf(2)), "可能双击");
+        assertTrue(firsts.contains(Integer.valueOf(3)), "可能吸血重击");
+
+        MonsterMove suck = decide("ShelledParasite", history(), 50, 0, 17);
+        assertEquals(1, suck.id, "A18+ 开场直接吸");
+        assertEquals(12, suck.damage, "A2 起 12");
+        assertEquals("Frail", suck.playerDebuff);
+        assertEquals(2, suck.playerDebuffAmount);
+
+        MonsterMove doubleStrike = decide("ShelledParasite", history(1), 30, 0, 0);
+        assertEquals(2, doubleStrike.id);
+        assertEquals(2, doubleStrike.hits);
+        assertEquals(6, doubleStrike.damage);
+        assertEquals(7, decide("ShelledParasite", history(1), 30, 0, 2).damage, "A2 起 7");
+
+        MonsterMove fell = decide("ShelledParasite", history(1), 80, 0, 0);
+        assertEquals(3, fell.id);
+        assertEquals(18, fell.damage);
+        assertTrue(fell.vampire, "Fell 是吸血一击");
+        assertEquals(21, decide("ShelledParasite", history(1), 80, 0, 2).damage, "A2 起 21");
+
+        assertEquals(3, decide("ShelledParasite", history(1, 2, 2), 30, 0, 0).id,
+                "连着两次双击 → 换吸血");
+        assertEquals(2, decide("ShelledParasite", history(1, 3, 3), 80, 0, 0).id,
+                "连着两次吸血 → 换双击");
+    }
+
+    /** num<20 且上一招就是吸 → 原版递归重掷（aiRng.random(20,99)），结果必落在 20..99 那两档。 */
+    @Test
+    void shelledParasiteRerollsWhenSuckRepeats() {
+        java.util.Set<Integer> moves = new java.util.HashSet<Integer>();
+        for (int seed = 1; seed <= 20; seed++) {
+            SimState st = new SimState();
+            st.rng.put(SimState.RngKind.AI, RngStream.from(mix(seed), 0x9E3779B97F4A7C15L, 0));
+            SimMonster m = new SimMonster("ShelledParasite", 70, 70, 0, NO_POWERS);
+            m.moveHistory.add(Integer.valueOf(1));
+            moves.add(Integer.valueOf(MonsterMoves.machineFor("ShelledParasite").next(
+                    new MonsterMoves.Context(st, m, m.moveHistory, 1, 0, 10, 0)).id));
+        }
+        assertFalse(moves.contains(Integer.valueOf(1)), "重掷之后不会再是吸（num 已 ≥20）");
+        assertTrue(moves.contains(Integer.valueOf(2)) || moves.contains(Integer.valueOf(3)));
+    }
+
+    /** 吸血：打掉玩家多少血就回多少（不超过上限）。 */
+    @Test
+    void shelledParasiteHealsByDamageDealt() {
+        SimState s = new SimState();
+        s.hp = 60;
+        s.maxHp = 80;
+        SimMonster parasite = new SimMonster("ShelledParasite", 70, 70, 0, NO_POWERS);
+        parasite.hp = 40;
+        parasite.pendingMove = MonsterMove.vampireAttack(3, 18);
+        parasite.pendingMoveId = 3;
+        s.monsters.add(parasite);
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(42, s.hp, "玩家掉 18");
+        assertEquals(58, parasite.hp, "怪回 18");
+
+        // 玩家有格挡时只回「真掉的血」
+        s.hp = 60;
+        s.block = 10;
+        parasite.hp = 40;
+        parasite.pendingMove = MonsterMove.vampireAttack(3, 18);
+        parasite.pendingMoveId = 3;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(52, s.hp);
+        assertEquals(48, parasite.hp, "格挡挡掉 10 → 只回 8");
+    }
+
+    /** 破甲（Plated Armor 归零）→ ARMOR_BREAK → 下一招变 STUN。 */
+    @Test
+    void plateArmorBreakStunsShelledParasite() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        SimMonster parasite = new SimMonster("ShelledParasite", 70, 70, 0, NO_POWERS);
+        parasite.powers.put("Plated Armor", Integer.valueOf(2));
+        parasite.pendingMove = MonsterMove.multiAttack(2, 6, 2);
+        parasite.pendingMoveId = 2;
+        s.monsters.add(parasite);
+
+        DamageCalc.hit(s, parasite, 1);
+        assertEquals(Integer.valueOf(1), parasite.powers.get("Plated Armor"));
+        assertEquals(2, parasite.pendingMove.id, "还有装甲，不改招");
+
+        DamageCalc.hit(s, parasite, 1);
+        assertNull(parasite.powers.get("Plated Armor"), "装甲掉光");
+        assertEquals(4, parasite.pendingMove.id, "破甲 → STUN");
+    }
 }

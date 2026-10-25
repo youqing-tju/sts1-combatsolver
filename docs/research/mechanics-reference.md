@@ -2370,3 +2370,68 @@ HP 8-12、tackle 3、Weak 1。
 游戏里不存在的名字，永远不会被镜像。
 
 规则定死：**测试里凡是要「未镜像」语义的地方，一律用 `TestMonster`，不许用真怪名。**
+
+### 33.24 第二章开张：Byrd / Chosen / ShelledParasite（2026-10-25）
+
+三只怪各带一个新机制，都落在既有咽喉上：
+
+| 怪 | 新机制 | 落点 |
+|---|---|---|
+| `Byrd` | **Flight（飞行）**：挨打掉 1 层、掉光就落地（STUN 一回合） | `DamageCalc.tickFlight` |
+| `Chosen` | **Hex（诅咒）**：玩家每打一张**非攻击牌**，往抽牌堆随机位置塞 1 张 Dazed | `Hooks.hex` |
+| `ShelledParasite` | **吸血**（打掉多少回多少）+ **破甲硬直**（Plated Armor 归零 → STUN） | `MonsterMove.vampire` / `DamageCalc.tickPlatedArmor` → `MonsterMoves.onArmorBreak` |
+
+#### Byrd
+
+```
+getMove:  firstMove → 掷硬币：6(Caw, +1 力量) / 1(Peck, 1 伤 × peckCount)
+          飞着：num<50 → 连续两招 1 ? 掷硬币(3 Swoop : 6) : 1
+                num<70 → lastMove(3) ? 掷硬币(6 : 1) : 3
+                否则   → lastMove(6) ? 掷硬币(3 : 1) : 6
+          落地 → 5(Headbutt, 3 伤)
+takeTurn: 2 → 挂 Flight=flightAmt；5 → 3 伤后**排 2 再起飞**；4 → 空过（STUN）
+常数:     peck 1×5（A2: 1×6）、swoop 12（A2: 14）、headbutt 3、Flight 3（A17: 4）
+```
+
+🔴 **Flight 的判据是「每段掉 1 层」，不是「按伤害掉」**：5 段 1 伤的小啄能一口气打掉 5 层，
+而一发 30 伤的重击也只掉 1 层。原来的 `tickFlight` 有两个错：
+**(a) 被格挡全吃掉也掉层**（原版 `damageAmount > 0` 是**过完格挡**的数）；
+**(b) 这一下打死也掉层**（原版还有 `damageAmount < currentHealth`）。都按字节码改掉了。
+另外飞着时**伤害减半**（`calculateDamageTakenAmount`：非 HP_LOSS/THORNS 时 `damage / 2`），
+所以 1 点伤害会被砍成 0 —— 那一击既不掉血也不掉层（测试钉住）。
+
+`isFlying` 从历史反推：最近一次「状态招」是 2（起飞）还是 4/5（落地后的招）。
+
+#### Chosen
+
+```
+getMove:  A18+：没放过诅咒 → 4(Hex)；否则 上一招既不是 3 也不是 2 时 num<50 → 3 : 2；否则 num<40 → 1 : 5
+          其余：第一回合 → 5(双击)；没放过诅咒 → 4(Hex)；之后同上
+takeTurn: 1 → 18（A2: 21）；2 → 玩家 Weak 3 + **自己 +3 力量**；
+          3 → 10（A2: 12）+ 玩家 Vulnerable 2；4 → 玩家 Hex 1；5 → 5（A2: 6）×2
+```
+
+`HexPower.onUseCard`：`card.type != ATTACK` → `MakeTempCardInDrawPileAction(new Dazed(), amount, true, true)`。
+不建模的后果是方向性错误（搜索会以为「多打技能牌没代价」）。
+
+#### ShelledParasite
+
+```
+getMove:  第一回合：A18+ → 1(Suck)；否则掷硬币 2(双击) / 3(Fell)
+          num<20：上一招不是 1 → 1；否则**递归重掷**（aiRng.random(20,99) 再走一遍）
+          num<60：最近两招不是 2 → 2；否则 3
+          否则：  最近两招不是 3 → 3；否则 2
+takeTurn: 1 → 10（A2: 12）+ 玩家 Frail 2；2 → 6（A2: 7）×2；
+          3 → 18（A2: 21）+ **吸血**（VampireDamageAction）；4 → 空过（破甲硬直）
+```
+
+两条外部触发：
+- **吸血**：`VampireDamageAction` 回的是「玩家**真正掉的血**」——格挡挡掉的部分不回（测试钉住 18 伤 / 10 格挡 → 只回 8）。
+- **破甲硬直**：`PlatedArmorPower.onRemove` → `ChangeStateAction("ARMOR_BREAK")` → 这只怪的
+  `changeState` 翻成 `setMove(4, STUN)`。落点 `tickPlatedArmor`，用 `MonsterMoves.onArmorBreak`
+  做「谁认这个状态」的分派（目前只有它）。
+
+顺带给 `RngStream` 补了 `random(int min, int max)`（`nextInt(max-min+1)+min`，两端都含，字节码直读）
+—— 递归重掷那步要用。
+
+验证 7 条测试，全量 **303 条**通过；累计 **30 只**。

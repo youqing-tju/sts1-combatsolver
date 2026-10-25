@@ -57,6 +57,12 @@ public final class MonsterMove {
     public final int splitCount2;
     /** 这一招是**逃离战斗**（原版 {@code EscapeAction}）—— 怪直接从场上消失，不算击杀。 */
     public final boolean escape;
+    /**
+     * 这一招是**吸血**（原版 {@code VampireDamageAction}）—— 打掉玩家多少血，自己回多少血。
+     *
+     * <p>ShelledParasite 的 Fell 就是它（意图显示 ATTACK_BUFF，那个「buff」其实是回血）。
+     */
+    public final boolean vampire;
 
     public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
                        String selfBuff, int selfBuffAmount,
@@ -106,6 +112,19 @@ public final class MonsterMove {
                        String statusCard, int statusCount,
                        String splitInto, int splitCount,
                        String splitInto2, int splitCount2, boolean escape) {
+        this(id, damage, hits, block, blockRandomAlly, selfBuff, selfBuffAmount,
+                playerDebuff, playerDebuffAmount, playerDebuff2, playerDebuff2Amount,
+                statusCard, statusCount, splitInto, splitCount, splitInto2, splitCount2,
+                escape, false);
+    }
+
+    public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
+                       String selfBuff, int selfBuffAmount,
+                       String playerDebuff, int playerDebuffAmount,
+                       String playerDebuff2, int playerDebuff2Amount,
+                       String statusCard, int statusCount,
+                       String splitInto, int splitCount,
+                       String splitInto2, int splitCount2, boolean escape, boolean vampire) {
         this.id = id;
         this.damage = Math.max(0, damage);
         this.hits = Math.max(0, hits);
@@ -124,6 +143,7 @@ public final class MonsterMove {
         this.splitInto2 = splitInto2;
         this.splitCount2 = Math.max(0, splitCount2);
         this.escape = escape;
+        this.vampire = vampire;
     }
 
     public boolean attacks() {
@@ -165,6 +185,13 @@ public final class MonsterMove {
         return new MonsterMove(id, 0, 0, 0, 0, power, amount, null, 0, null, 0);
     }
 
+    /** 给玩家上减益 + 自己挂能力（Chosen 的「削志」：玩家 Weak 3、自己 +3 力量）。 */
+    public static MonsterMove debuffAndBuff(int id, String playerDebuff, int playerDebuffAmount,
+                                            String selfBuff, int selfBuffAmount) {
+        return new MonsterMove(id, 0, 0, 0, 0, selfBuff, selfBuffAmount,
+                playerDebuff, playerDebuffAmount, null, 0, null, 0);
+    }
+
     /** 一次扣两项（Lagavulin 的 Siphon Soul：力量和敏捷各 -N）。 */
     public static MonsterMove doubleDebuff(int id, String first, int firstAmount,
                                            String second, int secondAmount) {
@@ -186,6 +213,12 @@ public final class MonsterMove {
     public static MonsterMove split(int id, String childType, int count) {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0,
                 null, 0, null, 0, childType, count);
+    }
+
+    /** 吸血一击（原版 {@code VampireDamageAction}）：打掉玩家多少血就回多少。 */
+    public static MonsterMove vampireAttack(int id, int damage) {
+        return new MonsterMove(id, damage, 1, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, true);
     }
 
     /** 逃离战斗（原版 {@code EscapeAction}）：怪从场上消失，不算击杀。 */

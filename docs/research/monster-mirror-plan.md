@@ -34,6 +34,9 @@
 | `GremlinThief` | 1 | 查证后：**不偷钱也不逃**，就是每回合打 9（A2: 10） |
 | `Looter` | 1 | 抹两次 → 掷硬币（烟雾弹/突袭）→ 烟雾弹 → **逃跑**（新载荷 escape） |
 | `ApologySlime` | 1 | 掷硬币：打 3 / 玩家 Weak 1 |
+| `Byrd` | 2 | 飞/落地状态机：Flight 每段掉 1 层、掉光 STUN；飞着伤害减半 |
+| `Chosen` | 2 | Hex（打非攻击牌塞 Dazed）+ 削志（Weak 3 / 自身 +3 力量） |
+| `ShelledParasite` | 2 | 吸血重击；Plated Armor 破甲即硬直 |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 

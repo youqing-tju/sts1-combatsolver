@@ -165,7 +165,15 @@ public final class CombatFlow {
             int damage = io.github.youqing.sts1solver.mirror.DamageCalc
                     .monsterAttackDamage(state, move.damage, m);
             if (damage > 0) {
+                int playerHpBefore = state.hp;
                 hitPlayer(state, damage, m);
+                // VampireDamageAction：打掉玩家多少血就给自己回多少（ShelledParasite 的 Fell）
+                if (move.vampire) {
+                    int dealt = playerHpBefore - state.hp;
+                    if (dealt > 0) {
+                        m.hp = Math.min(m.maxHp, m.hp + dealt);
+                    }
+                }
             }
         }
         if (move.block > 0) {

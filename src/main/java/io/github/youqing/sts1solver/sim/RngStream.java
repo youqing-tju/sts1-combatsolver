@@ -28,6 +28,15 @@ public final class RngStream {
     }
 
     /**
+     * {@code com.megacrit.cardcrawl.random.Random.random(int min, int max)} ——
+     * 计数器 +1，取 {@code nextInt(max - min + 1) + min}（两端都含，字节码直读）。
+     */
+    public int random(int min, int max) {
+        counter++;
+        return xs.nextInt(max - min + 1) + min;
+    }
+
+    /**
      * {@code com.megacrit.cardcrawl.random.Random.randomBoolean()} ——
      * 计数器 +1，底层走 {@code RandomXS128.nextBoolean()}（字节码直读）。
      */

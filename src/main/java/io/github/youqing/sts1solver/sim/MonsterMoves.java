@@ -126,6 +126,9 @@ public final class MonsterMoves {
         MACHINES.put("Looter", new LooterMachine());
         MACHINES.put("ApologySlime", new ApologySlimeMachine());
         MACHINES.put("SnakePlant", new SnakePlantMachine());
+        MACHINES.put("Byrd", new ByrdMachine());
+        MACHINES.put("Chosen", new ChosenMachine());
+        MACHINES.put("ShelledParasite", new ShelledParasiteMachine());
         MACHINES.put("AcidSlime_L", new AcidSlimeLMachine());
         MACHINES.put("SpikeSlime_L", new SpikeSlimeLMachine());
         MACHINES.put("SlimeBoss", new SlimeBossMachine());
@@ -214,6 +217,20 @@ public final class MonsterMoves {
             }
         }
         guardian.powers.put("Mode Shift", Integer.valueOf(base + 10 * shifts));
+    }
+
+    /**
+     * 装甲被打光时的反应（{@code PlatedArmorPower.onRemove} → {@code ChangeStateAction("ARMOR_BREAK")}）。
+     *
+     * <p>只有少数怪物的 {@code changeState} 认这个状态；目前只有 ShelledParasite
+     * 把它翻成 {@code setMove(4, STUN)}（破甲硬直一回合）。别的怪什么也不做。
+     */
+    public static void onArmorBreak(SimMonster monster) {
+        if (!"ShelledParasite".equals(monster.type) || monster.hp <= 0) {
+            return;
+        }
+        monster.pendingMove = MonsterMove.none(4);
+        monster.pendingMoveId = 4;
     }
 
     /** 取某只怪的机器（测试用来逐分支钉住；运行期走 {@link #next}）。 */
@@ -1117,6 +1134,186 @@ public final class MonsterMoves {
                     ? (c.lastMove(2) || c.lastMoveBefore(2))
                     : c.lastMove(2);
             return sawDebuff ? chomp : enfeebled;
+        }
+    }
+
+    /**
+     * 鸟（Byrd）—— 第二章，带「飞/落地」状态机。
+     *
+     * <pre>
+     * getMove:  firstMove → 掷硬币：6(Caw, +1 力量) 或 1(Peck, 1 伤 × peckCount)
+     *           飞着（isFlying）：num&lt;50 → 连续两招 1 ? 掷硬币(3 Swoop : 6) : 1
+     *                          num&lt;70 → lastMove(3) ? 掷硬币(6 : 1) : 3
+     *                          否则    → lastMove(6) ? 掷硬币(3 : 1) : 6
+     *           落地（!isFlying）→ 5(Headbutt, 3 伤)
+     * takeTurn: 1 → peckCount 段 damage[0]；2 → **起飞**（挂 Flight=flightAmt）；
+     *           3 → 一段 damage[1]；4 → 什么也不做（STUN）；5 → 一段 damage[2]，然后排 2（再起飞）；
+     *           6 → 自己 +1 力量
+     * 常数:     peck 1×5（A2: 1×6）、swoop 12（A2: 14）、headbutt 3、
+     *           Flight 3（A17: 4）、HP 25-31（A7: 26-33）
+     * </pre>
+     *
+     * <p>`isFlying` 从历史反推：最近一次「状态招」是 2（起飞）还是 4/5（落地后的招）。
+     * 落地本身由 {@code FlightPower} 触发（见 {@code DamageCalc.maybeGroundBird}）——
+     * 每次挨打掉 1 层，掉光就把下一招改成 4(STUN)。
+     */
+    static final class ByrdMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int peck = c.baseDamage(0, 1);
+            int peckCount = c.ascension >= 2 ? 6 : 5;
+            int swoop = c.baseDamage(1, c.ascension >= 2 ? 14 : 12);
+            int headbutt = c.baseDamage(2, 3);
+            MonsterMove peckMove = MonsterMove.multiAttack(1, peck, peckCount);
+            MonsterMove caw = MonsterMove.buff(6, "Strength", 1);
+            MonsterMove swoopMove = MonsterMove.attack(3, swoop);
+            if (c.history.isEmpty()) {
+                return c.randomBoolean(0.5f) ? caw : peckMove;
+            }
+            if (!flying(c)) {
+                // 落地：先 STUN(4) 再 Headbutt(5)，Headbutt 末尾排 2（再起飞）
+                if (c.lastMove(4)) {
+                    return MonsterMove.attack(5, headbutt);
+                }
+                if (c.lastMove(5)) {
+                    return fly(c);
+                }
+                return MonsterMove.attack(5, headbutt);
+            }
+            if (c.num < 50) {
+                if (c.lastTwoMoves(1)) {
+                    return c.randomBoolean(0.5f) ? swoopMove : caw;
+                }
+                return peckMove;
+            }
+            if (c.num < 70) {
+                if (c.lastMove(3)) {
+                    return c.randomBoolean(0.5f) ? caw : peckMove;
+                }
+                return swoopMove;
+            }
+            if (c.lastMove(6)) {
+                return c.randomBoolean(0.5f) ? swoopMove : peckMove;
+            }
+            return caw;
+        }
+
+        private MonsterMove fly(Context c) {
+            return MonsterMove.buff(2, "Flight", c.ascension >= 17 ? 4 : 3);
+        }
+
+        /** 最近一次「状态招」是 2（起飞）而不是 4/5（落地后的招）→ 现在飞着。 */
+        private static boolean flying(Context c) {
+            for (int i = c.history.size() - 1; i >= 0; i--) {
+                int id = c.history.get(i).intValue();
+                if (id == 2) {
+                    return true;
+                }
+                if (id == 4 || id == 5) {
+                    return false;
+                }
+            }
+            return true;        // 开场就是飞着的（构造器 isFlying = true）
+        }
+    }
+
+    /**
+     * 被选中者（Chosen）—— 第二章。
+     *
+     * <pre>
+     * getMove:  A18+：没放过诅咒 → 4(Hex)
+     *                否则 上一招既不是 3 也不是 2 时：num&lt;50 → 3(毒打) : 2(削志)
+     *                否则 num&lt;40 → 1(重击) : 5(双击)
+     *           其余：  第一回合 → 5(双击)
+     *                没放过诅咒 → 4(Hex)
+     *                之后同上
+     * takeTurn: 1 → 一段 damage[0]（18 / A2: 21）
+     *           2 → 玩家 Weak 3 + **自己 +3 力量**
+     *           3 → 一段 damage[1]（10 / A2: 12）+ 玩家 Vulnerable 2
+     *           4 → 给玩家挂 **Hex**（每打非攻击牌 → 往抽牌堆塞 1 张 Dazed）
+     *           5 → 两段 damage[2]（5 / A2: 6）
+     * 常数:     HP 95-99（A7: 98-103）
+     * </pre>
+     *
+     * <p>两个类字段从历史反推：{@code firstTurn} = 历史为空，{@code usedHex} = 历史里有 4。
+     * Hex 的生效点不在这个类里 —— 在 {@code Hooks.hex}（玩家每次出牌时检查）。
+     */
+    static final class ChosenMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int heavy = c.baseDamage(0, c.ascension >= 2 ? 21 : 18);
+            int debilitate = c.baseDamage(1, c.ascension >= 2 ? 12 : 10);
+            int poke = c.baseDamage(2, c.ascension >= 2 ? 6 : 5);
+            boolean usedHex = c.history.contains(Integer.valueOf(4));
+            if (c.ascension < 17 && c.history.isEmpty()) {
+                return MonsterMove.multiAttack(5, poke, 2);      // 低进阶先双击
+            }
+            if (!usedHex) {
+                return MonsterMove.attackDebuff(4, 0, "Hex", 1);
+            }
+            if (!c.lastMove(3) && !c.lastMove(2)) {
+                return c.num < 50
+                        ? MonsterMove.attackDebuff(3, debilitate, "Vulnerable", 2)
+                        : MonsterMove.debuffAndBuff(2, "Weakened", 3, "Strength", 3);
+            }
+            return c.num < 40
+                    ? MonsterMove.attack(1, heavy)
+                    : MonsterMove.multiAttack(5, poke, 2);
+        }
+    }
+
+    /**
+     * 甲壳寄生虫（ShelledParasite）—— 第二章。
+     *
+     * <pre>
+     * getMove:  第一回合：A18+ → 1(Suck, damage[1])
+     *                    否则掷硬币：2(Double Strike, damage[0] ×2) / 3(Fell, damage[2] + 吸血)
+     *           num&lt;20：上一招不是 1 → 1；否则**重掷**（aiRng.random(20,99) 再走一遍）
+     *           num&lt;60：最近两招不是 2 → 2；否则 3
+     *           否则：  最近两招不是 3 → 3；否则 2
+     * takeTurn: 1(Suck) → 一段 damage[1] + 玩家 Frail 2
+     *           2(Double Strike) → 两段 damage[0]
+     *           3(Fell) → ChangeState("ATTACK") + 一段 damage[2]，**打掉多少血自己回多少**
+     *           4 → 什么也不做（破甲硬直）
+     * 常数:     suck 10（A2: 12）、doubleStrike 6（A2: 7）、fell 18（A2: 21）、
+     *           HP 68-72（A7: 70-75）、开场挂 Plated Armor 14
+     * </pre>
+     *
+     * <p>{@code firstMove} 从历史反推（空 = 第一回合）；「破甲即硬直」不在这个类里 ——
+     * 由 {@code PlatedArmorPower.onRemove} 触发（见 {@link #onArmorBreak}）。
+     */
+    static final class ShelledParasiteMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            return decide(c, c.num);
+        }
+
+        private MonsterMove decide(Context c, int num) {
+            int suck = c.baseDamage(1, c.ascension >= 2 ? 12 : 10);
+            int doubleStrike = c.baseDamage(0, c.ascension >= 2 ? 7 : 6);
+            int fell = c.baseDamage(2, c.ascension >= 2 ? 21 : 18);
+            MonsterMove suckMove = MonsterMove.attackDebuff(1, suck, "Frail", 2);
+            MonsterMove doubleMove = MonsterMove.multiAttack(2, doubleStrike, 2);
+            MonsterMove fellMove = MonsterMove.vampireAttack(3, fell);
+            if (c.history.isEmpty()) {
+                if (c.ascension >= 17) {
+                    return suckMove;
+                }
+                return c.randomBoolean() ? doubleMove : fellMove;
+            }
+            if (num < 20) {
+                if (!c.lastMove(1)) {
+                    return suckMove;
+                }
+                // 原版就是递归重掷：getMove(aiRng.random(20, 99))
+                RngStream ai = c.state.rng.get(SimState.RngKind.AI);
+                int reroll = ai == null ? 20 : ai.random(20, 99);
+                return decide(c, reroll);
+            }
+            if (num < 60) {
+                return c.lastTwoMoves(2) ? fellMove : doubleMove;
+            }
+            return c.lastTwoMoves(3) ? doubleMove : fellMove;
         }
     }
 }

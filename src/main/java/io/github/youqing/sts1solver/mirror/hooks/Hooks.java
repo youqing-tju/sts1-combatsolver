@@ -68,6 +68,27 @@ public final class Hooks {
     }
 
     /**
+     * 诅咒（{@code HexPower.onUseCard}，Chosen 的技能）：玩家**每打出一张非攻击牌**，
+     * 就往抽牌堆随机位置塞 {@code amount} 张 Dazed（字节码：{@code card.type != ATTACK}
+     * → {@code MakeTempCardInDrawPileAction(new Dazed(), amount, true, true)}）。
+     *
+     * <p>不建模的后果同样是方向性错误：搜索会以为「多打技能牌没代价」，
+     * 在 Chosen 面前狂刷技能，然后每次都被塞牌拖垮后续回合。
+     */
+    private static void hex(SimState state, SimCard card) {
+        if ("ATTACK".equals(card.type)) {
+            return;
+        }
+        Integer amount = state.playerPowers.get("Hex");
+        if (amount == null || amount <= 0) {
+            return;
+        }
+        io.github.youqing.sts1solver.mirror.Effects
+                .insertIntoDrawPileRandom("Dazed", amount.intValue())
+                .applyTo(state, -1, null);
+    }
+
+    /**
      * 尖刺外壳（{@code SharpHidePower.onUseCard}，TheGuardian 的防御姿态技能）：
      * 玩家**每打出一张攻击牌**就掉 {@code amount} 点血（{@code DamageInfo} 类型是 THORNS）。
      *
@@ -102,6 +123,7 @@ public final class Hooks {
      */
     private static void monsterOnCardUsed(SimState state, SimCard card) {
         sharpHide(state, card);
+        hex(state, card);
         if (!"SKILL".equals(card.type)) {
             return;
         }

@@ -217,7 +217,7 @@ public final class DamageCalc {
         if (target.hp < 0) {
             target.hp = 0;
         }
-        tickFlight(target);
+        tickFlight(target, remaining, hpBefore);
         tickPlatedArmor(target, damage);
         tickAngry(target, damage);
         tickCurlUp(target, damage, hpBefore);
@@ -362,6 +362,9 @@ public final class DamageCalc {
         int left = plated - 1;
         if (left <= 0) {
             target.powers.remove(PLATED_ARMOR);
+            // PlatedArmorPower.onRemove：怪物身上的装甲耗尽 → ChangeStateAction("ARMOR_BREAK")。
+            // ShelledParasite 的 changeState 把这个状态翻成 setMove(4, STUN)（它的破甲硬直）。
+            io.github.youqing.sts1solver.sim.MonsterMoves.onArmorBreak(target);
         } else {
             target.powers.put(PLATED_ARMOR, left);
         }
@@ -375,17 +378,27 @@ public final class DamageCalc {
      * 只影响「刚好打死」的那一下；这里简化成每次普通攻击命中掉 1 层，
      * 差异只在边界（打死不打死都掉层），已记进 docs §26。
      */
-    private static void tickFlight(SimMonster target) {
+    private static void tickFlight(SimMonster target, int unblocked, int hpBefore) {
         Integer flight = target.powers.get(FLIGHT);
         if (flight == null || flight <= 0) {
             return;
         }
-        int left = flight - 1;
-        if (left <= 0) {
-            target.powers.remove(FLIGHT);
-        } else {
-            target.powers.put(FLIGHT, left);
+        // FlightPower.onAttacked 的四条与条件（字节码直读）：
+        //   info.owner != null && type 不是 HP_LOSS/THORNS && damageAmount > 0
+        //   && damageAmount < owner.currentHealth（**这一下打不死**）
+        // damageAmount 是**过完格挡之后**的数 —— 被格挡全吃掉就不掉层。
+        if (unblocked <= 0 || unblocked >= hpBefore) {
+            return;
         }
+        int left = flight - 1;
+        if (left > 0) {
+            target.powers.put(FLIGHT, left);
+            return;
+        }
+        // 掉光 = changeState("GROUNDED")：setMove(4, STUN) + isFlying = false
+        target.powers.remove(FLIGHT);
+        target.pendingMove = io.github.youqing.sts1solver.sim.MonsterMove.none(4);
+        target.pendingMoveId = 4;
     }
 
     /** 力量按倍率生效（重刃：力量 ×3/×5）。 */
