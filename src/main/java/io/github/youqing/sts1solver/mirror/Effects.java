@@ -285,7 +285,9 @@ public final class Effects {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 for (int i = 0; i < count; i++) {
-                    state.hand.add(new SimCard(id, false, -2));
+                    // 类型必须标 STATUS：进化（Evolve）是「抽到 STATUS 就再抽」，
+                    // 状态牌不带类型的话抽到也不触发（见 addStatusToDiscard 的同款注释）
+                    state.hand.add(new SimCard(id, false, -2, -1, "STATUS"));
                 }
             }
 
@@ -403,7 +405,10 @@ public final class Effects {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 for (int i = 0; i < count; i++) {
-                    state.discard.add(new SimCard(id, false, -2));
+                    // 🔴 类型必须标 STATUS：这张牌以后会被抽到，抽牌时 Evolve / 火吐
+                    // 都按 `type == STATUS` 判定；不标就成了「一张没有类型的废牌」，
+                    // 那些能力对它视而不见（静默漏算）。
+                    state.discard.add(new SimCard(id, false, -2, -1, "STATUS"));
                 }
             }
 

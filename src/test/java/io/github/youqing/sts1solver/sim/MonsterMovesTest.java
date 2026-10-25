@@ -1030,4 +1030,17 @@ class MonsterMovesTest {
         assertEquals("Sharp Hide", guardian.pendingMove.selfBuff);
         assertEquals(3, guardian.pendingMove.selfBuffAmount);
     }
+
+    /** 塞进牌堆的状态牌必须带 STATUS 类型，否则 Evolve / 火吐数不到（静默漏算）。 */
+    @Test
+    void statusCardsAddedToPilesCarryTheirType() {
+        SimState s = new SimState();
+        io.github.youqing.sts1solver.mirror.Effects.addStatusToDiscard("Burn", 1)
+                .applyTo(s, -1, null);
+        io.github.youqing.sts1solver.mirror.Effects.addStatusToHand("Wound", 1)
+                .applyTo(s, -1, null);
+
+        assertEquals("STATUS", s.discard.get(s.discard.size() - 1).type, "弃牌堆的 Burn 要带类型");
+        assertEquals("STATUS", s.hand.get(s.hand.size() - 1).type, "手牌里的 Wound 要带类型");
+    }
 }

@@ -71,3 +71,24 @@
 1. ~~aiRng 消耗口径~~ → **已定：复刻蓝本，消耗**（`MonsterMoves.next` 每次抽一次
    `aiRng.random(99)`，与 `AbstractMonster.rollMove` 同口径）。
 2. ~~进阶档~~ → **已定：补**（机器读 `Context.ascension`）。
+
+## 下一步：Hexaghost（第一章 boss）—— 两个真卡点
+
+1. **`orbActiveCount` 是类字段**，`getMove` 用 `switch(orbActiveCount)` 分 7 档
+   （0/1/2/3/4/5/6 → Sear / Tackle / Sear / Strengthen / Tackle / ? / ?）。
+   它是「还剩几个火球亮着」，每回合 -1 —— **理论上可从历史反推**（`activated` 之后走了几招），
+   但要先把 7 个档位全读准，且 `burnUpgraded`（火球烧掉后 Burn 是否升级）也会影响。
+2. **Divider（5 号招）**：`damage[2].base = 玩家当前血量 / 12 + 1`，然后 6 段 ——
+   这条好办（要看玩家血量，`SimState.hp` 就有）。
+   真正难的是**半血后的 Divide 阶段**：它会分裂成 6 个 `HexaghostOrb` + `HexaghostBody`，
+   而且这段时间 Hexaghost 本体不可攻击。要建模就得复用分裂管线 + 「无敌/不可选中」状态。
+
+**结论：先不做半只**。半只 Hexaghost 在 50% 血以下会静默算错（搜索以为还能继续打本体），
+这比不搬更糟。下一轮整块做：先读 `damage()` 重写（找 Divide 触发）与 6 个 orb 的构造参数。
+
+## 下一步：GremlinThief / Looter —— 逃逸时机依赖金币
+
+`escapeNext()` 是 `StealGoldAction` 调用的（偷到钱就标记，下一回合走 99(ESCAPE) 离场）。
+但**影子没有金币**：偷没偷到、偷几次才走，取决于玩家的金币余额 —— 那是战斗外的状态，
+`SimState` 里没有。所以要么补 `gold` 字段（捕获 `AbstractDungeon.player.gold`），
+要么明确不搬。倾向**补 gold**：它只有一个 int，捕获一行，而且顺带能让别的金币相关逻辑可用。
