@@ -144,5 +144,9 @@
 | **C. 面具强盗事件** | `BanditBear`、`BanditLeader`（`BanditPointy` 已做） | Bear 的 `Bear Stun` / Leader 的「喊话 + 全体格挡」要看 takeTurn 的 SetMove 链 |
 | **D. 第三章**（beyond 包，18 只） | `Darkling`/`OrbWalker`/`Spiker`/`Repulsor`/`SpireGrowth`/`Transient`/`WrithingMass`/`Nemesis`/`GiantHead`/`TimeEater`/`AwakenedOne`/`Deca`/`Donu`/`SpireSpear`/`SpireShield`/`Maw`/`JawWorm`? | 未读；先按 A/B 两组的新基础设施铺完再批量做 |
 
+⚠️ `GremlinLeader` 比另外两只多一层：构造器里**预先造好 3 只小鬼**（`gremlins[3]` 字段，
+从 5 种里随机挑），Rally 只是把「还没上场的」放出来。所以它不只是「召唤」，还要表达
+「这场战斗预置了哪几只、放到第几只」—— 建议和召唤载荷一起设计，别分开做。
+
 **下一步建议**：先做 A 组的召唤载荷（一次解锁 GremlinLeader + Collector + Automaton 三只 boss/精英），
 再做 B 组的「血量阈值换招」钩子（同样一次解锁多只）。
