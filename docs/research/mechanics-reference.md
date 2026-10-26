@@ -3223,3 +3223,26 @@ ID 全部按构造器首参核实（又是一堆空格差异）：
 `BirdFacedUrn` 的回血走 `healAmount`（魔法花 ×1.5 通道），所以 `2 → 3`。
 
 全量 **441 条**通过；遗物镜像 **32 件**。
+
+### 33.50 遗物第六批：回合结构（香炉 / 天鹅绒颈环 / 怀表）2026-10-26
+
+| 类 | 运行时 ID | 钩子（字节码） |
+|---|---|---|
+| `IncenseBurner` | **`Incense Burner`** | `atTurnStart`：`counter++`（-1 时 +2），`counter % 6 == 0` → 归零 + `IntangiblePlayerPower(1)` |
+| `VelvetChoker` | **`Velvet Choker`** | `onPlayCard`：`if (counter < 6) counter++`；`canPlay`：`counter >= 6` → **false**；`atTurnStart` 清零 |
+| `Pocketwatch` | `Pocketwatch` | `onPlayCard`：`counter++`；`atTurnStartPostDraw`：`counter <= 3` → `DrawCardAction(3)`，然后归零 |
+
+**三个坑**：
+
+1. **怀表的 `atTurnStartPostDraw` 位置很讲究**：它在**抽完牌之后**。影子必须挂在
+   `CombatFlow.endTurn` 的 `draw(...)` 之后 —— 挂到 `draw` 之前的话，多抽的 3 张会被
+   `HAND_LIMIT` 或后续抽牌顺序算错。
+2. **怀表的私有 `firstTurn` 不需要建模**。第 1 回合的 `atTurnStartPostDraw` 发生在
+   战斗刚开始、捕获快照之前，而 `endTurn` 只产出第 2 回合及以后 —— 所以这个钩子被调用时
+   `firstTurn` 一定是 false。**我一开始用 `state.turn > 1` 近似，是错的**：
+   `endTurn` 在调这个钩子之前就把 `state.turn` 递增成新回合号了，测试当场抓住了
+   （「第 1 回合不触发」那条断言拿到 8 张而不是 5 张）。
+3. **香炉的 `counter % 6 == 0` 而不是 `== 6`**：`onEquip` 置 0，`atTurnStart` 里先 `+1`
+   再判——所以第一次触发是第 6 回合（`0 → 1 … → 6`），之后每 6 回合一次。
+
+全量 **444 条**通过；遗物镜像 **35 件**。

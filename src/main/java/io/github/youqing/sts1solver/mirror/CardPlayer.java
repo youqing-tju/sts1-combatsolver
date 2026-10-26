@@ -66,6 +66,10 @@ public final class CardPlayer {
         if (mirror == null) {
             throw new ActionRejected("no mirror for card " + card.key());
         }
+        // 天鹅绒颈环：本回合已经打出 6 张 → 不能再打（VelvetChoker.canPlay）
+        if (io.github.youqing.sts1solver.mirror.hooks.RelicHooks.velvetChokerBlocks(state)) {
+            throw new ActionRejected("Velvet Choker: already played 6 cards this turn");
+        }
         // 缠身（Entangled）：本回合不能打出攻击牌。
         // 原版在 AbstractCard 的可打出判定里：hasPower("Entangled") && type == ATTACK → false。
         if (isAttack(card) && power(state, "Entangled") > 0) {

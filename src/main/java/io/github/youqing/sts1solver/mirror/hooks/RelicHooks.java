@@ -112,6 +112,23 @@ public final class RelicHooks {
     /** 萝卜（{@code Turnip}）：免疫脆弱（同上，拦的是 Frail）。 */
     public static final String TURNIP = "Turnip";
 
+    // ---- 第六批：回合结构（2026-10-26）----
+
+    /** 香炉（{@code IncenseBurner}）：每 6 个回合开始获得 1 层无实体。 */
+    public static final String INCENSE_BURNER = "Incense Burner";
+    /** 天鹅绒颈环（{@code VelvetChoker}）：每回合最多打出 6 张牌。 */
+    public static final String VELVET_CHOKER = "Velvet Choker";
+    /** 怀表（{@code Pocketwatch}）：上回合打出的牌 ≤ 3 张 → 本回合抽牌后再抽 3 张。 */
+    public static final String POCKETWATCH = "Pocketwatch";
+
+    /** {@code IncenseBurner.atTurnStart}: {@code counter % 6 == 0} → 无实体 1。 */
+    private static final int INCENSE_BURNER_TURNS = 6;
+    /** {@code VelvetChoker.canPlay}: {@code counter >= 6} → 打不出。 */
+    private static final int VELVET_CHOKER_LIMIT = 6;
+    /** {@code Pocketwatch.atTurnStartPostDraw}: {@code counter <= 3} → {@code DrawCardAction(player, 3)}。 */
+    private static final int POCKETWATCH_THRESHOLD = 3;
+    private static final int POCKETWATCH_DRAW = 3;
+
     /** {@code HappyFlower.atTurnStart}: {@code counter == 3} → {@code counter = 0} + {@code GainEnergyAction(1)}。 */
     private static final int HAPPY_FLOWER_TURNS = 3;
     /** {@code BirdFacedUrn.onUseCard}: {@code HealAction(player, player, 2)}。 */
@@ -363,12 +380,73 @@ public final class RelicHooks {
         counterBlockRelic(state, HORN_CLEAT, 2, HORN_CLEAT_BLOCK);
         counterBlockRelic(state, CAPTAINS_WHEEL, 3, CAPTAINS_WHEEL_BLOCK);
         happyFlower(state);
+        incenseBurner(state);
         // Shuriken / Ornamental Fan / Letter Opener / Kunai：atTurnStart 里 counter = 0
         for (String id : TURN_RESET_COUNTERS) {
             if (state.relics.containsKey(id)) {
                 state.relics.put(id, Integer.valueOf(0));
             }
         }
+    }
+
+    /**
+     * 香炉：`atTurnStart` 里 {@code counter++}（-1 时 +2），到 **6 的倍数**就给 1 层无实体并归零。
+     * 所以是第 6/12/18… 回合。{@code onEquip} 把 counter 置 0（第一回合 → 1，不会立刻触发）。
+     */
+    private static void incenseBurner(SimState state) {
+        Integer counter = state.relics.get(INCENSE_BURNER);
+        if (counter == null) {
+            return;
+        }
+        int next = counter.intValue() == -1 ? counter.intValue() + 2 : counter.intValue() + 1;
+        if (next % INCENSE_BURNER_TURNS == 0) {
+            state.relics.put(INCENSE_BURNER, Integer.valueOf(0));
+            state.playerPowers.put("Intangible",
+                    intOf(state.playerPowers.get("Intangible")) + 1);
+            // 刚挂上的这一回合不掉层（IntangiblePower 的 justApplied）
+            DamageCalc.markIntangibleFresh(state.playerPowers, "Intangible");
+        } else {
+            state.relics.put(INCENSE_BURNER, Integer.valueOf(next));
+        }
+    }
+
+    /**
+     * 怀表：`atTurnStartPostDraw` —— 上回合打出的牌 **≤ 3 张**就再抽 3 张，然后计数归零。
+     *
+     * <p>🔴 原版还有个私有 {@code firstTurn} 布尔：**第 1 回合不触发**（`atBattleStart` 置 true，
+     * 第 1 回合的 `atTurnStartPostDraw` 把它翻成 false）。
+     *
+     * <p>影子**不需要**这个布尔：第 1 回合的 `atTurnStartPostDraw` 发生在战斗刚开始、
+     * 捕获快照**之前**，而 {@code endTurn} 只会产出第 2 回合及以后 —— 也就是说这个钩子
+     * 每次被调用时 `firstTurn` 一定是 false。（曾用 `state.turn > 1` 近似，是错的：
+     * `endTurn` 在调这个钩子之前就把 `state.turn` 递增成新回合了。）
+     */
+    public static void onPlayerTurnStartPostDraw(SimState state) {
+        if (state == null) {
+            return;
+        }
+        Integer counter = state.relics.get(POCKETWATCH);
+        if (counter == null) {
+            return;
+        }
+        if (counter.intValue() <= POCKETWATCH_THRESHOLD) {
+            io.github.youqing.sts1solver.sim.CombatFlow.drawCards(state, POCKETWATCH_DRAW);
+        }
+        state.relics.put(POCKETWATCH, Integer.valueOf(0));
+    }
+
+    /**
+     * 天鹅绒颈环：本回合还能不能再出牌（`canPlay`：{@code counter >= 6} → 不行）。
+     *
+     * <p>`onPlayCard` 里 {@code counter++} 封顶到 6，`atTurnStart` 清零 —— 所以捕获到的值
+     * 就是「这个回合已经打了几张」。
+     */
+    public static boolean velvetChokerBlocks(SimState state) {
+        if (state == null) {
+            return false;
+        }
+        Integer counter = state.relics.get(VELVET_CHOKER);
+        return counter != null && counter.intValue() >= VELVET_CHOKER_LIMIT;
     }
 
     /** 快乐花：{@code counter++}，到 3 归零并 +1 能量（装备时 counter = 0，所以第 3/6/9 回合）。 */
@@ -438,6 +516,16 @@ public final class RelicHooks {
         }
         // 墨水瓶数的是「打出的牌」，攻击/技能/能力都算 —— 所以放在牌型判断之外
         inkBottle(state);
+        // Pocketwatch.onPlayCard：counter++（只用来判「≤ 3 张」，封不封顶都一样）
+        Integer pocketwatch = state.relics.get(POCKETWATCH);
+        if (pocketwatch != null) {
+            state.relics.put(POCKETWATCH, Integer.valueOf(pocketwatch.intValue() + 1));
+        }
+        // VelvetChoker.onPlayCard：counter++，**封顶到 6**（`if (counter < 6) counter++`）
+        Integer choker = state.relics.get(VELVET_CHOKER);
+        if (choker != null && choker.intValue() < VELVET_CHOKER_LIMIT) {
+            state.relics.put(VELVET_CHOKER, Integer.valueOf(choker.intValue() + 1));
+        }
         if (card.isAttack()) {
             nunchaku(state);
             ornamentalFan(state);

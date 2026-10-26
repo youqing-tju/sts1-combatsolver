@@ -209,6 +209,8 @@ public final class CombatFlow {
             state.playerPowers.remove("Draw Reduction");
         }
         draw(state, drawCount);
+        // 怀表（atTurnStartPostDraw）必须在**抽完牌之后**，否则它抽的 3 张会被算进正常抽牌
+        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onPlayerTurnStartPostDraw(state);
         Hooks.firePhase(state, HookPhase.START_OF_TURN_POST_DRAW);
     }
 

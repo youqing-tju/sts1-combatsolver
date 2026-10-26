@@ -13,6 +13,7 @@ import io.github.youqing.sts1solver.sim.SimState;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * 遗物第二批：被动 / 回合钩子（纸青蛙 / 鸟居 / 水银沙漏 / 号角夹板 / 舵轮 / 山铜）。
@@ -783,5 +784,84 @@ class RelicHooksTest {
         s4.monsters.get(0).pendingMoveId = 1;
         CombatFlow.endTurn(s4, 3, 5);
         assertEquals(null, s4.playerPowers.get("Frail"), "萝卜拦脆弱");
+    }
+    // ---------------------------------------------------------------- 第六批：回合结构
+
+    /** 天鹅绒颈环：一回合最多 6 张，第 7 张直接打不出（{@code canPlay} = false）。 */
+    @Test
+    void velvetChokerCapsSixCardsPerTurn() {
+        SimState s = fight();
+        s.energy = 10;
+        s.monsters.get(0).hp = 1000;
+        s.relics.put(RelicHooks.VELVET_CHOKER, Integer.valueOf(0));
+        for (int i = 0; i < 8; i++) {
+            s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 0, 6, "ATTACK"));
+        }
+
+        for (int i = 0; i < 6; i++) {
+            io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+        }
+        assertEquals(Integer.valueOf(6), s.relics.get(RelicHooks.VELVET_CHOKER), "计数封顶 6");
+        assertEquals(2, s.hand.size());
+
+        assertThrows(io.github.youqing.sts1solver.mirror.ActionRejected.class,
+                () -> io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0));
+        assertEquals(2, s.hand.size(), "被拒的那张还在手里");
+    }
+
+    /** 香炉：第 6 / 12… 个回合开始给 1 层无实体，计数归零。 */
+    @Test
+    void incenseBurnerGivesIntangibleEverySixthTurn() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.INCENSE_BURNER, Integer.valueOf(5));
+
+        RelicHooks.onPlayerTurnStart(s);
+
+        assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.INCENSE_BURNER), "计数归零");
+        assertEquals(Integer.valueOf(1), s.playerPowers.get("Intangible"), "第 6 回合给无实体");
+
+        // 第 7 回合不该再给
+        s.playerPowers.remove("Intangible");
+        RelicHooks.onPlayerTurnStart(s);
+        assertEquals(null, s.playerPowers.get("Intangible"));
+        assertEquals(Integer.valueOf(1), s.relics.get(RelicHooks.INCENSE_BURNER));
+    }
+
+    /** 怀表：上回合只打了 ≤ 3 张 → 本回合抽牌后再抽 3 张；第 1 回合不触发。 */
+    @Test
+    void pocketwatchDrawsThreeWhenFewCardsWerePlayed() {
+        SimState s = fight();
+        armedMonster(s);
+        s.turn = 3;                                  // 不是第 1 回合
+        s.relics.put(RelicHooks.POCKETWATCH, Integer.valueOf(2));   // 上回合打了 2 张
+        for (int i = 0; i < 12; i++) {
+            s.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(8, s.hand.size(), "正常抽 5 + 怀表 3");
+        assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.POCKETWATCH), "计数归零");
+
+        // 上回合打了 4 张 → 不触发
+        SimState s2 = fight();
+        armedMonster(s2);
+        s2.turn = 3;
+        s2.relics.put(RelicHooks.POCKETWATCH, Integer.valueOf(4));
+        for (int i = 0; i < 12; i++) {
+            s2.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+        CombatFlow.endTurn(s2, 3, 5);
+        assertEquals(5, s2.hand.size(), "打了 4 张就不给");
+
+        // 边界的另一半：上回合正好打 3 张（阈值含等号）→ 仍然给
+        SimState s3 = fight();
+        armedMonster(s3);
+        s3.turn = 3;
+        s3.relics.put(RelicHooks.POCKETWATCH, Integer.valueOf(3));
+        for (int i = 0; i < 12; i++) {
+            s3.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+        CombatFlow.endTurn(s3, 3, 5);
+        assertEquals(8, s3.hand.size(), "打 3 张是 `<= 3`，照样给");
     }
 }
