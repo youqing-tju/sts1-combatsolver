@@ -557,6 +557,18 @@ public final class MirrorRegistry {
         // 残虐天性：给敌人挂减益时造成 5/7 伤害
         register("Sadistic Nature", Effects.powerOnPlayer("Sadistic", 5));
         register("Sadistic Nature+", Effects.powerOnPlayer("Sadistic", 7));
+
+        // ---- 诅咒 / 状态牌：**没有效果**，注册它们只是为了「能被打出」 ----
+        // 原版这些牌的 use() 是空实现；它们默认 cost = -2（打不出），
+        // 只有蓝蜡烛（诅咒）/ 医疗包（状态）能让它们变成可打，打出去纯粹是清手牌。
+        // 不注册的话 CardPlayer 会以「no mirror」拒绝，蓝蜡烛/医疗包等于没带。
+        for (String inert : new String[]{
+                "Wound", "Dazed", "Burn", "Slimed", "Void",
+                "AscendersBane", "Clumsy", "Decay", "Doubt", "Injury", "Normality",
+                "Pain", "Parasite", "Regret", "Shame", "Writhe",
+                "Necronomicurse", "CurseOfTheBell"}) {
+            register(inert);
+        }
     }
 
     private MirrorRegistry() {

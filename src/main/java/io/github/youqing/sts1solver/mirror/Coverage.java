@@ -70,6 +70,8 @@ public final class Coverage {
                     "Kunai", "Happy Flower", "Bird Faced Urn", "Ginger", "Turnip",
                     // 第六批（2026-10-26）：回合结构
                     "Incense Burner", "Velvet Choker", "Pocketwatch", "Necronomicon",
+                    // 第七批（2026-10-26）：让打不出的牌能打
+                    "Blue Candle", "Medical Kit",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));

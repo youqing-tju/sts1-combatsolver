@@ -82,9 +82,22 @@ public final class CardPlayer {
             effectiveCost = Math.max(0, effectiveCost - state.hpLossCount);
         }
 
+        // 蓝蜡烛 / 医疗包：把 cost = -2（打不出）的诅咒 / 状态牌变成可打，费用按 0 算
+        // （原版 AbstractCard.canUse 放行，AbstractPlayer.useCard 用 Math.max(costForTurn, 0) 扣费）
+        boolean blueCandle = "CURSE".equals(card.type)
+                && state.relics.containsKey(
+                        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.BLUE_CANDLE);
+        boolean medicalKit = "STATUS".equals(card.type)
+                && state.relics.containsKey(
+                        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.MEDICAL_KIT);
+
         // cost == -1 是 X 费：出牌时消耗全部能量，效果按 X 结算（旋风斩）
         int xValue = 0;
-        if (card.cost < 0) {
+        if (card.cost == -2) {
+            if (!blueCandle && !medicalKit) {
+                throw new ActionRejected("unplayable card without a relic: " + card.key());
+            }
+        } else if (card.cost < 0) {
             if (card.cost != -1) {
                 throw new ActionRejected("unsupported cost " + card.cost + " on " + card.key());
             }
@@ -109,6 +122,12 @@ public final class CardPlayer {
 
         // 同样要触发 onUseCard：自动打出的牌也会数进遗物/能力计数
         io.github.youqing.sts1solver.mirror.hooks.Hooks.onCardUsed(state, card, targetIndex);
+
+        // BlueCandle.onUseCard：打出诅咒牌 → LoseHPAction(player, player, 1)（HP_LOSS：无视图格挡）
+        if (blueCandle) {
+            io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(state, 1, null,
+                    io.github.youqing.sts1solver.sim.DamageKind.HP_LOSS);
+        }
 
         // 死灵之书（Necronomicon.onUseCard）：本回合**第一次**打出「费用 ≥ 2 的攻击牌」时，
         // 原样再结算一次。原版判据（字节码）：type == ATTACK &&
@@ -141,7 +160,9 @@ public final class CardPlayer {
             io.github.youqing.sts1solver.mirror.hooks.Hooks.onCardUsed(state, card, targetIndex);
         }
 
-        if (mirror.exhaustsOnPlay) {
+        // 蓝蜡烛 / 医疗包打出时**强制消耗**（onUseCard 里把 card.exhaust 与
+        // UseCardAction.exhaustCard 都置 true），和「这张牌自己消耗」是两条路
+        if (mirror.exhaustsOnPlay || blueCandle || medicalKit) {
             Effects.exhaustCard(state, card);
         } else {
             state.discard.add(card);

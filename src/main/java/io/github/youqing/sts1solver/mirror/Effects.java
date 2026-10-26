@@ -655,6 +655,11 @@ public final class Effects {
         state.exhaust.add(card);
         // AbstractRelic.onExhaust（灰烬之主）：每消耗一张牌，全体 3 点纯伤
         io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onExhaust(state);
+        // 死灵诅咒（Necronomicurse.onExhaust）：消耗后**立刻回到手牌**（不是留在消耗堆）
+        if ("Necronomicurse".equals(card.id)) {
+            state.exhaust.remove(card);
+            state.hand.add(card);
+        }
         if ("Sentinel".equals(card.id) || "Sentinel+".equals(card.id)
                 || "Sentinel".equals(card.id)) {
             state.energy += 2;

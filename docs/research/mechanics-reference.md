@@ -3274,3 +3274,35 @@ if (card.type == ATTACK
   所以**X 费牌一律不触发**（宁可少给一次，也不凭空多打一次）。
 
 全量 **446 条**通过；遗物镜像 **36 件**。
+
+### 33.52 Blue Candle / Medical Kit：让「打不出的牌」能打 2026-10-26
+
+这两件遗物不改变任何数值，改变的是**动作空间**：诅咒牌与状态牌默认 `cost = -2`（打不出），
+带上之后可以花 0 费打出去清手牌，并**强制消耗**。
+
+| 位置 | 字节码事实 |
+|---|---|
+| `AbstractCard.canUse` | `type == STATUS && costForTurn < -1 && !hasRelic("Medical Kit")` → false；`type == CURSE && costForTurn < -1 && !hasRelic("Blue Candle")` → false |
+| `AbstractPlayer.useCard` | 扣费用 `Math.max(costForTurn, 0)` —— 所以 `-2` 实际是 0 费 |
+| `BlueCandle.onUseCard` | `type == CURSE` → `LoseHPAction(player, player, 1, FIRE)` + `card.exhaust = true` + `action.exhaustCard = true` |
+| `MedicalKit.onUseCard` | `type == STATUS` → 同上，但**不掉血** |
+
+影子：
+- `CardPlayer.play` 里把 `cost == -2` 单独一支（以前是「unsupported cost」直接拒），
+  只放行「诅咒 + 蓝蜡烛」与「状态 + 医疗包」两种组合，两者**不通用**（测试钉住了）；
+- 强制消耗与「这张牌自己消耗」分开判，`mirror.exhaustsOnPlay || blueCandle || medicalKit`；
+- 蓝蜡烛的 1 点是 `HP_LOSS`（无视图格挡、吃钨棒/无实体）—— 走 `hitPlayer` 统一入口。
+
+**基础设施**：`MirrorRegistry` 里注册了一批**空效果**的诅咒/状态牌
+（`Wound` / `Dazed` / `Burn` / `Slimed` / `Void` / `AscendersBane` / `Pain` / `Regret` /
+`Shame` / `Doubt` / `Decay` / `Injury` / `Normality` / `Clumsy` / `Writhe` / `Parasite` /
+`Necronomicurse` / `CurseOfTheBell`）。原版它们的 `use()` 本来就是空的，
+注册只是为了 `CardPlayer` 不再以「no mirror」拒绝 —— **不注册的话这两件遗物等于没带**。
+
+`Necronomicurse`（死灵诅咒）另有 `onExhaust` → 回到手牌，已在 `Effects.exhaustCard` 里特判。
+
+⚠️ **没做**：状态牌/诅咒牌的**在手动效果**（`Burn` 回合末 2 点伤害、`Dazed` 虚体消耗、
+`Void` 抽到时 -1 能量、`Regret` 每张手牌 1 点伤害…）。这些是独立的「手牌被动」，
+与这两件遗物无关，属于**已知缺口** —— 也就是说「手上有 Burn」这类局面目前是低估伤害的。
+
+全量 **450 条**通过；遗物镜像 **38 件**。

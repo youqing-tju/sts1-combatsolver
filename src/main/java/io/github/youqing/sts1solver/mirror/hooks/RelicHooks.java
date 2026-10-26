@@ -128,6 +128,13 @@ public final class RelicHooks {
      */
     public static final String NECRONOMICON = "Necronomicon";
 
+    // ---- 第七批：让「打不出的牌」变得能打（2026-10-26）----
+
+    /** 蓝蜡烛（{@code BlueCandle}）：诅咒牌可打出；打出时**掉 1 血**并消耗。 */
+    public static final String BLUE_CANDLE = "Blue Candle";
+    /** 医疗包（{@code MedicalKit}）：状态牌可打出，打出时消耗。 */
+    public static final String MEDICAL_KIT = "Medical Kit";
+
     /** {@code IncenseBurner.atTurnStart}: {@code counter % 6 == 0} → 无实体 1。 */
     private static final int INCENSE_BURNER_TURNS = 6;
     /** {@code VelvetChoker.canPlay}: {@code counter >= 6} → 打不出。 */

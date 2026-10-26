@@ -564,4 +564,82 @@ class CardPlayerTest {
         CardPlayer.play(full, 0, 0);
         assertEquals(10, full.hand.size(), "hand stops at 10");
     }
+    // ---------------------------------------------------------------- 蓝蜡烛 / 医疗包
+
+    /**
+     * 蓝蜡烛：诅咒牌（默认 cost = -2，打不出）变成可打，费用按 0 算，
+     * 打出时**掉 1 血**并进消耗堆。
+     *
+     * <p>依据：{@code AbstractCard.canUse} 里
+     * {@code type == CURSE && costForTurn < -1 && !hasRelic("Blue Candle") → false}；
+     * {@code BlueCandle.onUseCard} → {@code LoseHPAction(player, player, 1)} + 强制消耗。
+     */
+    @Test
+    void blueCandlePlaysCursesForOneHp() {
+        SimState s = combat("AscendersBane");
+        // 手牌里的诅咒是 -2 费（上面 combat() 按 costOf 给的是 0，这里显式改掉）
+        s.hand.set(0, new SimCard("AscendersBane", false, -2, -1, "CURSE"));
+
+        // 没遗物：拒绝
+        assertThrows(ActionRejected.class, () -> CardPlayer.play(s, 0, -1));
+
+        s.relics.put(io.github.youqing.sts1solver.mirror.hooks.RelicHooks.BLUE_CANDLE,
+                Integer.valueOf(-1));
+        int hpBefore = s.hp;
+        CardPlayer.play(s, 0, -1);
+
+        assertEquals(hpBefore - 1, s.hp, "打出诅咒掉 1 血");
+        assertEquals(4, s.energy, "费用按 0 算，能量不变");
+        assertEquals(1, s.exhaust.size(), "进消耗堆");
+        assertEquals(0, s.hand.size());
+    }
+
+    /** 医疗包：状态牌可打出并消耗，**不掉血**。 */
+    @Test
+    void medicalKitPlaysStatusesWithoutHpCost() {
+        SimState s = combat("Wound");
+        s.hand.set(0, new SimCard("Wound", false, -2, -1, "STATUS"));
+
+        assertThrows(ActionRejected.class, () -> CardPlayer.play(s, 0, -1));
+
+        s.relics.put(io.github.youqing.sts1solver.mirror.hooks.RelicHooks.MEDICAL_KIT,
+                Integer.valueOf(-1));
+        int hpBefore = s.hp;
+        CardPlayer.play(s, 0, -1);
+
+        assertEquals(hpBefore, s.hp, "医疗包不掉血");
+        assertEquals(4, s.energy);
+        assertEquals(1, s.exhaust.size(), "状态牌打出后消耗");
+    }
+
+    /** 两块遗物各管各的：蓝蜡烛不能让状态牌可打，医疗包也不能让诅咒可打。 */
+    @Test
+    void theTwoRelicsDoNotCrossOver() {
+        SimState s = combat("Wound");
+        s.hand.set(0, new SimCard("Wound", false, -2, -1, "STATUS"));
+        s.relics.put(io.github.youqing.sts1solver.mirror.hooks.RelicHooks.BLUE_CANDLE,
+                Integer.valueOf(-1));
+        assertThrows(ActionRejected.class, () -> CardPlayer.play(s, 0, -1));
+
+        SimState s2 = combat("AscendersBane");
+        s2.hand.set(0, new SimCard("AscendersBane", false, -2, -1, "CURSE"));
+        s2.relics.put(io.github.youqing.sts1solver.mirror.hooks.RelicHooks.MEDICAL_KIT,
+                Integer.valueOf(-1));
+        assertThrows(ActionRejected.class, () -> CardPlayer.play(s2, 0, -1));
+    }
+
+    /** 死灵诅咒：消耗后**回手**（{@code Necronomicurse.onExhaust}），不在消耗堆里。 */
+    @Test
+    void necronomicurseComesBackToHand() {
+        SimState s = combat("Necronomicurse");
+        s.hand.set(0, new SimCard("Necronomicurse", false, -2, -1, "CURSE"));
+        s.relics.put(io.github.youqing.sts1solver.mirror.hooks.RelicHooks.BLUE_CANDLE,
+                Integer.valueOf(-1));
+
+        CardPlayer.play(s, 0, -1);
+
+        assertEquals(1, s.hand.size(), "回到手牌");
+        assertEquals("Necronomicurse", s.hand.get(0).id);
+        assertEquals(0, s.exhaust.size(), "不在消耗堆");
+    }
 }
