@@ -1041,4 +1041,31 @@ class RelicHooksTest {
         RelicHooks.onPlayerTurnStart(s);
         assertEquals(5, s.energy, "没打攻击 → 再 +1");
     }
+    /** 奇异蘑菇：**自己**中易伤只多受 25%；纸鹤：**敌人**中虚弱少打 40%。 */
+    @Test
+    void oddMushroomAndPaperCraneChangeTheTwoMultipliers() {
+        // 敌人 10 点打过来，玩家易伤：默认 ×1.5 = 15
+        SimState s = fight();
+        s.playerPowers.put("Vulnerable", Integer.valueOf(1));
+        assertEquals(15, DamageCalc.monsterAttackDamage(s, 10, s.monsters.get(0)));
+
+        s.relics.put(RelicHooks.ODD_MUSHROOM, Integer.valueOf(-1));
+        assertEquals(12, DamageCalc.monsterAttackDamage(s, 10, s.monsters.get(0)),
+                "奇异蘑菇：10 × 1.25 = 12.5 → 12");
+
+        // 敌人中虚弱：默认 ×0.75 = 7（10 × 0.75 = 7.5 → 7）
+        SimState s2 = fight();
+        s2.monsters.get(0).powers.put("Weakened", Integer.valueOf(1));
+        assertEquals(7, DamageCalc.monsterAttackDamage(s2, 10, s2.monsters.get(0)));
+
+        s2.relics.put(RelicHooks.PAPER_CRANE, Integer.valueOf(-1));
+        assertEquals(6, DamageCalc.monsterAttackDamage(s2, 10, s2.monsters.get(0)),
+                "纸鹤：10 × 0.6 = 6");
+
+        // 两条互不影响：玩家打敌人的易伤仍是纸青蛙管的那条
+        SimMonster m = s2.monsters.get(0);
+        m.powers.put("Vulnerable", Integer.valueOf(1));
+        assertEquals(15, DamageCalc.attackDamage(s2, 10, m),
+                "纸鹤/奇异蘑菇都不动「玩家打敌人」的 ×1.5");
+    }
 }

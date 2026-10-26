@@ -74,12 +74,18 @@ public final class DamageCalc {
             dmg += strength == null ? 0 : strength.intValue();
             Integer weak = attacker.powers.get(WEAKENED);
             if (weak != null && weak.intValue() > 0) {
-                dmg = (int) Math.floor(dmg * 0.75f);
+                // 纸鹤：敌人中虚弱时少打 40%（×0.6），不是默认的 25%（×0.75）
+                dmg = (int) Math.floor(dmg
+                        * io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                                .monsterWeakMultiplier(state));
             }
         }
         Integer vulnerable = state.playerPowers.get(VULNERABLE);
         if (vulnerable != null && vulnerable.intValue() > 0) {
-            dmg = (int) Math.floor(dmg * 1.5f);
+            // 奇异蘑菇：**自己**中易伤只多受 25%（×1.25），不是 50%
+            dmg = (int) Math.floor(dmg
+                    * io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                            .playerVulnerableMultiplier(state));
         }
         return Math.max(0, dmg);
     }

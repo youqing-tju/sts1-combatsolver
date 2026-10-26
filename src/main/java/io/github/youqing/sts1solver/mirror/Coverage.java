@@ -75,6 +75,8 @@ public final class Coverage {
                     // 第八批（2026-10-26）：补满剩余战斗遗物
                     "TheAbacus", "Brimstone", "StoneCalendar", "Mark of the Bloom",
                     "Mummified Hand", "OrangePellets", "Art of War",
+                    // 倍率侧（2026-10-26）
+                    "Odd Mushroom", "Paper Crane",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));

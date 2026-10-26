@@ -151,6 +151,10 @@ public final class RelicHooks {
     public static final String ORANGE_PELLETS = "OrangePellets";
     /** 战争艺术（{@code ArtOfWar}）：上回合没打攻击牌 → 本回合 +1 能量。 */
     public static final String ART_OF_WAR = "Art of War";
+    /** 奇异蘑菇（{@code OddMushroom}）：**自己**中易伤时倍率从 1.5 降到 1.25。 */
+    public static final String ODD_MUSHROOM = "Odd Mushroom";
+    /** 纸鹤（{@code PaperCrane}）：**敌人**中虚弱时的减伤从 25% 提到 40%（×0.6）。 */
+    public static final String PAPER_CRANE = "Paper Crane";
 
     /** {@code Abacus.onShuffle}: {@code GainBlockAction(player, player, 6)}。 */
     private static final int ABACUS_BLOCK = 6;
@@ -442,6 +446,25 @@ public final class RelicHooks {
         }
         state.hp = Math.min(state.maxHp, state.hp + TOY_ORNITHOPTER_HEAL);
         syncRedSkull(state);
+    }
+
+    /**
+     * **玩家**中易伤时的受伤倍率（{@code VulnerablePower.atDamageReceive}）：
+     * 有奇异蘑菇 `1.25f`，否则 `1.5f`。
+     *
+     * <p>注意与纸青蛙区分：纸青蛙放大的是「**玩家打敌人**」那条（1.5 → 1.75），
+     * 奇异蘑菇缩小的是「**敌人打玩家**」这条。
+     */
+    public static float playerVulnerableMultiplier(SimState state) {
+        return state != null && state.relics.containsKey(ODD_MUSHROOM) ? 1.25f : 1.5f;
+    }
+
+    /**
+     * **敌人**中虚弱时的输出倍率（{@code WeakPower.atDamageGive}）：
+     * 有纸鹤 `0.6f`（少 40%），否则 `0.75f`（少 25%）。
+     */
+    public static float monsterWeakMultiplier(SimState state) {
+        return state != null && state.relics.containsKey(PAPER_CRANE) ? 0.6f : 0.75f;
     }
 
     private static int intOf(Integer value) {

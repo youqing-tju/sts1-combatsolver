@@ -3382,4 +3382,16 @@ if (this.dontTriggerOnUseCard) { ...真正的内容... }
 - `GamblingChip`（每回合让玩家选弃几张再抽）、`DeadBranch` / `NilrysCodex` / `Enchiridion`
   （随机生成牌，需要牌池枚举）、`SacredBark`（药水效果 ×2）、`UnceasingTop`（空手牌抽 1）。
 
-全量 **466 条**通过；遗物镜像 **45 件**。
+**第九批（同日晚）**：`OddMushroom` / `PaperCrane` —— 两条**倍率**，
+分别落在 `DamageCalc.monsterAttackDamage` 的两个点：
+- `Odd Mushroom`：**自己**中易伤 ×1.5 → **×1.25**（`VulnerablePower.atDamageReceive` 里 `owner.isPlayer` 分支）；
+- `Paper Crane`：**敌人**中虚弱 ×0.75 → **×0.6**（`WeakPower.atDamageGive` 里 `!owner.isPlayer` 分支）。
+
+🔴 这两条与纸青蛙（玩家→敌人易伤 1.5 → 1.75）是**三个不同的点**，别混：
+纸青蛙放大你打人，奇异蘑菇缩小你挨打，纸鹤放大敌人在虚弱时的减伤。
+
+⚠️ 这两只**没有钩子方法**，是被 `VulnerablePower` / `WeakPower` 直接读 ID 的 ——
+所以「按钩子方法扫描」会漏掉它们。盘点见 `docs/research/relic-inventory.md`（含 190 个遗物的分类
+与「明确未做」清单）。
+
+全量 **467 条**通过；遗物镜像 **47 件**。
