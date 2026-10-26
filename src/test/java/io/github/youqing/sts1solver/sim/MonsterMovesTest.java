@@ -2035,4 +2035,89 @@ class MonsterMovesTest {
         assertFalse(decideIn(s, "Champ", champ, history(7, 3), 10, 0).id == 3,
                 "刚处决过就不能再处决");
     }
+
+    // ============================ 第十九批：六火（Hexaghost）============================
+
+    /** 六火：开场 Activate（不打人），紧接着被 takeTurn 硬设成 Divider（6 段 × 玩家血/12+1）。 */
+    @Test
+    void hexaghostActivatesThenDivides() {
+        MonsterMove activate = decide("Hexaghost", history(), 50, 0, 0);
+        assertEquals(5, activate.id, "开场先 Activate");
+        assertEquals(0, activate.damage, "Activate 不打人");
+
+        SimState s = new SimState();
+        SimMonster ghost = new SimMonster("Hexaghost", 250, 250, 0, NO_POWERS);
+        s.monsters.add(ghost);
+        s.hp = 120;
+        MonsterMove divider = decideIn(s, "Hexaghost", ghost, history(5), 50, 0);
+        assertEquals(1, divider.id, "Activate 的 takeTurn 里 setMove(1, ...)");
+        assertEquals(6, divider.hits, "Divider 固定 6 段");
+        assertEquals(11, divider.damage, "120/12+1 = 11");
+    }
+
+    /** 六火：Divider 的伤害在 Activate 那一刻算好（整数除法向下取整）。 */
+    @Test
+    void hexaghostDividerRoundsDown() {
+        SimState s = new SimState();
+        SimMonster ghost = new SimMonster("Hexaghost", 250, 250, 0, NO_POWERS);
+        s.monsters.add(ghost);
+        s.hp = 119;
+        assertEquals(10, decideIn(s, "Hexaghost", ghost, history(5), 50, 0).damage, "119/12 = 9 → 10");
+        s.hp = 12;
+        assertEquals(2, decideIn(s, "Hexaghost", ghost, history(5), 50, 0).damage, "12/12+1 = 2");
+        s.hp = 1;
+        assertEquals(1, decideIn(s, "Hexaghost", ghost, history(5), 50, 0).damage, "1/12+1 = 1");
+    }
+
+    /** 六火：orbActiveCount 决定一切 —— 一场固定的 7 招循环。 */
+    @Test
+    void hexaghostFollowsTheOrbCycle() {
+        MonsterMove sear = decide("Hexaghost", history(5, 1), 50, 0, 0);
+        assertEquals(4, sear.id, "Divider 之后 Deactivate → 0 → Sear");
+        assertEquals(6, sear.damage, "Sear 6 点");
+        assertEquals("Burn", sear.statusCard, "Sear 往弃牌堆塞 Burn");
+
+        MonsterMove tackle = decide("Hexaghost", history(5, 1, 4), 50, 0, 0);
+        assertEquals(2, tackle.id, "orb 1 → Tackle");
+        assertEquals(2, tackle.hits, "Tackle 两段");
+        assertEquals(4, decide("Hexaghost", history(5, 1, 4, 2), 50, 0, 0).id, "orb 2 → Sear 是 4");
+
+        MonsterMove strengthen = decide("Hexaghost", history(5, 1, 4, 2, 4), 50, 0, 0);
+        assertEquals(3, strengthen.id, "orb 3 → Strengthen");
+        assertEquals(12, strengthen.block, "强化自带 12 格挡");
+        assertEquals("Strength", strengthen.selfBuff, "强化给的是力量");
+
+        assertEquals(4, decide("Hexaghost", history(5, 1, 4, 2, 4, 3, 2), 50, 0, 0).id, "orb 5 → Sear");
+        MonsterMove inferno = decide("Hexaghost", history(5, 1, 4, 2, 4, 3, 2, 4), 50, 0, 0);
+        assertEquals(6, inferno.id, "orb 6 → Inferno");
+        assertEquals(6, inferno.hits, "Inferno 6 段");
+        assertEquals(4, decide("Hexaghost", history(5, 1, 4, 2, 4, 3, 2, 4, 6), 50, 0, 0).id,
+                "Inferno 之后 Deactivate → 循环从头开始（不会再来一次 Divider）");
+    }
+
+    /** 六火：orb 计数重放的三个清零点（Activate 置 6 / Divider 与 Inferno 置 0）。 */
+    @Test
+    void hexaghostOrbCountReplaysFromHistory() {
+        assertEquals(6, MonsterMoves.hexaghostOrbs(history(5)), "Activate → 6");
+        assertEquals(0, MonsterMoves.hexaghostOrbs(history(5, 1)), "Divider → Deactivate");
+        assertEquals(1, MonsterMoves.hexaghostOrbs(history(5, 1, 4)), "Sear +1");
+        assertEquals(3, MonsterMoves.hexaghostOrbs(history(5, 1, 4, 2, 4)), "Sear/Tackle/Sear 各 +1");
+        assertEquals(0, MonsterMoves.hexaghostOrbs(history(5, 1, 4, 2, 4, 3, 2, 4, 6)), "Inferno 清零");
+    }
+
+    /** 六火：进阶档（A4 起重击 6 / 地狱 3；A19 起力量 3、Sear 塞 2 张）。 */
+    @Test
+    void hexaghostAscensionTiers() {
+        java.util.List<Integer> tackle = history(5, 1, 4);
+        assertEquals(5, decide("Hexaghost", tackle, 50, 0, 0).damage, "A0：Tackle 5");
+        assertEquals(6, decide("Hexaghost", tackle, 50, 0, 4).damage, "A4：Tackle 6");
+
+        java.util.List<Integer> inferno = history(5, 1, 4, 2, 4, 3, 2, 4);
+        assertEquals(2, decide("Hexaghost", inferno, 50, 0, 3).damage, "A0：Inferno 每段 2");
+        assertEquals(3, decide("Hexaghost", inferno, 50, 0, 4).damage, "A4：Inferno 每段 3");
+
+        assertEquals(1, decide("Hexaghost", history(5, 1), 50, 0, 18).statusCount, "A19 以下 Sear 塞 1 张");
+        assertEquals(2, decide("Hexaghost", history(5, 1), 50, 0, 19).statusCount, "A19 起塞 2 张");
+        assertEquals(3, decide("Hexaghost", history(5, 1, 4, 2, 4), 50, 0, 19).selfBuffAmount, "A19 强化 +3");
+    }
 }

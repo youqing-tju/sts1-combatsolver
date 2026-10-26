@@ -210,6 +210,7 @@ public final class MonsterMoves {
         MACHINES.put("BronzeOrb", new BronzeOrbMachine());
         MACHINES.put("BronzeAutomaton", new BronzeAutomatonMachine());
         MACHINES.put("Champ", new ChampMachine());
+        MACHINES.put("Hexaghost", new HexaghostMachine());
     }
 
     private MonsterMoves() {
@@ -2081,5 +2082,97 @@ public final class MonsterMoves {
             }
         }
         return numTurns + 1;                     // 下一次决策开头还要 +1
+    }
+
+    /**
+     * 六火（{@code Hexaghost}）。
+     *
+     * <p><b>「开场 6 个 orb + 半血分裂」这个模型是错的</b> —— 字节码里它既没有
+     * {@code damage()} 也没有 {@code die()} 重写，6 个 {@code HexaghostOrb} 是构造器里
+     * {@code createOrbs()} 造的**纯视觉对象**（没有血、打不掉）。真正驱动出招的是一个 int 字段
+     * {@code orbActiveCount}：
+     *
+     * <ul>
+     *   <li>{@code changeState("Activate")}（第 1 回合）→ 6 个 orb 点亮，{@code orbActiveCount = 6}，
+     *       并且 {@code takeTurn} 里**硬把下一招设成 Divider**（所以 Divider 不走 {@code getMove}）；</li>
+     *   <li>{@code changeState("Activate Orb")}（Sear / Tackle / Strengthen 的收尾）→ 点亮下一个 orb，
+     *       {@code orbActiveCount++}；**加到 6 时直接把下一招设成 Inferno**（也绕过 {@code getMove}）；</li>
+     *   <li>{@code changeState("Deactivate")}（Divider / Inferno 的收尾）→ 全部熄灭，{@code orbActiveCount = 0}。</li>
+     * </ul>
+     *
+     * <p>所以整场是**确定性循环**，一个随机数都不用（{@code num} 抽了但不看）：
+     * <pre>
+     * Activate → Divider(6×[玩家血/12+1]) → Sear → Tackle → Sear → Strengthen → Sear → Tackle → Sear
+     *          → Inferno(6×2/3) → Sear → Tackle → … （之后每 7 招一轮）
+     * </pre>
+     *
+     * <p>⚠️ 未建模：Sear 塞的 **Burn 在回合末的伤害**（2 / 升级后 4）。那是状态牌机制、
+     * 不是怪物 AI，影子目前对所有状态牌都只当「占手牌」。偏差方向 = 影子**低估**玩家受伤。
+     * 同理 {@code burnUpgraded}（第一次 Inferno 之后 Burn 变 Burn+）在影子里没有可观测效果。
+     */
+    static final class HexaghostMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            if (c.history.isEmpty()) {
+                return MonsterMove.none(5);              // Activate：不打人，下一招被硬设成 Divider
+            }
+            if (c.lastMove(5)) {
+                return divider(c);                       // takeTurn 的 5 号分支里 setMove(1, ...)
+            }
+            int tackleDmg = c.baseDamage(0, c.ascension >= 4 ? 6 : 5);
+            int infernoDmg = c.baseDamage(3, c.ascension >= 4 ? 3 : 2);
+            int searDmg = c.baseDamage(1, 6);
+            int str = c.ascension >= 19 ? 3 : 2;
+            int burns = c.ascension >= 19 ? 2 : 1;
+            switch (hexaghostOrbs(c.history)) {
+                case 1:                                   // Tackle
+                case 4:
+                    return MonsterMove.multiAttack(2, tackleDmg, 2);
+                case 3:                                   // Strengthen
+                    return MonsterMove.buffBlock(3, "Strength", str, 12);
+                case 6:                                   // Inferno（takeTurn 里直接设的 6 号招）
+                    return MonsterMove.multiAttack(6, infernoDmg, 6);
+                default:                                  // 0 / 2 / 5 → Sear
+                    return MonsterMove.attackStatus(4, searDmg, "Burn", burns);
+            }
+        }
+
+        /**
+         * Divider：{@code takeTurn} 的 5 号分支先把 {@code damage[2].base} 改成
+         * 「玩家**当前**血量 / 12 + 1」，再 {@code applyPowers()}，再 {@code setMove(1, ATTACK, base, 6, true)}。
+         * 所以这个数在 Activate 那一刻就定死了，之后玩家掉血也不会变。
+         */
+        private static MonsterMove divider(Context c) {
+            int hp = c.state == null ? 12 : c.state.hp;
+            return MonsterMove.multiAttack(1, hp / 12 + 1, 6);
+        }
+    }
+
+    /**
+     * 重放 {@code Hexaghost.orbActiveCount}（原版只在三个 {@code changeState} 里改它）。
+     *
+     * @return **下一次** {@code getMove} 看到的 orbActiveCount
+     */
+    static int hexaghostOrbs(List<Integer> history) {
+        int count = 0;
+        for (Integer id : history) {
+            switch (id.intValue()) {
+                case 5:                               // Activate
+                    count = 6;
+                    break;
+                case 1:                               // Divider → Deactivate
+                case 6:                               // Inferno → Deactivate
+                    count = 0;
+                    break;
+                case 2:                               // Tackle  ┐
+                case 3:                               // Strengthen ├ Activate Orb
+                case 4:                               // Sear      ┘
+                    count++;
+                    break;
+                default:
+                    break;
+            }
+        }
+        return count;
     }
 }

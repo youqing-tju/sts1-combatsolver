@@ -50,6 +50,7 @@
 | `BronzeOrb` | 2 | Stasis 只放一次；Flux 给 **BronzeAutomaton** 加 12 格挡；两下一循环 |
 | `BronzeAutomaton` | 2（boss） | 4→1→5→1→5→2→3 固定循环（`numTurns` 只能从历史重放）；BOOST 召 2 个铜球 |
 | `Champ` | 2（boss） | 三阶段：半血狂暴（自 +3×力量并清自身减益）、第 4 回合 Taunt（**不打人**）、半血后连打两下重斩；姿态最多两次、门槛 `num≤15`（A19: 30）。`numTurns/threshold/forgeTimes` 全部从 `moveHistory` 重放 |
+| `Hexaghost` | 1（boss） | **没有 damage()/die()、6 个 orb 是纯视觉**。真正的状态是 `orbActiveCount`，由三个 `changeState` 改 → 整场是确定性 7 招循环：Activate → Divider(6×[玩家血/12+1]) → Sear→Tackle→Sear→Strengthen→Sear→Tackle→Sear→Inferno→循环 |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 
@@ -122,7 +123,7 @@
 `takeTurn` 的 6 个分支（1..6）：5 = Activate/Divider（`damage[2] = 玩家当前血/12 + 1`，6 段）；
 2 = Tackle；3 = Strengthen；4 = Sear；6 = Inferno；1 = ?（119 起的那个分支，疑似把 orbActiveCount 置回 6）。
 
-**还差三块**才敢动手：
+**（已收口，见下面「B 组落地记录（续）」）** 当时以为还差三块才敢动手：
 ① 分支 1 到底干什么；② `damage()` 重写里 Divide 的触发与生成参数（6 个 `HexaghostOrb` + `HexaghostBody`）；
 ③ `burnUpgraded` 怎么翻（Sear 塞的 Burn 什么时候变 Burn+）。
 
@@ -137,7 +138,7 @@
 - `changeState` 里 `orbActiveCount = 6 / += 1 / = 0` 三处分别属于哪个状态；
 - `burnUpgraded` 在哪翻。
 
-**未查清之前不写 Hexaghost** —— 但它已经不影响 Act 1 的覆盖率了（其余 26 只都搬完了）。
+~~未查清之前不写 Hexaghost~~ —— 2026-10-26 已查清并落地，见下面「B 组落地记录（续）」；Act 1 **30 只全齐**。
 
 ## 剩余 28 只的施工顺序（2026-10-25 夜）
 
@@ -146,7 +147,7 @@
 | 组 | 怪物 | 缺什么 |
 |---|---|---|
 | ~~**A. 召唤**~~ ✅ 已完成（2026-10-26） | ~~`GremlinLeader` / `TheCollector` / `BronzeAutomaton`~~ | 见下面「A 组落地记录」——小鬼血量其实是 `monsterHpRng`（seed 控制），补捕获后**精确** |
-| ~~**B. 多阶段**~~ 🔶 进行中 | ~~`Champ`~~ ✅ / `Hexaghost` | `BronzeAutomaton`、`TheCollector` 已在 A 组顺带做完（它们的「换阶段」原来只是普通分支）。Champ 落地，详见下面「B 组落地记录」。剩 `Hexaghost` |
+| ~~**B. 多阶段**~~ ✅ 已完成（2026-10-26） | ~~`Champ` / `Hexaghost`~~（`BronzeAutomaton`、`TheCollector` 在 A 组顺带做完） | 结论：**一只都不需要通用钩子** —— 全都是在 `getMove` 里读普通字段。详见下面「B 组落地记录」 |
 | **C. 面具强盗事件** | `BanditBear`、`BanditLeader`（`BanditPointy` 已做） | Bear 的 `Bear Stun` / Leader 的「喊话 + 全体格挡」要看 takeTurn 的 SetMove 链 |
 | **D. 第三章**（beyond 包，18 只） | `Darkling`/`OrbWalker`/`Spiker`/`Repulsor`/`SpireGrowth`/`Transient`/`WrithingMass`/`Nemesis`/`GiantHead`/`TimeEater`/`AwakenedOne`/`Deca`/`Donu`/`SpireSpear`/`SpireShield`/`Maw`/`JawWorm`? | 未读；先按 A/B 两组的新基础设施铺完再批量做 |
 
@@ -237,3 +238,61 @@
 
 结论：**给顺序表型怪物写断言，先算 `numTurns`，再挑 `num` 落在哪个分档**，
 否则测试会一直"期望值写错"而不是"机器写错"。
+
+### B 组落地记录（续）：Hexaghost —— 「6 个 orb = 半血分裂」这个模型彻底错了
+
+字节码把两个假设都推翻了：
+
+1. **没有 `damage()` / `die()` 重写**（上一轮已发现）；
+2. **`HexaghostOrb` 是纯视觉对象** —— `createOrbs()` 只是按 6 个坐标 new 出 6 个 orb 塞进
+   `ArrayList`（构造器参数是 `(x, y, index)`），**没有血、不可选中、打不掉**。
+   所谓「半血分成 6 个 orb」在原版里根本不存在。
+
+真正的状态是**一个 int 字段 `orbActiveCount`**，只有三处 `changeState` 会改它：
+
+| changeState | 谁调用 | 副作用 |
+|---|---|---|
+| `"Activate"` | `takeTurn` 5 号分支（第 1 回合） | 6 个 orb 全亮，`orbActiveCount = 6` |
+| `"Activate Orb"` | Sear / Tackle / Strengthen 结尾 | 点亮**下一个**还没亮的 orb，`orbActiveCount++`；**加到 6 时直接 `setMove(6, Inferno)`** |
+| `"Deactivate"` | Divider / Inferno 结尾 | 全部熄灭，`orbActiveCount = 0` |
+
+`getMove` 就一句 `tableswitch(orbActiveCount)`：0/2/5 → Sear、1/4 → Tackle、3 → Strengthen、6 → Inferno。
+**一个随机数都不用**（`num` 抽了但不看），所以整场是确定性循环：
+
+```
+Activate → Divider(6×[玩家血/12+1]) → Sear → Tackle → Sear → Strengthen → Sear → Tackle → Sear
+         → Inferno(6×2|3) → Sear → Tackle → …（此后每 7 招一轮，Divider 不会再来）
+```
+
+### 两个数在第 5 号分支里现算
+
+`takeTurn` 的 5 号分支（Activate）做了三件容易漏的事：
+
+```java
+changeState("Activate");                                  // orbActiveCount = 6
+int dmg = AbstractDungeon.player.currentHealth / 12 + 1;   // 注意是**当时**的血
+damage.get(2).base = dmg; applyPowers();
+setMove((byte)1, ATTACK, damage.get(2).base, 6, true);     // 硬设 Divider，绕过 getMove
+```
+
+所以 `Divider` **不是** `getMove` 选出来的，而是 takeTurn 直接写的；我们的机器用
+`if (lastMove(5)) return divider(...)` 表达同一件事。伤害也在这一瞬间定死，
+玩家之后掉血不会改它 —— 影子在「Activate 执行完、玩家回合开始前」生成这招，时点一致。
+
+### 进阶数值（构造器三段 if）
+
+| 档 | 力量 | Sear 塞 Burn | Tackle 单段 | Inferno 单段 | HP |
+|---|---|---|---|---|---|
+| A0–3 | 2 | 1 | 5 | 2 | 250 |
+| A4–18 | 2 | 1 | 6 | 3 | 250 |
+| A19+ | 3 | 2 | 6 | 3 | 264（A9 起就是 264） |
+
+`searDmg`（Sear 本体的 6 点）与 `strengthenBlockAmt`（12）**所有档位都一样**。
+
+### 未建模（明确记录）
+
+- **Burn 在回合末的伤害**（2 / 升级后 4）。这是**状态牌机制**，不是怪物 AI；影子对所有状态牌
+  都只当「占手牌」。偏差方向 = 影子**低估**玩家受伤（六火战中每回合 4–12 点）。
+  这条要单独立议题（连同 Slimed/Wound 的「不可打出」是否已建模一起核）。
+- `burnUpgraded`（第一次 Inferno 之后 Sear 塞的是 Burn+）：因为上一条没建，它在影子里没有可观测效果，
+  所以只记录不实现。

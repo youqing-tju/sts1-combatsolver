@@ -2600,3 +2600,30 @@ Shackled / Lose Strength / Lose Dexterity / Strength Down / Dexterity Down / Slo
 `num≤30` 命中的是第 5 条。**先算 `numTurns`，再挑 `num` 落档**，否则会误判成机器写错。
 
 全量 **331 条**通过；累计 **43 只**。
+
+### 33.30 Hexaghost：状态字段是 `orbActiveCount`，不是「6 个 orb」2026-10-26
+
+**两个假设都被字节码推翻**：① 没有 `damage()`/`die()` 重写；② `HexaghostOrb` 是**纯视觉对象**
+（`createOrbs()` 按 6 个坐标 new 出来塞进 `ArrayList`，构造参数 `(x, y, index)`，无血、不可选中）。
+
+出招由 int 字段 `orbActiveCount` 驱动，只有三处 `changeState` 改它：
+
+| changeState | 调用点 | 副作用 |
+|---|---|---|
+| `Activate` | takeTurn 5 号分支（第 1 回合） | `orbActiveCount = 6` |
+| `Activate Orb` | Sear / Tackle / Strengthen 结尾 | `+1`；**到 6 时 `setMove(6, Inferno)`** |
+| `Deactivate` | Divider / Inferno 结尾 | `= 0` |
+
+`getMove` = `tableswitch(orbActiveCount)`：0/2/5→Sear(4)、1/4→Tackle(2)、3→Strengthen(3)、6→Inferno(6)。
+`num` 抽了不看 → **确定性循环**：Activate → Divider → Sear→Tackle→Sear→Strengthen→Sear→Tackle→Sear→Inferno → 循环。
+
+`Divider` 不在 `getMove` 里：takeTurn 5 号分支现算 `玩家当前血/12+1`、`applyPowers()`、
+`setMove(1, ATTACK, base, 6, true)`。所以影子用 `if (lastMove(5)) return divider(...)`。
+
+进阶：A4 起 Tackle 6 / Inferno 3；A19 起 力量 3、Sear 塞 2 张；HP 250（A9 起 264）。
+`searDmg=6` 与 `strengthenBlockAmt=12` 全档一致。
+
+**未建模**：Burn 的回合末伤害（2/4）—— 状态牌机制，不在怪物 AI 层；偏差方向 = 低估玩家受伤。
+`burnUpgraded` 因此没有可观测效果，只记录不实现。
+
+全量 **336 条**通过；累计 **44 只**（Act 1 三十只全齐）。
