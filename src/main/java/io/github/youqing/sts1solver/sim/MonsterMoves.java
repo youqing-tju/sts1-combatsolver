@@ -229,6 +229,7 @@ public final class MonsterMoves {
         MACHINES.put("Reptomancer", new ReptomancerMachine());
         MACHINES.put("SpireShield", new SpireShieldMachine());
         MACHINES.put("SpireSpear", new SpireSpearMachine());
+        MACHINES.put("CorruptHeart", new CorruptHeartMachine());
     }
 
     private MonsterMoves() {
@@ -2870,6 +2871,93 @@ public final class MonsterMoves {
             return c.ascension >= 18
                     ? MonsterMove.multiAttackStatusToDraw(1, damage, 2, "Burn", 2)
                     : MonsterMove.multiAttackStatus(1, damage, 2, "Burn", 2);
+        }
+    }
+
+    /**
+     * 腐化之心（{@code CorruptHeart}，Act 4 boss）。HP 750（A9: 800）。
+     *
+     * <p>🔴 它的 {@code moveCount} **不是** history.size()：第一招（Debuff）那一支
+     * `return` 得早，**没有 +1**。所以「本次决策看到的 moveCount」= {@code history.size() - 1}。
+     *
+     * <pre>
+     * isFirstMove            → 3 Debuff（并且 isFirstMove = false，moveCount 不动）
+     * moveCount % 3 == 0     → aiRng.randomBoolean() ? 1 Blood Shots : 2 Echo
+     * moveCount % 3 == 1     → !lastMove(2) ? 2 Echo : 1 Blood Shots
+     * moveCount % 3 == 2     → 4 Buff
+     *
+     * 1 Blood Shots：bloodHitCount（12｜A4:15）段 × damage[1]（2）
+     * 2 Echo       ：damage[0]（40｜A4:45）单段
+     * 3 Debuff     ：玩家 Vulnerable 2 + Weak 2 + Frail 2（都**写死 2**，不随进阶变）
+     *                + 往抽牌堆塞 Dazed / Slimed / Wound / Burn / Void 各 1 张
+     * 4 Buff       ：先把自己身上的负力量补回来（{@code strGain = -min(0, Strength)}），
+     *                然后 {@code Strength + (strGain + 2)}；再按 **buffCount** 追加一样：
+     *                0 → Artifact 2｜1 → Beat of Death 1｜2 → Painful Stabs｜
+     *                3 → Strength 10｜其余 → Strength 50；末尾 buffCount++
+     * </pre>
+     *
+     * <p>{@code buffCount} = 历史里 4 的个数（只有 Buff 那一支会 +1）。
+     *
+     * <p>🔴 **没建模**：{@code InvinciblePower}（每回合最多掉 300｜A19:200 点，{@code atEndOfRound}
+     * 恢复）。它需要一个「每回合伤害上限」容器，并且要从真机的私有字段 {@code maxAmt} 取上限；
+     * 本期没做 —— 影响是「极端一回合爆发」会被高估，正常回合（铁甲战士 <300）无差别。
+     */
+    static final class CorruptHeartMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            if (c.history.isEmpty()) {
+                return MonsterMove.debuffThreeAndCards(3,
+                        "Vulnerable", 2, "Weakened", 2, "Frail", 2,
+                        "Dazed", "Slimed", "Wound", "Burn", "Void");
+            }
+            int moveCount = c.history.size() - 1;
+            switch (moveCount % 3) {
+                case 0:
+                    return c.randomBoolean() ? bloodShots(c) : echo(c);
+                case 1:
+                    return c.lastMove(2) ? bloodShots(c) : echo(c);
+                default:
+                    return buff(c);
+            }
+        }
+
+        /** Blood Shots：段数是 {@code bloodHitCount}（12｜A4:15），每段 damage[1] = 2。 */
+        private static MonsterMove bloodShots(Context c) {
+            int per = c.baseDamage(1, 2);
+            return MonsterMove.multiAttack(1, per, c.ascension >= 4 ? 15 : 12);
+        }
+
+        /** Echo：damage[0] 单段（40｜A4:45）。 */
+        private static MonsterMove echo(Context c) {
+            return MonsterMove.attack(2, c.baseDamage(0, c.ascension >= 4 ? 45 : 40));
+        }
+
+        /** Buff：先补负力量、再 +2；随后按 buffCount 追加一样。 */
+        private static MonsterMove buff(Context c) {
+            int strGain = 0;
+            Integer strength = c.monster == null ? null : c.monster.powers.get("Strength");
+            if (strength != null && strength.intValue() < 0) {
+                strGain = -strength.intValue();
+            }
+            int gain = strGain + 2;
+            int buffCount = 0;
+            for (Integer id : c.history) {
+                if (id.intValue() == 4) {
+                    buffCount++;
+                }
+            }
+            switch (buffCount) {
+                case 0:
+                    return MonsterMove.buffTwo(4, "Strength", gain, "Artifact", 2);
+                case 1:
+                    return MonsterMove.buffTwo(4, "Strength", gain, "Beat of Death", 1);
+                case 2:
+                    return MonsterMove.buffTwo(4, "Strength", gain, "Painful Stabs", 1);
+                case 3:
+                    return MonsterMove.buffTwo(4, "Strength", gain, "Strength", 10);
+                default:
+                    return MonsterMove.buffTwo(4, "Strength", gain, "Strength", 50);
+            }
         }
     }
 }

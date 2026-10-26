@@ -2890,4 +2890,132 @@ class MonsterMovesTest {
             assertFalse("Burn".equals(c.id), "弃牌堆不该有 Burn");
         }
     }
+
+    // ============================ 第三十批：CorruptHeart（腐化之心，Act 4 boss）============================
+
+    /**
+     * 心脏：第一招固定 Debuff（**这一支不推进 moveCount**），之后按 `(history.size()-1) % 3` 走。
+     */
+    @Test
+    void corruptHeartFirstMoveIsTheDebuffAndThenFollowsItsCycle() {
+        MonsterMove debuff = decide("CorruptHeart", history(), 50, 0, 0);
+        assertEquals(3, debuff.id, "第一招必是 Debuff");
+        assertEquals("Vulnerable", debuff.playerDebuff);
+        assertEquals(2, debuff.playerDebuffAmount);
+        assertEquals("Weakened", debuff.playerDebuff2);
+        assertEquals("Frail", debuff.extra.playerDebuff3);
+        assertEquals(2, debuff.extra.playerDebuff3Amount, "三样都写死 2 层");
+        assertEquals(5, debuff.extra.drawPileCards.length, "五种状态牌各 1 张");
+        assertEquals("Dazed", debuff.extra.drawPileCards[0]);
+        assertEquals("Void", debuff.extra.drawPileCards[4]);
+
+        // history [3] → moveCount 0：抽随机决定 Blood Shots / Echo，两支都合法
+        MonsterMove second = decide("CorruptHeart", history(3), 50, 0, 0);
+        assertTrue(second.id == 1 || second.id == 2,
+                "moveCount%3==0：随机取 Blood Shots(1) / Echo(2)，实际 " + second.id);
+
+        // history [3,2] → moveCount 1：上一招是 2 → Blood Shots
+        MonsterMove shots = decide("CorruptHeart", history(3, 2), 50, 0, 0);
+        assertEquals(1, shots.id);
+        assertEquals(2, shots.damage, "每段 2");
+        assertEquals(12, shots.hits, "A4 以下 12 段");
+        assertEquals(15, decide("CorruptHeart", history(3, 2), 50, 0, 4).hits, "A4 起 15 段");
+
+        // history [3,1] → moveCount 1：上一招不是 2 → Echo
+        MonsterMove echo = decide("CorruptHeart", history(3, 1), 50, 0, 0);
+        assertEquals(2, echo.id);
+        assertEquals(40, echo.damage, "A0：40");
+        assertEquals(45, decide("CorruptHeart", history(3, 1), 50, 0, 4).damage, "A4 起 45");
+
+        // history 长度 3 → moveCount 2 → Buff（buffCount 0 → Artifact 2）
+        MonsterMove buff = decide("CorruptHeart", history(3, 1, 2), 50, 0, 0);
+        assertEquals(4, buff.id);
+        assertEquals("Strength", buff.selfBuff);
+        assertEquals(2, buff.selfBuffAmount, "Strength +2");
+        assertEquals("Artifact", buff.extra.extraSelfBuff);
+        assertEquals(2, buff.extra.extraSelfBuffAmount);
+
+        // 第二次 Buff（history 里已有 1 个 4）→ Beat of Death 1
+        MonsterMove secondBuff = decide("CorruptHeart", history(3, 1, 2, 4, 1, 2), 50, 0, 0);
+        assertEquals(4, secondBuff.id);
+        assertEquals("Beat of Death", secondBuff.extra.extraSelfBuff);
+        assertEquals(1, secondBuff.extra.extraSelfBuffAmount);
+    }
+
+    /** Buff 会把「负力量」先补回来：Strength -3 → 本次 +5（3 抵消 + 2 净增）。 */
+    @Test
+    void corruptHeartBuffUndoesNegativeStrengthFirst() {
+        SimState s = new SimState();
+        SimMonster heart = new SimMonster("CorruptHeart", 750, 750, 0,
+                new java.util.HashMap<String, Integer>());
+        heart.powers.put("Strength", Integer.valueOf(-3));
+        MonsterMove move = decideIn(s, "CorruptHeart", heart, history(3, 1, 2), 50, 0);
+        assertEquals(4, move.id);
+        assertEquals(5, move.selfBuffAmount, "(-(-3)) + 2 = 5");
+    }
+
+    /** 两个能力都要真的挂上（Strength + Artifact），并且玩家侧吃到 5 张状态牌。 */
+    @Test
+    void corruptHeartBuffAndDebuffLand() {
+        SimState s = new SimState();
+        s.hp = 100;
+        s.maxHp = 100;
+        SimMonster heart = new SimMonster("CorruptHeart", 750, 750, 0,
+                new java.util.HashMap<String, Integer>());
+        heart.pendingMove = MonsterMove.buffTwo(4, "Strength", 2, "Artifact", 2);
+        heart.pendingMoveId = 4;
+        s.monsters.add(heart);
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(Integer.valueOf(2), heart.powers.get("Strength"), "主字段的能力");
+        assertEquals(Integer.valueOf(2), heart.powers.get("Artifact"), "第二个能力也要挂上");
+
+        // Debuff：五张状态牌进抽牌堆（下一回合就会摸到）
+        SimState s2 = new SimState();
+        s2.hp = 100;
+        s2.maxHp = 100;
+        SimMonster heart2 = new SimMonster("CorruptHeart", 750, 750, 0,
+                new java.util.HashMap<String, Integer>());
+        heart2.pendingMove = MonsterMove.debuffThreeAndCards(3, "Vulnerable", 2,
+                "Weakened", 2, "Frail", 2, "Dazed", "Slimed", "Wound", "Burn", "Void");
+        heart2.pendingMoveId = 3;
+        s2.monsters.add(heart2);
+        CombatFlow.endTurn(s2, 3, 5);
+
+        assertEquals(Integer.valueOf(2), s2.playerPowers.get("Vulnerable"));
+        assertEquals(Integer.valueOf(2), s2.playerPowers.get("Weakened"));
+        assertEquals(Integer.valueOf(2), s2.playerPowers.get("Frail"));
+        int statuses = 0;
+        for (java.util.List<SimCard> pile : java.util.Arrays.asList(s2.hand, s2.draw)) {
+            for (SimCard c : pile) {
+                if ("STATUS".equals(c.type)) {
+                    statuses++;
+                }
+            }
+        }
+        assertEquals(5, statuses, "五种状态牌都进了抽牌堆（然后被摸上来）");
+    }
+
+    /** Beat of Death：每打一张牌玩家掉 1 点血（THORNS 类型 → 吃格挡）。 */
+    @Test
+    void beatOfDeathTicksOnEveryCardPlayed() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 50;
+        SimMonster heart = new SimMonster("CorruptHeart", 750, 750, 0,
+                new java.util.HashMap<String, Integer>());
+        heart.powers.put("Beat of Death", Integer.valueOf(1));
+        s.monsters.add(heart);
+
+        io.github.youqing.sts1solver.mirror.hooks.Hooks
+                .onCardUsed(s, new SimCard("Strike_R", false, 1, 6, "ATTACK"), 0);
+        assertEquals(49, s.hp, "打一张牌掉 1 点");
+
+        s.block = 3;
+        io.github.youqing.sts1solver.mirror.hooks.Hooks
+                .onCardUsed(s, new SimCard("Defend_R", false, 1, 0, "SKILL"), -1);
+        assertEquals(49, s.hp, "THORNS 伤害吃格挡，血不掉");
+        assertEquals(2, s.block, "格挡被扣掉 1 点");
+    }
 }

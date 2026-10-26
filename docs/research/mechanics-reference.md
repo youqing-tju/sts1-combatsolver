@@ -2782,3 +2782,35 @@ Nemesis：`scytheCooldown`（0 起、每次 -1、巨镰后归 2）+ 三分支 nu
 - **BURN STRIKE**：`skewerCount` 段 × `damage[1]`。
 
 全量 **375 条**通过；累计 **61 只**（Act 4 精英双子开张，剩 CorruptHeart）。
+
+### 33.39 CorruptHeart（腐化之心，Act 4 boss）2026-10-26
+
+HP 750（A9: 800）；`damage[0]` Echo 40（A4:45）、`damage[1]` Blood Shots **每段 2**；
+`bloodHitCount` 12（A4:15）。开场 `usePreBattleAction` 挂 `Invincible 300`（A19:200）+
+`Beat of Death 1`（A19:2）—— 快照里已有。
+
+🔴 **`moveCount` 不等于 history.size()**：第一招（Debuff）那一支提前 `return`，**没有 +1**。
+所以「本次决策看到的 moveCount」= `history.size() - 1`。
+
+| 条件 | 招 |
+|---|---|
+| history 空 | 3 Debuff（并置 isFirstMove=false） |
+| moveCount%3 == 0 | `aiRng.randomBoolean()` ? 1 Blood Shots : 2 Echo |
+| moveCount%3 == 1 | `!lastMove(2)` ? 2 Echo : 1 Blood Shots |
+| moveCount%3 == 2 | 4 Buff |
+
+- **Debuff**：玩家 Vulnerable 2 + Weak 2 + Frail 2（**三样都写死 2**，不随进阶变），
+  外加 Dazed / Slimed / Wound / Burn / Void **各 1 张** 进抽牌堆 → 新增
+  `Extra.drawPileCards`（`Extra.statusDrawCard` 只装得下一张）。
+- **Buff**：`strGain = -min(0, Strength)`（先把负力量补回来）→ `Strength + (strGain + 2)`；
+  再按 `buffCount`（= 历史里 4 的个数）追加一样：0→Artifact 2、1→Beat of Death 1、
+  2→Painful Stabs、3→Strength 10、其余→Strength 50。一次两个能力 → 新增
+  `Extra.extraSelfBuff`（主字段装 Strength，Extra 装第二样）。
+- **Beat of Death**（`onAfterUseCard`）：每打一张牌 `DamageAction(player, owner, amount, THORNS)`
+  → THORNS 不是 HP_LOSS，**吃格挡**。落在 `Hooks.monsterOnCardUsed`。
+
+🔴 **没建模**：`InvinciblePower`（每回合最多掉 300｜A19:200，`atEndOfRound` 恢复）。
+它要一个「每回合伤害上限」容器 + 从真机私有字段 `maxAmt` 取上限（`powers` 表只存 ID→层数）。
+影响：**极端一回合爆发**会被高估；正常回合（铁甲战士单回合 <300）无差别。
+
+全量 **379 条**通过；累计 **62 只**（Act 4 全部三只齐了）。

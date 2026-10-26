@@ -378,6 +378,28 @@ public final class MonsterMove {
                 null, 0, null, 0, false, false, 0, null, 0, Extra.statusToDraw(card, count));
     }
 
+    /**
+     * 三个玩家减益 + 往抽牌堆逐个塞状态牌（CorruptHeart 的 Debuff：
+     * Vulnerable/Weak/Frail 各 2 + Dazed/Slimed/Wound/Burn/Void 各 1）。
+     */
+    public static MonsterMove debuffThreeAndCards(int id,
+                                                  String first, int firstAmount,
+                                                  String second, int secondAmount,
+                                                  String third, int thirdAmount,
+                                                  String... cards) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, first, firstAmount,
+                second, secondAmount, null, 0, null, 0, null, 0, false, false, 0, null, 0,
+                Extra.thirdDebuffAndCards(third, thirdAmount, cards));
+    }
+
+    /** 一次挂两个自身能力（CorruptHeart 的 Buff：Strength +2 之外再按 buffCount 给一样）。 */
+    public static MonsterMove buffTwo(int id, String power, int amount,
+                                      String second, int secondAmount) {
+        return new MonsterMove(id, 0, 0, 0, 0, power, amount, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, null, 0,
+                Extra.secondSelfBuff(second, secondAmount));
+    }
+
     /** 本体什么都不做、只有 {@link Extra} 载荷（Repulsor 的 Daze：往抽牌堆塞牌）。 */
     public static MonsterMove extra(int id, Extra extra) {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
@@ -508,12 +530,35 @@ public final class MonsterMove {
          * {@code GainBlockAction(this, this, damage.get(1).output)}）。
          */
         public final boolean blockFromDamage;
+        /**
+         * 往**抽牌堆**逐个塞这些状态牌（每项 1 张）。CorruptHeart 的 Debuff 一次塞
+         * {@code Dazed/Slimed/Wound/Burn/Void} 各 1 张，{@link #statusDrawCard} 只装得下一张。
+         */
+        public final String[] drawPileCards;
+        /**
+         * 第二个自身能力。CorruptHeart 的 Buff 一次挂两样
+         * （{@code Strength +2} 恒定，另外按 buffCount 再给一个），主字段装不下。
+         */
+        public final String extraSelfBuff;
+        public final int extraSelfBuffAmount;
 
         private Extra(Summon summon, String blockAllyType, int blockAllyTypeAmount,
                       int blockAllies, String playerDebuff3, int playerDebuff3Amount,
                       boolean cleanseSelf, String statusDrawCard, int statusDrawCount,
                       boolean selfDestruct, String absentBuff, int absentBuffAmount,
                       boolean reincarnate, boolean blockFromDamage) {
+            this(summon, blockAllyType, blockAllyTypeAmount, blockAllies, playerDebuff3,
+                    playerDebuff3Amount, cleanseSelf, statusDrawCard, statusDrawCount,
+                    selfDestruct, absentBuff, absentBuffAmount, reincarnate, blockFromDamage,
+                    null, null, 0);
+        }
+
+        private Extra(Summon summon, String blockAllyType, int blockAllyTypeAmount,
+                      int blockAllies, String playerDebuff3, int playerDebuff3Amount,
+                      boolean cleanseSelf, String statusDrawCard, int statusDrawCount,
+                      boolean selfDestruct, String absentBuff, int absentBuffAmount,
+                      boolean reincarnate, boolean blockFromDamage,
+                      String[] drawPileCards, String extraSelfBuff, int extraSelfBuffAmount) {
             this.summon = summon;
             this.blockAllyType = blockAllyType;
             this.blockAllyTypeAmount = Math.max(0, blockAllyTypeAmount);
@@ -528,6 +573,9 @@ public final class MonsterMove {
             this.absentBuffAmount = Math.max(0, absentBuffAmount);
             this.reincarnate = reincarnate;
             this.blockFromDamage = blockFromDamage;
+            this.drawPileCards = drawPileCards == null ? new String[0] : drawPileCards;
+            this.extraSelfBuff = extraSelfBuff;
+            this.extraSelfBuffAmount = Math.max(0, extraSelfBuffAmount);
         }
 
         public static Extra summon(Summon summon) {
@@ -582,10 +630,23 @@ public final class MonsterMove {
             return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, null, 0, false, true);
         }
 
+        /** 第三个玩家减益 + 往抽牌堆逐个塞牌（CorruptHeart 的 Debuff）。 */
+        public static Extra thirdDebuffAndCards(String power, int amount, String... cards) {
+            return new Extra(null, null, 0, 0, power, amount, false, null, 0, false, null, 0, false,
+                    false, cards, null, 0);
+        }
+
+        /** 第二个自身能力（CorruptHeart 的 Buff：Strength +2 之外再挂一样）。 */
+        public static Extra secondSelfBuff(String power, int amount) {
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, null, 0, false, false,
+                    null, power, amount);
+        }
+
         public boolean isEmpty() {
             return summon == null && blockAllyType == null && blockAllies <= 0
                     && playerDebuff3 == null && !cleanseSelf && statusDrawCard == null
-                    && !selfDestruct && absentBuff == null && !reincarnate && !blockFromDamage;
+                    && !selfDestruct && absentBuff == null && !reincarnate && !blockFromDamage
+                    && drawPileCards.length == 0 && extraSelfBuff == null;
         }
     }
 

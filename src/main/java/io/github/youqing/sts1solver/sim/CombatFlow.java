@@ -377,6 +377,21 @@ public final class CombatFlow {
                 state.draw.add(at, new SimCard(extra.statusDrawCard, false, -2, -1, "STATUS"));
             }
         }
+        if (extra.drawPileCards.length > 0) {
+            // CorruptHeart 的 Debuff：五种状态牌各 1 张，逐个插进抽牌堆（同一套「插中间」口径）。
+            for (String card : extra.drawPileCards) {
+                int at = state.draw.size() / 2;
+                state.draw.add(at, new SimCard(card, false, -2, -1, "STATUS"));
+            }
+        }
+        if (extra.extraSelfBuff != null && extra.extraSelfBuffAmount > 0) {
+            // CorruptHeart 的 Buff 第二个能力（主字段给 Strength +2，这里再挂一样）
+            Integer prior = owner.powers.get(extra.extraSelfBuff);
+            owner.powers.put(extra.extraSelfBuff,
+                    (prior == null ? 0 : prior) + extra.extraSelfBuffAmount);
+            io.github.youqing.sts1solver.mirror.DamageCalc
+                    .markIntangibleFresh(owner.powers, extra.extraSelfBuff);
+        }
         if (extra.cleanseSelf) {
             // 原版 RemoveDebuffsAction：遍历 powers 移除 type == DEBUFF 的。
             // 🔴 我们只存了 ID、没有 PowerType，所以这里用**名字白名单**。

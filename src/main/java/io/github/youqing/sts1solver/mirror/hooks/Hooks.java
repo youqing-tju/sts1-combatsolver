@@ -135,6 +135,19 @@ public final class Hooks {
                 slowMonster.powers.put("Slow", Integer.valueOf(slow.intValue() + 1));
             }
         }
+        // BeatOfDeathPower.onAfterUseCard（CorruptHeart）：每打一张牌，玩家掉 amount 点血。
+        // 字节码：new DamageAction(player, new DamageInfo(owner, amount, **THORNS**))
+        // → THORNS 不是 HP_LOSS，所以**吃格挡**（AbstractCreature.damage 的判据）。
+        for (SimMonster beatMonster : state.monsters) {
+            if (beatMonster.hp <= 0) {
+                continue;
+            }
+            Integer beat = beatMonster.powers.get("Beat of Death");
+            if (beat != null && beat.intValue() > 0) {
+                io.github.youqing.sts1solver.sim.CombatFlow
+                        .hitPlayer(state, beat.intValue());
+            }
+        }
         if (!"SKILL".equals(card.type)) {
             return;
         }
