@@ -591,40 +591,87 @@ public final class CombatFlow {
         }
     }
 
-    /** 公开：荆棘反伤、药水伤害等外部路径要走同一套（格挡吸收 + 死亡豁免）。 */
+    /**
+     * 公开：荆棘反伤、药水伤害等外部路径要走同一套（格挡吸收 + 死亡豁免）。
+     *
+     * <p>没有攻击者 → 只能是 {@link DamageKind#THORNS}（原版这类伤害的 {@code info.owner}
+     * 要么是怪、要么是 null，反正不会是玩家自己出手的普通攻击）。
+     */
     public static void hitPlayer(SimState state, int damage) {
-        hitPlayer(state, damage, null);
+        hitPlayer(state, damage, null, DamageKind.THORNS);
     }
 
     /**
-     * 打玩家。{@code attacker} 是出手的怪（{@code null} = 无攻击者，如药水/自伤）。
+     * 打玩家。{@code attacker} 是出手的怪（{@code null} = 无攻击者，如药水/荆棘）。
      *
      * <p>带攻击者时要结算**烈焰屏障**（{@code FlameBarrierPower.onAttacked}）：
      * 玩家受击时反弹 {@code amount} 点给攻击者。
      */
-    public static void hitPlayer(SimState state, int damage, io.github.youqing.sts1solver.sim.SimMonster attacker) {
-        // 无实体：所有伤害上限 1（IntangiblePower.atDamageFinalReceive），
-        // 在**最终伤害**上生效、扣格挡之前 —— 所以 1 点伤害仍会被格挡完全吸收
+    public static int hitPlayer(SimState state, int damage,
+                                io.github.youqing.sts1solver.sim.SimMonster attacker) {
+        return hitPlayer(state, damage, attacker, DamageKind.NORMAL);
+    }
+
+    /**
+     * 打玩家的唯一入口，逐条复刻 {@code AbstractPlayer.damage(DamageInfo)} 的管线。
+     *
+     * <p>顺序（字节码 offset 顺序，别调换）：
+     * <ol>
+     *   <li>负数夹 0；</li>
+     *   <li><b>无实体</b>：{@code damage > 1} → 1（**不看类型**，所以掉血也被压成 1）；</li>
+     *   <li><b>格挡</b>：{@code decrementBlock} —— **HP_LOSS 直接跳过**；</li>
+     *   <li><b>鸟居</b>：只认 {@code owner != null} 且类型不是 THORNS/HP_LOSS，{@code 1 < dmg <= 5} → 1；</li>
+     *   <li><b>钨棒</b>（{@code onLoseHpLast}）：无分支，三种类型都 {@code -1}；</li>
+     *   <li>扣血；{@code damage > 0} 时记一次「受伤」（浴血奋战的减费计数）；</li>
+     *   <li>死亡豁免 → 烈焰屏障反弹（只认普通攻击）。</li>
+     * </ol>
+     *
+     * <p>🔴 第 3 步与第 5 步的先后是「易伤/挡」与「钨棒」的交界：原版先扣格挡、
+     * 再用剩下的伤害过 {@code onLoseHpLast}。所以 6 点伤害撞 4 点格挡 → 剩 2 → 钨棒减到 1。
+     *
+     * @return **实际掉的血**（格挡/钨棒/无实体之后）。{@code RupturePower.wasHPLost} 认这个数，
+     *         被钨棒抹成 0 时它不触发。
+     */
+    public static int hitPlayer(SimState state, int damage,
+                                io.github.youqing.sts1solver.sim.SimMonster attacker,
+                                DamageKind kind) {
+        if (damage <= 0) {
+            return 0;
+        }
+        DamageKind type = kind == null ? DamageKind.NORMAL : kind;
+        boolean normalAttack = type == DamageKind.NORMAL && attacker != null;
+
+        // ① 无实体：IntangiblePlayerPower.atDamageFinalReceive —— 不看 DamageType
         int remaining = io.github.youqing.sts1solver.mirror.DamageCalc
                 .intangibleAdjusted(state.playerPowers, damage);
-        // 鸟居（Torii.onAttacked）：有攻击者的普通攻击、伤害 2..5 → 1。
-        // 字节码排除了 HP_LOSS / THORNS 类型和「无 owner」的伤害，所以只挂在攻击分支上。
-        if (attacker != null) {
-            remaining = io.github.youqing.sts1solver.mirror.hooks.RelicHooks
-                    .torii(state, remaining);
-        }
-        if (state.block > 0) {
+        // ② 格挡：decrementBlock 第一件事就是 `if (type == HP_LOSS) return damage`
+        if (type != DamageKind.HP_LOSS && state.block > 0) {
             int absorbed = Math.min(state.block, remaining);
             state.block -= absorbed;
             remaining -= absorbed;
         }
+        // ③ 鸟居（Torii.onAttacked）：只认有 owner 的普通攻击
+        if (normalAttack) {
+            remaining = io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                    .torii(state, remaining);
+        }
+        // ④ 钨棒（TungstenRod.onLoseHpLast）：原版在 damage() 里无分支遍历遗物
+        remaining = io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                .tungstenRod(state, remaining);
+        if (remaining <= 0) {
+            // 全被挡/抹掉：原版 `if (damage > 0)` 的两个计数都不动，也不触发受伤类效果
+            return 0;
+        }
         state.hp = Math.max(0, state.hp - remaining);
+        // 原版 updateCardsOnDamage()（浴血奋战的减费）+ damagedThisCombat++
+        state.hpLossCount++;
         // 致死时先问一次性救命遗物（蜥蜴尾巴）：会改变后续所有路线的可行性
         io.github.youqing.sts1solver.mirror.DeathSaveRelic.applyIfLethal(state);
-        // 烈焰屏障：受击反弹（只有普通攻击触发，所以走攻击者那条）
-        if (attacker != null) {
+        // 烈焰屏障：受击反弹（只有普通攻击触发）
+        if (normalAttack) {
             io.github.youqing.sts1solver.mirror.DamageCalc.applyFlameBarrier(state, attacker);
         }
+        return remaining;
     }
 
     /**

@@ -224,17 +224,24 @@ public final class Effects {
 
     // ---- 第三批需要的原语 ------------------------------------------------
 
-    /** 自伤：无视格挡，直接扣血（放血、 Offering、血液沸腾）。 */
+    /**
+     * 自伤：无视格挡，直接扣血（放血、Offering、血液沸腾）。
+     *
+     * <p>走的是**同一条** {@code hitPlayer}（原版 {@code LoseHPAction} 就是
+     * {@code target.damage(new DamageInfo(source, amount, HP_LOSS))}），只是把类型传成
+     * {@link io.github.youqing.sts1solver.sim.DamageKind#HP_LOSS}：
+     * 跳过格挡与鸟居，但仍然吃**无实体**（压成 1）与**钨棒**（减 1）。
+     */
     public static Effect loseHp(final int amount) {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
-                state.hp = Math.max(0, state.hp - amount);
-                state.hpLossCount++;
-                DeathSaveRelic.applyIfLethal(state);
-                // RupturePower.wasHPLost：自己掉血（info.owner == owner）且 damageAmount > 0
-                // 时，+amount 点力量
-                if (amount > 0) {
+                int lost = io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(
+                        state, amount, null,
+                        io.github.youqing.sts1solver.sim.DamageKind.HP_LOSS);
+                // RupturePower.wasHPLost：自己掉血（info.owner == owner）且**实际掉的血 > 0**
+                // 时，+amount 点力量。用「实际掉的血」而不是卡面数值 —— 被钨棒抹成 0 时不该触发。
+                if (lost > 0) {
                     Integer rupture = state.playerPowers.get("Rupture");
                     if (rupture != null && rupture > 0) {
                         Integer str = state.playerPowers.get(DamageCalc.STRENGTH);

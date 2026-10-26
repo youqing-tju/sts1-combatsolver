@@ -56,6 +56,8 @@ public final class Coverage {
                     "Orichalcum", "Torii",
                     // 能量侧（2026-10-26）
                     "Ice Cream", "Chemical X",
+                    // 受伤侧（2026-10-26）
+                    "TungstenRod",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));

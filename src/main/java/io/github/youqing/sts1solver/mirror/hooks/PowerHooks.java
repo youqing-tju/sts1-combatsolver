@@ -155,9 +155,9 @@ public final class PowerHooks {
         reg("Combust", HookPhase.END_OF_TURN, new Handler() {
             @Override
             public void fire(SimState state, int amount, HookContext ctx) {
-                state.hp = Math.max(0, state.hp - COMBUST_HP_LOSS);
-                state.hpLossCount++;
-                DeathSaveRelic.applyIfLethal(state);
+                // 自伤走 HP_LOSS：无视格挡，但吃无实体/钨棒（与卡牌的 loseHp 同一条路）
+                io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(state, COMBUST_HP_LOSS, null,
+                        io.github.youqing.sts1solver.sim.DamageKind.HP_LOSS);
                 damageAll(state, amount);
             }
         });

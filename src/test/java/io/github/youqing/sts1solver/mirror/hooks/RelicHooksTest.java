@@ -248,4 +248,128 @@ class RelicHooksTest {
         io.github.youqing.sts1solver.mirror.CardPlayer.play(s2, 0, 0);
         assertEquals(85, s2.monsters.get(0).hp, "3 段 × 5 = 15 点");
     }
+    // ---------------------------------------------------------------- 钨棒 + 三种伤害类型
+
+    /**
+     * 钨棒：**每一次**掉血都减 1 —— 普通攻击、荆棘、掉血（HP_LOSS）三种类型都一样。
+     *
+     * <p>依据是 {@code AbstractPlayer.damage()} 末尾遍历遗物调 {@code onLoseHpLast} 的那段
+     * **没有任何 DamageType 分支**；而 {@code LoseHPAction} 本身就写成
+     * {@code target.damage(new DamageInfo(source, n, HP_LOSS))}。
+     */
+    @Test
+    void tungstenRodReducesAllThreeDamageKindsByOne() {
+        // ① 普通攻击：6 → 5
+        SimState s = fight();
+        s.relics.put(RelicHooks.TUNGSTEN_ROD, Integer.valueOf(-1));
+        CombatFlow.hitPlayer(s, 6, s.monsters.get(0));
+        assertEquals(75, s.hp, "攻击 6 点被钨棒减成 5");
+
+        // ② 荆棘（无攻击者）：3 → 2
+        SimState s2 = fight();
+        s2.relics.put(RelicHooks.TUNGSTEN_ROD, Integer.valueOf(-1));
+        CombatFlow.hitPlayer(s2, 3);
+        assertEquals(78, s2.hp, "荆棘 3 点减成 2");
+
+        // ③ 掉血（HP_LOSS）：3 → 2
+        SimState s3 = fight();
+        s3.relics.put(RelicHooks.TUNGSTEN_ROD, Integer.valueOf(-1));
+        CombatFlow.hitPlayer(s3, 3, null, io.github.youqing.sts1solver.sim.DamageKind.HP_LOSS);
+        assertEquals(78, s3.hp, "掉血 3 点也减成 2");
+    }
+
+    /** 钨棒能把 1 点伤害抹成 0：此时连「受伤」都不算（浴血奋战不减费）。 */
+    @Test
+    void tungstenRodCanZeroOutOneDamage() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.TUNGSTEN_ROD, Integer.valueOf(-1));
+
+        int lost = CombatFlow.hitPlayer(s, 1, s.monsters.get(0));
+
+        assertEquals(0, lost);
+        assertEquals(80, s.hp, "1 - 1 = 0，血不掉");
+        assertEquals(0, s.hpLossCount, "没掉血就不算受伤");
+    }
+
+    /**
+     * 🔴 管线顺序：**先扣格挡，再鸟居，最后钨棒**。
+     *
+     * <p>所以「鸟居把 2..5 压成 1」之后钨棒还能再减成 0 —— 两件一起拿 =
+     * 2..5 点的攻击完全免疫（这是原版就有的组合，不是 bug）。
+     */
+    @Test
+    void blockToriiAndRodApplyInThatOrder() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.TORII, Integer.valueOf(-1));
+        s.relics.put(RelicHooks.TUNGSTEN_ROD, Integer.valueOf(-1));
+        s.block = 4;
+
+        // 6 点攻击：格挡吃掉 4 → 剩 2 → 鸟居压成 1 → 钨棒减成 0
+        int lost = CombatFlow.hitPlayer(s, 6, s.monsters.get(0));
+
+        assertEquals(0, lost, "4 格挡 + 鸟居 + 钨棒 → 一点血都不掉");
+        assertEquals(0, s.block, "格挡 4 点被吃光");
+    }
+
+    /** 掉血（HP_LOSS）**无视格挡**：有 10 点格挡，放血照样掉血。 */
+    @Test
+    void hpLossIgnoresBlock() {
+        SimState s = fight();
+        s.block = 10;
+
+        int lost = CombatFlow.hitPlayer(s, 5, null,
+                io.github.youqing.sts1solver.sim.DamageKind.HP_LOSS);
+
+        assertEquals(5, lost, "掉血不吃格挡");
+        assertEquals(75, s.hp);
+        assertEquals(10, s.block, "格挡一点没动");
+    }
+
+    /**
+     * 掉血仍然吃**无实体**：原版的 {@code if (damage > 1 && hasPower(IntangiblePlayer))}
+     * 不看 DamageType，所以放血只掉 1。
+     */
+    @Test
+    void hpLossIsCappedToOneByIntangible() {
+        SimState s = fight();
+        s.playerPowers.put("Intangible", Integer.valueOf(1));
+        DamageCalc.markIntangibleFresh(s.playerPowers, "Intangible");
+
+        int lost = CombatFlow.hitPlayer(s, 6, null,
+                io.github.youqing.sts1solver.sim.DamageKind.HP_LOSS);
+
+        assertEquals(1, lost, "无实体把掉血压成 1");
+        assertEquals(79, s.hp);
+    }
+
+    /**
+     * 被怪打也算「受伤」：浴血奋战的费用靠 {@code hpLossCount} 递减，
+     * 以前只有自伤（放血/燃烧）会加，被怪打不加 —— 属于静默算错。
+     */
+    @Test
+    void gettingHitAlsoCountsForBloodForBlood() {
+        SimState s = fight();
+        CombatFlow.hitPlayer(s, 7, s.monsters.get(0));
+        assertEquals(1, s.hpLossCount, "被怪打也要记一次");
+
+        // 完全被格挡吃掉的那次不算
+        s.block = 20;
+        CombatFlow.hitPlayer(s, 5, s.monsters.get(0));
+        assertEquals(1, s.hpLossCount, "格挡全吃 → 没掉血 → 不记");
+    }
+
+    /** 放血（Bloodletting）在有无实体时只掉 1 血，但力量补偿照给。 */
+    @Test
+    void bloodlettingUnderIntangibleLosesOnlyOne() {
+        SimState s = fight();
+        s.playerPowers.put("Intangible", Integer.valueOf(1));
+        DamageCalc.markIntangibleFresh(s.playerPowers, "Intangible");
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard(
+                "Bloodletting", false, 0, -1, "SKILL"));
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, -1);
+
+        assertEquals(79, s.hp, "3 点自伤被无实体压成 1");
+        assertEquals(5, s.energy, "3 + 2，能量照给");
+    }
 }

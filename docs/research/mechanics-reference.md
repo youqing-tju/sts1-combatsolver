@@ -3055,3 +3055,44 @@ for (card : hand) {
   （费用随机那半已经随蛇油做好了）。
 
 全量 **417 条**通过；遗物镜像 **14 件**（计数类 6 + 被动/回合 6 + 能量侧 2）。
+
+### 33.45 伤害类型容器 DamageKind + 钨棒（TungstenRod）2026-10-26
+
+🔴 **先纠一条错结论**：之前记的是「`TungstenRod` 只作用于 `AbstractPlayer.damage()`，
+不管 `loseHp`」。**错了** —— `LoseHPAction.update()` 的实现是
+
+```java
+this.target.damage(new DamageInfo(this.source, this.amount, DamageInfo.DamageType.HP_LOSS));
+```
+
+掉血**不是另一条管线**，只是同一个 `damage()` 的一个类型值。所以钨棒对掉血照样有效。
+（真正的差别在**格挡**上：`decrementBlock` 第一件事就是 `if (type == HP_LOSS) return damage`。）
+
+新增 `sim/DamageKind`（`NORMAL` / `THORNS` / `HP_LOSS`）与
+`CombatFlow.hitPlayer(state, dmg, attacker, kind) -> int`（返回**实际掉的血**）。
+管线顺序按 `AbstractPlayer.damage()` 的字节码 offset 排：
+
+| 步 | 动作 | 三种类型的差别 |
+|---|---|---|
+| ① | 负数夹 0 | — |
+| ② | **无实体**：`dmg > 1` → 1 | **无差别**（字节码不看 `DamageType`，掉血也被压成 1） |
+| ③ | **格挡**：`decrementBlock` | 只有 `HP_LOSS` 跳过 |
+| ④ | **鸟居** `onAttacked` | 只认 `owner != null` 的 `NORMAL` |
+| ⑤ | **钨棒** `onLoseHpLast` | **无差别**（末尾遍历遗物那段没有类型分支） |
+| ⑥ | 扣血 → `hpLossCount++` | 只有 `> 0` 才算「受伤」 |
+| ⑦ | 死亡豁免 → 烈焰屏障 | 只认 `NORMAL` 且有攻击者 |
+
+**顺带修掉一个静默 bug**：`hpLossCount`（浴血奋战的减费计数）以前只在
+`Effects.loseHp` 与燃烧里自增 —— **被怪打完全不计**。现在统一在 `hitPlayer` 里按
+「实际掉血 > 0」记一次，与原版 `updateCardsOnDamage()` 的 `if (damage > 0)` 对齐
+（被格挡全吃的那次不算，这一点测试钉住了）。
+
+路线收敛：
+- `Effects.loseHp`（放血 / Offering / 血液沸腾 / J.A.X.）→ `HP_LOSS`
+- 燃烧的自伤 → `HP_LOSS`
+- 缠绕 / 荆棘 / 苦痛之击 / 尖刺外壳 → `THORNS`
+- 怪物出招 → `NORMAL`
+
+`RupturePower.wasHPLost` 现在吃**实际掉血**：被钨棒抹成 0 时不触发力量（原版同口径）。
+
+全量 **424 条**通过；遗物镜像 **15 件**。

@@ -49,6 +49,8 @@ public final class RelicHooks {
     public static final String ORICHALCUM = "Orichalcum";
     /** 鸟居（{@code Torii}）：受到的攻击伤害若是 2..5，改成 1。 */
     public static final String TORII = "Torii";
+    /** 钨棒（{@code TungstenRod}）：每次掉血（含 HP_LOSS）减 1。 */
+    public static final String TUNGSTEN_ROD = "TungstenRod";
 
     /** {@code MercuryHourglass}: {@code createDamageMatrix(3, true)}。 */
     private static final int MERCURY_DAMAGE = 3;
@@ -83,6 +85,21 @@ public final class RelicHooks {
             return damage;
         }
         return damage > 1 && damage <= TORII_THRESHOLD ? 1 : damage;
+    }
+
+    /**
+     * 钨棒（{@code TungstenRod.onLoseHpLast}）：{@code if (amount > 0) amount - 1}。
+     *
+     * <p>🔴 它挂在 {@code AbstractPlayer.damage()} 的**末尾**，遍历遗物那一段没有任何
+     * {@code DamageType} 分支 —— 所以**掉血（HP_LOSS）也减 1**，不只是普通攻击。
+     * （先前按「只作用于 damage() 不管 loseHp」记的结论是错的：{@code LoseHPAction}
+     * 本身就是 {@code target.damage(new DamageInfo(..., HP_LOSS))}。）
+     */
+    public static int tungstenRod(SimState state, int amount) {
+        if (state == null || !state.relics.containsKey(TUNGSTEN_ROD)) {
+            return amount;
+        }
+        return amount > 0 ? amount - 1 : amount;
     }
 
     /**
