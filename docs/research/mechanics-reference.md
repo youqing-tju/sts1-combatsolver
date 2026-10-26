@@ -3246,3 +3246,31 @@ ID 全部按构造器首参核实（又是一堆空格差异）：
    再判——所以第一次触发是第 6 回合（`0 → 1 … → 6`），之后每 6 回合一次。
 
 全量 **444 条**通过；遗物镜像 **35 件**。
+
+### 33.51 Necronomicon（死灵之书）2026-10-26
+
+**触发条件（`onUseCard` 字节码直读）**：
+
+```java
+if (card.type == ATTACK
+        && (card.costForTurn >= 2
+            || (card.freeToPlayOnce && card.cost == -1 && card.energyOnUse >= 2))
+        && activated) {
+    activated = false;
+    // 副本 makeSameInstanceOf() → purgeOnUse = true → CardQueueItem(免费, 立即)
+}
+```
+
+`atTurnStart` → `activated = true`；`checkTrigger()` 直接返回它。
+
+影子：
+- `activated` 借用 `state.relics` 的值（`1` = 就绪 / `0` = 本回合用过），
+  `RelicHooks.onPlayerTurnStart` 每回合置 1，`SimState.capture` 也初始化为 1
+  （⚠️ 若「本回合已经用过它之后」才第一次捕获，会多给一次重放）；
+- 重放逻辑与 `DuplicationPower` 完全一致 —— 顺手把「跑一遍效果 + 触发 onUseCard」
+  抽成 `CardPlayer.applyMirroredEffects`，三个入口（正常 / 死灵之书 / 复制）共用，
+  避免以后改一处漏两处；
+- X 费牌（`cost == -1`）走原版那条 `freeToPlayOnce` 分支，我们没建 `freeToPlayOnce`，
+  所以**X 费牌一律不触发**（宁可少给一次，也不凭空多打一次）。
+
+全量 **446 条**通过；遗物镜像 **36 件**。

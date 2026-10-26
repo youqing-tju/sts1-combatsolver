@@ -120,6 +120,13 @@ public final class RelicHooks {
     public static final String VELVET_CHOKER = "Velvet Choker";
     /** 怀表（{@code Pocketwatch}）：上回合打出的牌 ≤ 3 张 → 本回合抽牌后再抽 3 张。 */
     public static final String POCKETWATCH = "Pocketwatch";
+    /**
+     * 死灵之书（{@code Necronomicon}）：每回合**第一次**打出 2 费及以上的攻击牌 → 再结算一次。
+     *
+     * <p>值当「是否已就绪」用（原版私有 {@code activated}，{@code atTurnStart} 置 true、
+     * 触发后置 false）：{@code 1} = 已就绪，{@code 0} = 本回合用过了。
+     */
+    public static final String NECRONOMICON = "Necronomicon";
 
     /** {@code IncenseBurner.atTurnStart}: {@code counter % 6 == 0} → 无实体 1。 */
     private static final int INCENSE_BURNER_TURNS = 6;
@@ -381,6 +388,10 @@ public final class RelicHooks {
         counterBlockRelic(state, CAPTAINS_WHEEL, 3, CAPTAINS_WHEEL_BLOCK);
         happyFlower(state);
         incenseBurner(state);
+        // Necronomicon.atTurnStart → activated = true
+        if (state.relics.containsKey(NECRONOMICON)) {
+            state.relics.put(NECRONOMICON, Integer.valueOf(1));
+        }
         // Shuriken / Ornamental Fan / Letter Opener / Kunai：atTurnStart 里 counter = 0
         for (String id : TURN_RESET_COUNTERS) {
             if (state.relics.containsKey(id)) {

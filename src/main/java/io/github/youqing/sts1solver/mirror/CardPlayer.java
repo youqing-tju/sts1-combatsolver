@@ -105,21 +105,25 @@ public final class CardPlayer {
         }
         state.hand.remove(handIndex);
 
-        for (Effect effect : mirror.effects) {
-            if (effect instanceof XEffect) {
-                ((XEffect) effect).applyWithX(state, targetIndex, card, xValue);
-            } else if (effect instanceof MultiChoiceEffect) {
-                ((MultiChoiceEffect) effect).applyWithChoices(state, targetIndex, card, choices);
-            } else if (effect instanceof ChoiceEffect) {
-                ((ChoiceEffect) effect).applyWithChoice(state, targetIndex, card,
-                        choices == null || choices.length == 0 ? -1 : choices[0]);
-            } else {
-                effect.applyTo(state, targetIndex, card);
-            }
-        }
+        applyMirroredEffects(state, mirror, card, targetIndex, xValue, choices);
 
         // 同样要触发 onUseCard：自动打出的牌也会数进遗物/能力计数
         io.github.youqing.sts1solver.mirror.hooks.Hooks.onCardUsed(state, card, targetIndex);
+
+        // 死灵之书（Necronomicon.onUseCard）：本回合**第一次**打出「费用 ≥ 2 的攻击牌」时，
+        // 原样再结算一次。原版判据（字节码）：type == ATTACK &&
+        // (costForTurn >= 2 || (freeToPlayOnce && cost == -1 && energyOnUse >= 2))，且 activated。
+        // activated 是私有布尔（atTurnStart 置 true、触发后置 false），
+        // 影子把它存在 state.relics 的值里（1 = 已就绪，0 = 本回合用过了）。
+        Integer necronomicon = state.relics.get(
+                io.github.youqing.sts1solver.mirror.hooks.RelicHooks.NECRONOMICON);
+        if (necronomicon != null && necronomicon.intValue() > 0
+                && isAttack(card) && card.cost >= 0 && effectiveCost >= 2) {
+            state.relics.put(io.github.youqing.sts1solver.mirror.hooks.RelicHooks.NECRONOMICON,
+                    Integer.valueOf(0));
+            applyMirroredEffects(state, mirror, card, targetIndex, xValue, choices);
+            io.github.youqing.sts1solver.mirror.hooks.Hooks.onCardUsed(state, card, targetIndex);
+        }
 
         // DuplicationPower.onUseCard（复制药水 / 双发）：这张牌**原样再结算一次**。
         // 字节码直读：!card.purgeOnUse && amount > 0 → makeSameInstanceOf() 进 limbo，
@@ -133,18 +137,7 @@ public final class CardPlayer {
             } else {
                 state.playerPowers.put("DuplicationPower", Integer.valueOf(left));
             }
-            for (Effect effect : mirror.effects) {
-                if (effect instanceof XEffect) {
-                    ((XEffect) effect).applyWithX(state, targetIndex, card, xValue);
-                } else if (effect instanceof MultiChoiceEffect) {
-                    ((MultiChoiceEffect) effect).applyWithChoices(state, targetIndex, card, choices);
-                } else if (effect instanceof ChoiceEffect) {
-                    ((ChoiceEffect) effect).applyWithChoice(state, targetIndex, card,
-                            choices == null || choices.length == 0 ? -1 : choices[0]);
-                } else {
-                    effect.applyTo(state, targetIndex, card);
-                }
-            }
+            applyMirroredEffects(state, mirror, card, targetIndex, xValue, choices);
             io.github.youqing.sts1solver.mirror.hooks.Hooks.onCardUsed(state, card, targetIndex);
         }
 
@@ -178,6 +171,27 @@ public final class CardPlayer {
             }
         }
         throw new ActionRejected("card not in hand: " + cardKey);
+    }
+
+    /**
+     * 把这面镜子的效果跑一遍（「重放一次」的那几个入口也用它，保证口径一致）。
+     *
+     * <p>X 费 / 多选 / 单选各有自己的 apply 入口，不能一律 {@code applyTo}。
+     */
+    private static void applyMirroredEffects(SimState state, CardMirror mirror, SimCard card,
+                                            int targetIndex, int xValue, int[] choices) {
+        for (Effect effect : mirror.effects) {
+            if (effect instanceof XEffect) {
+                ((XEffect) effect).applyWithX(state, targetIndex, card, xValue);
+            } else if (effect instanceof MultiChoiceEffect) {
+                ((MultiChoiceEffect) effect).applyWithChoices(state, targetIndex, card, choices);
+            } else if (effect instanceof ChoiceEffect) {
+                ((ChoiceEffect) effect).applyWithChoice(state, targetIndex, card,
+                        choices == null || choices.length == 0 ? -1 : choices[0]);
+            } else {
+                effect.applyTo(state, targetIndex, card);
+            }
+        }
     }
 
     private static int power(SimState state, String id) {

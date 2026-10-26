@@ -864,4 +864,39 @@ class RelicHooksTest {
         CombatFlow.endTurn(s3, 3, 5);
         assertEquals(8, s3.hand.size(), "打 3 张是 `<= 3`，照样给");
     }
+    /** 死灵之书：本回合**第一次**打出 ≥2 费的攻击牌 → 再结算一次；低费/技能不触发。 */
+    @Test
+    void necronomiconReplaysTheFirstExpensiveAttack() {
+        SimState s = fight();
+        s.energy = 10;
+        s.monsters.get(0).hp = 500;
+        s.relics.put(RelicHooks.NECRONOMICON, Integer.valueOf(1));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Bash", false, 2, 8, "ATTACK"));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+
+        // Bash：8 伤 + 易伤 2；重放一次 → 第二下吃易伤（8 × 1.5 = 12）
+        assertEquals(480, s.monsters.get(0).hp, "Bash 打两次：8 + 12 = 20");
+        assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.NECRONOMICON),
+                "用掉了，本回合不再触发");
+
+        // 第二张是 1 费，且已用过 → 只打一次
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+        assertEquals(471, s.monsters.get(0).hp, "1 费攻击只打一次（6 × 1.5 = 9）");
+    }
+
+    /** 死灵之书不给技能牌 / 0..1 费攻击牌用。 */
+    @Test
+    void necronomiconIgnoresCheapCardsAndSkills() {
+        SimState s = fight();
+        s.energy = 10;
+        s.monsters.get(0).hp = 500;
+        s.relics.put(RelicHooks.NECRONOMICON, Integer.valueOf(1));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Defend_R", false, 1, 5, "SKILL"));
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, -1);
+
+        assertEquals(Integer.valueOf(1), s.relics.get(RelicHooks.NECRONOMICON), "技能不消耗");
+    }
 }

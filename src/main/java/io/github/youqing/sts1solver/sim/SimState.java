@@ -178,6 +178,13 @@ public final class SimState {
                     s.relics.put(r.relicId, Integer.valueOf(
                             p.currentHealth * 2 <= p.maxHealth ? 1 : 0));
                 }
+                // 死灵之书的 activated 同样是私有布尔：按「已就绪」初始化
+                // （atTurnStart 每回合都会置 true，所以绝大多数捕获点都该是就绪的；
+                //   代价是「本回合已经用过它之后才接入」会多给一次重放）。
+                if (io.github.youqing.sts1solver.mirror.hooks.RelicHooks.NECRONOMICON
+                        .equals(r.relicId)) {
+                    s.relics.put(r.relicId, Integer.valueOf(1));
+                }
                 // 蜥蜴尾巴本场是否已用：原版 AbstractPlayer.damage() 的判据是
                 // `hasRelic("Lizard Tail") && getRelic("Lizard Tail").counter == -1`
                 // （javap 核实，字节码 1059-1083），onTrigger() 末尾 setCounter(-2) 把它变成 -2。

@@ -69,7 +69,7 @@ public final class Coverage {
                     // 第五批（2026-10-26）：回合计数 / 能力回血 / 减益免疫
                     "Kunai", "Happy Flower", "Bird Faced Urn", "Ginger", "Turnip",
                     // 第六批（2026-10-26）：回合结构
-                    "Incense Burner", "Velvet Choker", "Pocketwatch",
+                    "Incense Burner", "Velvet Choker", "Pocketwatch", "Necronomicon",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));
