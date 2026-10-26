@@ -55,6 +55,7 @@
 | `OrbWalker` | 3 | 两招互斥（连打两次就换）；带 Burn 的那招 10\|11，另一招 15\|16。原版字段名反着存（`damage[0]` 叫 laserDmg 却给 Claw 用） |
 | `Maw` | 3 | 第 1 招必 Roar（Weak+Frail 3，A17 各 5）；之后 Nom（5 伤 × turnCount/2 段）/ Bellow（+力量）/ Slam（25\|30） |
 | `Transient` | 3 | 一招到底：30\|40 起、每回合 +10；**Fading 5\|6** 到点当场消散（CombatFlow 统一递减） |
+| `GiantHead` | 3（精英） | `count` 初值 5、每次决策 -1：前四招 Glare（Weak **1**）/ 13 伤交替，之后 It's Time（30\|40 起、每回合 +5、封顶 +30）。真威胁是 **Slow**（每张牌 +10% 受伤，回合末清零） |
 | `Exploder` | 3 | 爆炸**不在招式里**：`ExplosivePower.duringTurn` 在 amount==1 时自杀 + 打 30（THORNS 类型，吃格挡）。打两下 → 第三回合自爆 |
 | `Deca` | 3（boss） | 攻击↔辅助交替（`isAttacking` 初值 true）：攻击 2 段 10\|12 + 2 张 Dazed；辅助全队 16 格挡，A19 起再 +3 Plated Armor |
 | `Donu` | 3（boss） | 同一套交替：攻击 2 段 10\|12；辅助全体 +3 力量 |
@@ -370,7 +371,6 @@ setMove((byte)1, ATTACK, damage.get(2).base, 6, true);     // 硬设 Divider，�
 |---|---|
 | **半血复活 / 形态切换** | `Darkling`（`halfDead` + Reincarnate）、`AwakenedOne`（两阶段）、`TimeEater`（计数重排） |
 | **Malleable**（每次挨打加点格挡，一回合有次数上限） | `SnakeDagger`、`Dagger`（Reptomancer 的召唤物） |
-| **Slow**（玩家每出一张牌，怪物受伤 +10%） | `GiantHead`（核心机制） |
 | **多段固定循环 + 队友联动** | `SpireShield` / `SpireSpear`、`Nemesis`、`WrithingMass`、`Reptomancer`、`CorruptHeart` |
 
 ⚠️ 这 14 只**不是「抄不动」而是「抄了会假」**：缺的那条机制不建，影子会把它们的威胁算错
@@ -441,8 +441,8 @@ public void duringTurn() {
 
 ## 收口状态（2026-10-26 11:00 前后）
 
-**已镜像 55 / 68**（`jar` 里 68 个 `monsters/*` 类，其中 `HexaghostBody` / `HexaghostOrb` 是纯视觉对象，不算）。
-Act 1 全齐、Act 2 全齐、Act 3 已做 12 只、Act 4 未开。
+**已镜像 56 / 68**（`jar` 里 68 个 `monsters/*` 类，其中 `HexaghostBody` / `HexaghostOrb` 是纯视觉对象，不算）。
+Act 1 全齐、Act 2 全齐、Act 3 已做 13 只、Act 4 未开。
 
 剩余 13 只**全部卡在同一个模式**：它们的核心机制在**玩家侧**（或需要跨回合计数器），
 影子现在还没有那个「容器」：
@@ -456,3 +456,20 @@ Act 1 全齐、Act 2 全齐、Act 3 已做 12 只、Act 4 未开。
 
 **下一步最省力的顺序**：先补 Malleable（解锁 2 只），再补 Slow（解锁 `GiantHead`），
 然后才是「半血复活」这类需要新容器的大件。每一步都要先 `javap -p` 列方法名再读 `-c`。
+
+### 补记：GiantHead 的计数与 Slow
+
+`count` 初值 **5**，`getMove` 一进来就 `count--`（所以第 k 次决策后 `count = 5-k`）：
+
+```
+count(减之前) > 1 → num<50 ? (最近不是连着两次 1 ? 1 Glare : 3 Count 13 伤)
+                            : (最近不是连着两次 3 ? 3 Count 13 伤 : 1 Glare)
+count(减之前) ≤ 1 → 2 It's Time = damage[1 - count]（count 封底 -6 → 最高 startingDeathDmg + 30）
+```
+
+- **Glare 只上 Weak 1**（字节码 `iconst_1`；按印象写 5 就错了）。
+- `startingDeathDmg`：A3 起 40，否则 30；HP 500（A8: 520）。
+- **Slow** 才是它的核心：`usePreBattleAction` 挂 `SlowPower(0)`，
+  `onAfterUseCard`（任何牌）`amount++`、`atDamageReceive` 乘 `1 + 0.1×amount`、`atEndOfRound` 清零。
+  已落在 `Hooks.monsterOnCardUsed`（+1）、`DamageCalc.attackDamageWithoutRelics`（乘倍率）、
+  `CombatFlow` ④.5（清零）三处。

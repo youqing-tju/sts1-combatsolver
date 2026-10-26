@@ -43,6 +43,14 @@ public final class DamageCalc {
                 && powers(target).get(VULNERABLE) > 0) {
             dmg = (int) Math.floor(dmg * 1.5f);
         }
+        // SlowPower.atDamageReceive：玩家这回合每打一张牌，这只怪受到的伤害 +10%
+        // （amount 在 onAfterUseCard 里 +1，atEndOfRound 清零；只有 NORMAL 类型吃这个）
+        if (target != null) {
+            Integer slow = powers(target).get("Slow");
+            if (slow != null && slow.intValue() > 0) {
+                dmg = (int) Math.floor(dmg * (1.0f + slow.intValue() * 0.1f));
+            }
+        }
         return Math.max(0, dmg);
     }
 

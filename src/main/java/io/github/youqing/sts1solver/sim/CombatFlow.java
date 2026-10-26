@@ -123,6 +123,10 @@ public final class CombatFlow {
                 Integer str = m.powers.get("Strength");
                 m.powers.put("Strength", (str == null ? 0 : str) + ritual);
             }
+            // SlowPower.atEndOfRound → amount = 0（一轮结束，玩家这回合打的牌不再加成）
+            if (m.powers.containsKey("Slow")) {
+                m.powers.put("Slow", Integer.valueOf(0));
+            }
             // IntangiblePower.atEndOfTurn → amount--，到 0 移除
             // ⚠️ 原版有 justApplied 保护（刚加上的那回合不递减），我们没记这个标志 ——
             //    施加那回合会多递减一次，方向是**低估防御**（安全偏差）。

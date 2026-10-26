@@ -222,6 +222,7 @@ public final class MonsterMoves {
         MACHINES.put("Deca", new DecaMachine());
         MACHINES.put("Donu", new DonuMachine());
         MACHINES.put("Exploder", new ExploderMachine());
+        MACHINES.put("GiantHead", new GiantHeadMachine());
     }
 
     private MonsterMoves() {
@@ -2160,6 +2161,41 @@ public final class MonsterMoves {
         private static MonsterMove divider(Context c) {
             int hp = c.state == null ? 12 : c.state.hp;
             return MonsterMove.multiAttack(1, hp / 12 + 1, 6);
+        }
+    }
+
+    /**
+     * 巨首（{@code GiantHead}，第三章精英）。
+     *
+     * <pre>
+     * count 初值 5，**每次 getMove 开头 -1**（所以第 k 次决策后 count = 5-k）
+     * count(减之前) &gt; 1 → num&lt;50 ? (最近不是连着两次 1 ? 1 Glare : 3 Count 13)
+     *                              : (最近不是连着两次 3 ? 3 Count 13 : 1 Glare)
+     * count(减之前) ≤ 1 → 2 It's Time：伤害 = startingDeathDmg - count*5
+     *                      （takeTurn 里是 damage[1 - count]，count 封底 -6 → 最高 +30）
+     * </pre>
+     *
+     * <p>Glare 只上 **Weak 1**（字节码就是 `iconst_1`，别按印象写成 5）。
+     *
+     * <p>它真正的威胁是 **Slow**（`usePreBattleAction` 挂 `SlowPower(0)`）：
+     * 玩家每打一张牌，它受伤 +10%（回合末清零）—— 那条在
+     * {@code Hooks.monsterOnCardUsed} 与 {@code DamageCalc} 里，不在这个类里。
+     */
+    static final class GiantHeadMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int start = c.baseDamage(1, c.ascension >= 3 ? 40 : 30);
+            if (c.history.size() >= 4) {
+                int count = Math.max(-6, 4 - c.history.size());
+                return MonsterMove.attack(2, start - count * 5);
+            }
+            int count13 = c.baseDamage(0, 13);
+            if (c.num < 50) {
+                return c.lastTwoMoves(1) ? MonsterMove.attack(3, count13)
+                        : MonsterMove.debuff(1, "Weakened", 1);
+            }
+            return c.lastTwoMoves(3) ? MonsterMove.debuff(1, "Weakened", 1)
+                    : MonsterMove.attack(3, count13);
         }
     }
 

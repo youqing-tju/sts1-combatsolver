@@ -2706,3 +2706,16 @@ HP 都是 250（A9: 265）；开场 Artifact 2（A19: 3）由 `usePreBattleActio
 上一轮因为只 grep 了 `-c` 的片段，误判成「这个 power 没有任何 hook」。
 
 全量 **355 条**通过；累计 **55 只**。
+
+### 33.35 GiantHead + Slow（第三章精英）2026-10-26
+
+`count` 初值 5、每次 `getMove` 开头 -1；`count(减之前) > 1` 时按 num 在 Glare / Count(13) 间轮换，
+`≤ 1` 后进入 It's Time：伤害 `= startingDeathDmg - count*5`（count 封底 -6 → 最高 +30）。
+Glare 只上 **Weak 1**；HP 500（A8: 520）；`startingDeathDmg` 30（A3: 40）。
+
+**SlowPower**（真正的机制）三处落地：
+- `onAfterUseCard` → `amount++`（**每张牌**，不分类型）：`Hooks.monsterOnCardUsed`；
+- `atDamageReceive` → `damage × (1 + 0.1×amount)`（只对 NORMAL）：`DamageCalc.attackDamageWithoutRelics`；
+- `atEndOfRound` → `amount = 0`：`CombatFlow` ④.5 段。
+
+全量 **358 条**通过；累计 **56 只**。

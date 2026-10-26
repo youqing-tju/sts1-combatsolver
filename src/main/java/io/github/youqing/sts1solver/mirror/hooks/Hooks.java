@@ -124,6 +124,17 @@ public final class Hooks {
     private static void monsterOnCardUsed(SimState state, SimCard card) {
         sharpHide(state, card);
         hex(state, card);
+        // SlowPower.onAfterUseCard：**每打一张牌**（不分类型）这只怪的 amount +1，
+        // 受伤倍率随之提高（见 DamageCalc.attackDamageWithoutRelics），回合末清零。
+        for (SimMonster slowMonster : state.monsters) {
+            if (slowMonster.hp <= 0) {
+                continue;
+            }
+            Integer slow = slowMonster.powers.get("Slow");
+            if (slow != null) {
+                slowMonster.powers.put("Slow", Integer.valueOf(slow.intValue() + 1));
+            }
+        }
         if (!"SKILL".equals(card.type)) {
             return;
         }

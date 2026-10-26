@@ -2463,4 +2463,56 @@ class MonsterMovesTest {
         assertEquals(0, exploder.hp, "自爆后下场");
         assertEquals(50, s.hp, "玩家吃 30 点");
     }
+
+    // ============================ 第二十三批：GiantHead（巨首，带 Slow）============================
+
+    /** 巨首：前四招在 Glare（Weak 1）与 13 伤之间轮换，之后进入 It's Time（40 起、每回合 +5）。 */
+    @Test
+    void giantHeadCountsDownThenUnleashesItsTime() {
+        MonsterMove glare = decide("GiantHead", history(), 10, 0, 0);
+        assertEquals(1, glare.id, "count 还大时 num<50 → Glare");
+        assertEquals("Weakened", glare.playerDebuff);
+        assertEquals(1, glare.playerDebuffAmount, "字节码就是 Weak 1");
+
+        assertEquals(3, decide("GiantHead", history(1, 1), 10, 0, 0).id,
+                "连着两次 Glare → 换成 13 伤那招");
+        assertEquals(13, decide("GiantHead", history(1, 1), 10, 0, 0).damage);
+
+        MonsterMove time1 = decide("GiantHead", history(1, 3, 1, 3), 50, 0, 0);
+        assertEquals(2, time1.id, "第 5 次决策进入 It's Time");
+        assertEquals(30, time1.damage, "A0 起手 30");
+
+        assertEquals(35, decide("GiantHead", history(1, 3, 1, 3, 2), 50, 0, 0).damage,
+                "之后每回合 +5");
+        assertEquals(40, decide("GiantHead", history(1, 3, 1, 3), 50, 0, 3).damage,
+                "A3 起 40 起手");
+    }
+
+    /** It's Time 封底：count 到 -6 就不再涨（最高 +30）。 */
+    @Test
+    void giantHeadCapsItsTimeDamage() {
+        java.util.List<Integer> longHistory = history(1, 3, 1, 3, 2, 2, 2, 2, 2, 2, 2, 2);
+        assertEquals(60, decide("GiantHead", longHistory, 50, 0, 0).damage,
+                "30 + 30 封顶（count 只到 -6）");
+    }
+
+    /** Slow：玩家每打一张牌，巨首受伤 +10%；回合末清零。 */
+    @Test
+    void slowIncreasesDamagePerCardPlayed() {
+        SimMonster head = new SimMonster("GiantHead", 500, 500, 0, NO_POWERS);
+        head.powers.put("Slow", 0);
+        SimState s = field(head);
+        int base = io.github.youqing.sts1solver.mirror.DamageCalc.attackDamage(s, 100, head);
+        assertEquals(100, base, "Slow 0 时不加成");
+
+        head.powers.put("Slow", 2);
+        int boosted = io.github.youqing.sts1solver.mirror.DamageCalc.attackDamage(s, 100, head);
+        assertEquals(120, boosted, "+20%");
+
+        MonsterMove idle = decideIn(s, "GiantHead", head, history(), 10, 0);
+        head.pendingMove = idle;
+        head.pendingMoveId = idle.id;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(0, head.powers.get("Slow").intValue(), "回合末清零");
+    }
 }
