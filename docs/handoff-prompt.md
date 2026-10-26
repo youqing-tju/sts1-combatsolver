@@ -55,7 +55,27 @@
 
 ---
 
-## 三、当前进度（2026-10-23 晚）
+## 三、当前进度（2026-10-26 · 怪物镜像 59/68）
+
+> 上一轮（10-23）：221 测试全绿、怪物 37 只。**本轮（10-26）把怪物推到 59 只、测试 369 条**。
+>
+> **本轮新增 22 只**：A 组召唤（`GremlinLeader`/`TorchHead`/`TheCollector`/`BronzeOrb`/`BronzeAutomaton`）、
+> B 组多阶段（`Champ`/`Hexaghost`）、C 组面具强盗（`BanditBear`/`BanditLeader`）、
+> D 组第三章（`OrbWalker`/`Maw`/`Transient`/`Repulsor`/`Spiker`/`SpireGrowth`/`Deca`/`Donu`/
+> `Exploder`/`GiantHead`/`Nemesis`/`Darkling`/`SnakeDagger`）。
+>
+> **本轮新基础设施**：召唤（`MonsterMove.Summon`）+ `monsterHpRng` 捕获、
+> 状态牌进抽牌堆（`Extra.statusToDraw`）、自毁（`Extra.selfDestruct`）、
+> 复活（`Extra.reincarnate`）、缺失才补能力（`Extra.onlyIfAbsent`）、
+> Fading 计时、Constricted 回合末伤害、**Slow**、**Malleable**、**Intangible 的 justApplied**、
+> 半死/三只联动（Darkling）。
+>
+> **本轮修掉两个静默 bug**（详见 §四）：① 负增量被 `Math.max(0,…)` + `>0` 夹成 0（连带 Lagavulin 的
+> Siphon Soul 一直是 +1）；② Intangible 没有 `justApplied`（幽魂形态少一回合、Nemesis 等于从不无实体）。
+>
+> 详细施工账：`docs/research/monster-mirror-plan.md`（含「剩余 7 只的精确卡点」）；机制细节：`mechanics-reference` §33.20–33.37。
+
+## 三之二、当前进度（2026-10-23 晚，留档）
 
 ### 已完成（✅）
 
@@ -114,6 +134,15 @@
 ---
 
 ## 四、🔴 反复踩过的坑（必须知道）
+
+> **2026-10-26 新增两条**：
+> 1. **减益量可以是负数**。原版 `ApplyPowerAction(amt)` 的 amt 就是**带符号增量**
+>    （扣敏捷 = `-N`）。`MonsterMove` 构造器和 `CombatFlow` 的落地条件都不能用
+>    `Math.max(0,…)` / `>0` 夹 —— 夹了之后减益变成「无操作」，而且不报错。
+>    连带教训：Lagavulin 的 Siphon Soul 因此错了很久（写成 `+1`），因为 clamp 让它读出 0。
+> 2. **查 power 有没有 hook，先 `javap -p` 列方法名**（不带 `-c`）。
+>    只看 `javap -c` 的片段会漏掉像 `duringTurn` / `onAttacked` / `atEndOfTurn` 这种关键钩子
+>    —— Exploder 的爆炸就在 `ExplosivePower.duringTurn` 里，上一轮因为只看了构造器就误判成「没有 hook」。
 
 ### 1. 「能力被 set 但不生效」是一类静默 bug
 不报错、不崩溃，但估值算错。
