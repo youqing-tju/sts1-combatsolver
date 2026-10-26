@@ -47,6 +47,13 @@ public final class CombatFlow {
         // ③ 弃手牌之后：燃烧 / 炸弹 / 欧米伽
         Hooks.firePhase(state, HookPhase.END_OF_TURN);
 
+        // ③.5 缠绕（ConstrictedPower.atEndOfTurn）：固定掉血，DamageInfo type=THORNS → **吃格挡**。
+        //      它是玩家身上的「永久」减益，每回合都结算，不会自己消失。
+        Integer constricted = state.playerPowers.get("Constricted");
+        if (constricted != null && constricted.intValue() > 0) {
+            hitPlayer(state, constricted.intValue());
+        }
+
         // ④ 敌方行动
         // 🔴 顺序很重要：**先让格挡吸收敌方伤害，再清空格挡**。
         // 反过来写（先清后打）会让格挡完全失效 —— 搜索于是永远不防御，

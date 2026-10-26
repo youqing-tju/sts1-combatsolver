@@ -55,6 +55,7 @@
 | `OrbWalker` | 3 | 两招互斥（连打两次就换）；带 Burn 的那招 10\|11，另一招 15\|16。原版字段名反着存（`damage[0]` 叫 laserDmg 却给 Claw 用） |
 | `Maw` | 3 | 第 1 招必 Roar（Weak+Frail 3，A17 各 5）；之后 Nom（5 伤 × turnCount/2 段）/ Bellow（+力量）/ Slam（25\|30） |
 | `Transient` | 3 | 一招到底：30\|40 起、每回合 +10；**Fading 5\|6** 到点当场消散（CombatFlow 统一递减） |
+| `SpireGrowth` | 3 | 没缠绕就先挂 Constricted 10\|12（A17 起前置条件多一条）；之后快拍 16\|18 / 重砸 22\|25 交替，不连砸 |
 | `Spiker` | 3 | 开场自带 Thorns 3\|4（真机快照已有）；`num<50` 且没连打就刺 7\|9，否则 Sharpen +2 荆棘，磨满 6 次后只刺 |
 | `Repulsor` | 3 | 80% 往**抽牌堆**塞 2 张 Dazed，20% 打 11\|13；不会连着打两下 |
 | `Hexaghost` | 1（boss） | **没有 damage()/die()、6 个 orb 是纯视觉**。真正的状态是 `orbActiveCount`，由三个 `changeState` 改 → 整场是确定性 7 招循环：Activate → Divider(6×[玩家血/12+1]) → Sear→Tackle→Sear→Strengthen→Sear→Tackle→Sear→Inferno→循环 |
@@ -364,7 +365,6 @@ setMove((byte)1, ATTACK, damage.get(2).base, 6, true);     // 硬设 Divider，�
 
 | 缺的机制 | 怪兽 |
 |---|---|
-| **Constricted 的回合末伤害** | `SpireGrowth` |
 | **死亡时爆炸 / 自毁** | `Exploder`（`ExplosivePower` 在字节码里只有 description，触发点待查） |
 | **半血复活 / 形态切换** | `Darkling`（`halfDead` + Reincarnate）、`AwakenedOne`、`TimeEater` |
 | **多段固定循环 + 队友联动** | `Deca` / `Donu`、`SpireShield` / `SpireSpear`、`GiantHead`、`Nemesis`、`WrithingMass`、`SnakeDagger` |
@@ -382,3 +382,16 @@ Thorns 的怪 → 玩家按 amount 掉血（走格挡）。所以 Spiker 只差�
 - `thornsCount` 从 0 起、**只在 2 号招里 +1** → 直接数历史里 2 的个数；
 - 判据顺序：`thornsCount > 5` → 只刺；`num < 50 && !lastMove(1)` → 刺；否则 Sharpen（+2 荆棘）。
 - 注意「刚刺过就不能再刺」这条**和 num 无关** —— 低 num 也只会在磨刺后的一击上生效。
+
+### 补记：Constricted 的回合末伤害（SpireGrowth）
+
+`ConstrictedPower.atEndOfTurn(boolean)` → `DamageAction(owner, new DamageInfo(owner, amount, THORNS))`：
+**type = THORNS**，所以它**吃格挡**（`AbstractCreature.damage` 只有 HP_LOSS 才越过格挡）。
+已在 `CombatFlow.endTurn` 的「弃手牌之后」补一条结算（③.5 步），永久生效、不会自己消失。
+
+A17 起的差别不是「叠两层」，而是**数值 +2**：
+```java
+if (ascensionLevel >= 17) new ConstrictedPower(player, this, constrictDmg + 2);
+else                      new ConstrictedPower(player, this, constrictDmg);
+```
+所以 A17 是每回合 12，不是 20。

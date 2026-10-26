@@ -2338,4 +2338,42 @@ class MonsterMovesTest {
         assertEquals(40, spiker.hp, "50 - 10 = 40（没格挡）");
         assertEquals(before - 3, s.hp, "玩家吃 3 点荆棘反伤");
     }
+
+    /** 塔生长物：先挂缠绕，之后快拍/重砸；有缠绕就不重复挂。 */
+    @Test
+    void spireGrowthConstrictsThenSlams() {
+        SimMonster growth = new SimMonster("SpireGrowth", 170, 170, 0, NO_POWERS);
+        SimState s = field(growth);
+        MonsterMove constrict = decideIn(s, "SpireGrowth", growth, history(), 50, 0);
+        assertEquals(2, constrict.id, "没缠绕 → 先 Constrict");
+        assertEquals("Constricted", constrict.playerDebuff);
+        assertEquals(10, constrict.playerDebuffAmount, "A17 以下 10");
+        assertEquals(12, decideIn(s, "SpireGrowth", growth, history(), 50, 17).playerDebuffAmount,
+                "A17 起 12");
+
+        s.playerPowers.put("Constricted", 10);
+        MonsterMove tackle = decideIn(s, "SpireGrowth", growth, history(2), 10, 0);
+        assertEquals(1, tackle.id, "已经有缠绕 → 拍");
+        assertEquals(16, tackle.damage, "A0：16 伤");
+        assertEquals(18, decideIn(s, "SpireGrowth", growth, history(2), 10, 2).damage, "A2 起 18");
+
+        MonsterMove smash = decideIn(s, "SpireGrowth", growth, history(2, 1, 1), 60, 0);
+        assertEquals(3, smash.id, "连拍两次之后 → 重砸");
+        assertEquals(22, smash.damage, "A0：22 伤");
+        assertEquals(25, decideIn(s, "SpireGrowth", growth, history(2, 1, 1), 60, 2).damage, "A2 起 25");
+    }
+
+    /** 缠绕的回合末掉血：玩家回合结束时固定吃 10（吃格挡），且不会自己消失。 */
+    @Test
+    void constrictedTicksAtEndOfTurn() {
+        // 让它已经死了（hp=0）→ 这回合不出招，只观察缠绕那一条
+        SimMonster growth = new SimMonster("SpireGrowth", 0, 170, 0, NO_POWERS);
+        SimState s = field(growth);
+        s.hp = 70;
+        s.playerPowers.put("Constricted", 10);
+        s.block = 10;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(70, s.hp, "格挡吃掉缠绕的 10 点");
+        assertEquals(10, s.playerPowers.get("Constricted").intValue(), "缠绕不会自己消失");
+    }
 }

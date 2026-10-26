@@ -218,6 +218,7 @@ public final class MonsterMoves {
         MACHINES.put("Transient", new TransientMachine());
         MACHINES.put("Repulsor", new RepulsorMachine());
         MACHINES.put("Spiker", new SpikerMachine());
+        MACHINES.put("SpireGrowth", new SpireGrowthMachine());
     }
 
     private MonsterMoves() {
@@ -2156,6 +2157,45 @@ public final class MonsterMoves {
         private static MonsterMove divider(Context c) {
             int hp = c.state == null ? 12 : c.state.hp;
             return MonsterMove.multiAttack(1, hp / 12 + 1, 6);
+        }
+    }
+
+    /**
+     * 塔生长物（{@code SpireGrowth}，第三章）。
+     *
+     * <pre>
+     * A17 起且玩家还没有缠绕且上一招不是 2 → 2 Constrict：玩家挂 Constricted 10（A17: 12）
+     * num &lt; 50 且最近不是连着两次 1        → 1 快拍（16|18）
+     * 玩家还没有缠绕且上一招不是 2          → 2 Constrict
+     * 最近不是连着两次 3                    → 3 重砸（22|25）
+     * 否则                                  → 1 快拍
+     * </pre>
+     *
+     * <p>缠绕的**伤害**不在这一层：`ConstrictedPower.atEndOfTurn` 由 {@code CombatFlow}
+     * 在玩家回合末统一结算（吃格挡）。这里只负责「挂上去」。
+     */
+    static final class SpireGrowthMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            boolean constricted = c.state != null
+                    && c.state.playerPowers.get("Constricted") != null
+                    && c.state.playerPowers.get("Constricted").intValue() > 0;
+            int tackle = c.baseDamage(0, c.ascension >= 2 ? 18 : 16);
+            int smash = c.baseDamage(1, c.ascension >= 2 ? 25 : 22);
+            int constrict = c.ascension >= 17 ? 12 : 10;
+            if (c.ascension >= 17 && !constricted && !c.lastMove(2)) {
+                return MonsterMove.debuff(2, "Constricted", constrict);
+            }
+            if (c.num < 50 && !c.lastTwoMoves(1)) {
+                return MonsterMove.attack(1, tackle);
+            }
+            if (!constricted && !c.lastMove(2)) {
+                return MonsterMove.debuff(2, "Constricted", constrict);
+            }
+            if (!c.lastTwoMoves(3)) {
+                return MonsterMove.attack(3, smash);
+            }
+            return MonsterMove.attack(1, tackle);
         }
     }
 
