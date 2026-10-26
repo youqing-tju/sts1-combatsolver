@@ -2781,7 +2781,7 @@ Nemesis：`scytheCooldown`（0 起、每次 -1、巨镰后归 2）+ 三分支 nu
 - **PREPARE**：`for (m : monsters) Strength +2` —— 全体含自己（`buffAll(2,"Strength",2)`）。
 - **BURN STRIKE**：`skewerCount` 段 × `damage[1]`。
 
-全量 **375 条**通过；累计 **61 只**（Act 4 精英双子开张，剩 CorruptHeart）。
+全量 **375 条**通过；累计 **62 只**（Act 4 精英双子开张）。
 
 ### 33.39 CorruptHeart（腐化之心，Act 4 boss）2026-10-26
 
@@ -2813,4 +2813,4 @@ HP 750（A9: 800）；`damage[0]` Echo 40（A4:45）、`damage[1]` Blood Shots *
 它要一个「每回合伤害上限」容器 + 从真机私有字段 `maxAmt` 取上限（`powers` 表只存 ID→层数）。
 影响：**极端一回合爆发**会被高估；正常回合（铁甲战士单回合 <300）无差别。
 
-全量 **379 条**通过；累计 **62 只**（Act 4 全部三只齐了）。
+全量 **379 条**通过；累计 **63 只**（Act 4 全部三只齐了；机器表 63 项）。
