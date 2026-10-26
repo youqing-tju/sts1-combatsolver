@@ -54,6 +54,8 @@ public final class Coverage {
                     // 第二批被动 / 回合钩子（RelicHooks，2026-10-26）
                     "Paper Frog", "Mercury Hourglass", "HornCleat", "CaptainsWheel",
                     "Orichalcum", "Torii",
+                    // 能量侧（2026-10-26）
+                    "Ice Cream", "Chemical X",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));

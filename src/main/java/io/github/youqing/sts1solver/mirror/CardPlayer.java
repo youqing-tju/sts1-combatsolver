@@ -85,6 +85,12 @@ public final class CardPlayer {
                 throw new ActionRejected("unsupported cost " + card.cost + " on " + card.key());
             }
             xValue = state.energy;
+            // 化学 X（Chemical X）：每个 X 动作里都是 `if (hasRelic) energyOnUse += 2`
+            // （WhirlwindAction.update 的 `iinc 1, 2` 直读），所以 X 值 = 能量 + 2，
+            // 能量照旧全部花掉。
+            if (state.relics.containsKey("Chemical X")) {
+                xValue += 2;
+            }
             state.energy = 0;
         } else {
             if (effectiveCost > state.energy) {

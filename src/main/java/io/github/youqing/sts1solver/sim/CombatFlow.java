@@ -185,7 +185,13 @@ public final class CombatFlow {
         //      水银沙漏 3 点全体纯伤 / 号角夹板（第 2 回合 +14）/ 舵轮（第 3 回合 +18）
         io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onPlayerTurnStart(state);
         Hooks.firePhase(state, HookPhase.START_OF_TURN);
-        state.energy = energyPerTurn;
+        // 冰淇淋（Ice Cream）：EnergyManager.recharge() 里 `if (hasRelic) EnergyPanel.addEnergy(energy)`
+        // —— 也就是**把本回合剩下的能量加回去**，而不是重置成 energyPerTurn。
+        if (state.relics.containsKey("Ice Cream")) {
+            state.energy += energyPerTurn;
+        } else {
+            state.energy = energyPerTurn;
+        }
         // DrawReductionPower（TimeEater 的 Head Slam）：下回合**少抽** amount 张，用一次就消失。
         // 原版是 onInitialApplication 里 gameHandSize -= amount、atEndOfRound 里减 1 层，
         // 净效果就是「只影响紧接着的那一次抽牌」—— 这里照净效果写，省掉 justApplied 状态。

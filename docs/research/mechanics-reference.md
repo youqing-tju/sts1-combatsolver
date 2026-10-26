@@ -3046,9 +3046,12 @@ for (card : hand) {
 - `TungstenRod`（掉血 -1）：它只作用于 `AbstractPlayer.damage()` 这条链路，
   **不作用于 `loseHp`**（缠绕、自伤）。我们的 `hitPlayer` 同时承担两者，
   接之前得先把「伤害」与「掉血」两条路分开；
-- `IceCream`（能量跨回合）、`Chemical X`（X +2）：数值好在
-  `EnergyManager` / 每个 X 动作里，各需一处改；
+- ~~`IceCream` / `Chemical X`~~ → **已做**（同日）：
+  `EnergyManager.recharge()` 里 `if (hasRelic("Ice Cream")) EnergyPanel.addEnergy(energy)`
+  —— 剩的能量加回去而不是重置；`Chemical X` 是每个 X 动作里的 `iinc 1, 2`
+  （`WhirlwindAction.update` 直读），影子在 `CardPlayer` 统一 `xValue = energy + 2`，
+  能量照旧全花掉；
 - `RunicPyramid` / `SneckoEye`：一个要改弃牌规则、一个要每回合抽牌 +2 并随机费用
   （费用随机那半已经随蛇油做好了）。
 
-全量 **415 条**通过；遗物镜像 **12 件**（计数类 6 + 被动/回合 6）。
+全量 **417 条**通过；遗物镜像 **14 件**（计数类 6 + 被动/回合 6 + 能量侧 2）。

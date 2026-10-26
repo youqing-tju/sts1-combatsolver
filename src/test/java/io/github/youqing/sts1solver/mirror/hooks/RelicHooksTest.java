@@ -204,4 +204,48 @@ class RelicHooksTest {
         CombatFlow.endTurn(s3, 3, 5);
         assertEquals(before3 - 1, s3.hp, "有格挡就不触发，只挡掉 4 点");
     }
+    // ---------------------------------------------------------------- 冰淇淋 / 化学 X
+
+    /** 冰淇淋：本回合没用完的能量**留着**，新回合加上 energyPerTurn。 */
+    @Test
+    void iceCreamCarriesLeftoverEnergyOver() {
+        SimState s = fight();
+        s.monsters.get(0).pendingMove = MonsterMove.block(1, 0);
+        s.monsters.get(0).pendingMoveId = 1;
+        s.energy = 2;
+        s.relics.put("Ice Cream", Integer.valueOf(-1));
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(5, s.energy, "剩 2 + 回 3 = 5");
+
+        // 没有冰淇淋：重置成 3
+        SimState s2 = fight();
+        s2.monsters.get(0).pendingMove = MonsterMove.block(1, 0);
+        s2.monsters.get(0).pendingMoveId = 1;
+        s2.energy = 2;
+        CombatFlow.endTurn(s2, 3, 5);
+        assertEquals(3, s2.energy, "没有遗物就重置");
+    }
+
+    /** 化学 X：X 费牌的能量消耗量 +2（旋风斩 3 能量 = 5 段）。 */
+    @Test
+    void chemicalXAddsTwoToEveryXCard() {
+        SimState s = fight();
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard(
+                "Whirlwind", false, -1, 5, "ATTACK"));
+        s.relics.put("Chemical X", Integer.valueOf(-1));
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+
+        assertEquals(0, s.energy, "X 费牌把能量全花掉");
+        assertEquals(75, s.monsters.get(0).hp, "(3 + 2) 段 × 5 = 25 点");
+
+        // 没有遗物：3 段 × 5 = 15
+        SimState s2 = fight();
+        s2.hand.add(new io.github.youqing.sts1solver.sim.SimCard(
+                "Whirlwind", false, -1, 5, "ATTACK"));
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s2, 0, 0);
+        assertEquals(85, s2.monsters.get(0).hp, "3 段 × 5 = 15 点");
+    }
 }
