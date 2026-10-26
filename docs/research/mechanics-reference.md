@@ -2676,3 +2676,19 @@ Shackled / Lose Strength / Lose Dexterity / Strength Down / Dexterity Down / Slo
   `takeTurn` 的 2 号分支也是空 `goto`、没有 `die()` 重写 —— 爆炸触发点还没找到，先不猜。
 
 全量 **348 条**通过；累计 **51 只**。
+
+### 33.33 Deca / Donu（第三章 boss 对）2026-10-26
+
+一个 `isAttacking` 字段管两只：初值 **true**，攻击招（id 0）后置 false、辅助招（id 2）后置 true
+→ 出招恒为「攻击 ↔ 辅助」，第一招必攻击。重放：`attacking = 上一招不是 0`。
+
+| | 攻击（0） | 辅助（2） |
+|---|---|---|
+| `Deca` | 2 段 × 10（A4: 12）+ 弃牌堆 2 张 Dazed | 全体（含自己）16 格挡；A19 起再给全体 +3 Plated Armor |
+| `Donu` | 2 段 × 10（A4: 12） | 全体 +3 力量 |
+
+HP 都是 250（A9: 265）；开场 Artifact 2（A19: 3）由 `usePreBattleAction` 挂，快照里有。
+
+新增载荷组合：`multiAttackStatus` / `blockAll` / `blockAllAndBuffAll`。
+
+全量 **353 条**通过；累计 **54 只**。

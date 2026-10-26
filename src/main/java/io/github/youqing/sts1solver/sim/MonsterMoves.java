@@ -219,6 +219,8 @@ public final class MonsterMoves {
         MACHINES.put("Repulsor", new RepulsorMachine());
         MACHINES.put("Spiker", new SpikerMachine());
         MACHINES.put("SpireGrowth", new SpireGrowthMachine());
+        MACHINES.put("Deca", new DecaMachine());
+        MACHINES.put("Donu", new DonuMachine());
     }
 
     private MonsterMoves() {
@@ -2158,6 +2160,54 @@ public final class MonsterMoves {
             int hp = c.state == null ? 12 : c.state.hp;
             return MonsterMove.multiAttack(1, hp / 12 + 1, 6);
         }
+    }
+
+    /**
+     * 迪卡（{@code Deca}，第三章 boss 之一，与 Donu 成对）。
+     *
+     * <p>两只共用一套「交替」模型：字段 {@code isAttacking} **初值 true**，
+     * 攻击招（id 0）打完后置 false，辅助招（id 2）做完置 true —— 所以出招永远是
+     * 攻击 ↔ 辅助 交替，而且第一招一定是攻击。重放规则：{@code attacking = 上一招不是 0}。
+     *
+     * <pre>
+     * 攻击（0）：2 段 × beamDmg（10|12，A4 起）**外加往弃牌堆塞 2 张 Dazed**
+     * 辅助（2）：全体（含自己）16 格挡；A19 起再给全体 +3 Plated Armor
+     * </pre>
+     *
+     * <p>开场的 Artifact（A19: 3 / 否则 2）是 {@code usePreBattleAction} 挂的，快照里有。
+     */
+    static final class DecaMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int beam = c.baseDamage(0, c.ascension >= 4 ? 12 : 10);
+            if (alternatingAttacking(c.history)) {
+                return MonsterMove.multiAttackStatus(0, beam, 2, "Dazed", 2);
+            }
+            if (c.ascension >= 19) {
+                return MonsterMove.blockAllAndBuffAll(2, 16, "Plated Armor", 3);
+            }
+            return MonsterMove.blockAll(2, 16);
+        }
+    }
+
+    /** 多努（{@code Donu}，第三章 boss 之一）：攻击 2 段（10|12）；辅助给**全体 +3 力量**。 */
+    static final class DonuMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int beam = c.baseDamage(0, c.ascension >= 4 ? 12 : 10);
+            if (alternatingAttacking(c.history)) {
+                return MonsterMove.multiAttack(0, beam, 2);
+            }
+            return MonsterMove.buffAll(2, "Strength", 3);
+        }
+    }
+
+    /**
+     * Deca / Donu 共用的 {@code isAttacking} 重放：初值 true，攻击招（id 0）之后变 false、
+     * 辅助招（id 2）之后变 true。所以「下一个是不是攻击」= 「上一招不是 0」。
+     */
+    static boolean alternatingAttacking(List<Integer> history) {
+        return history.isEmpty() || history.get(history.size() - 1).intValue() != 0;
     }
 
     /**

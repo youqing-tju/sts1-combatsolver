@@ -329,6 +329,24 @@ public final class MonsterMove {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, card, count);
     }
 
+    /** 多段攻击 + 塞状态牌（Deca 的 Beam：2 段 + 2 张 Dazed）。 */
+    public static MonsterMove multiAttackStatus(int id, int damage, int hits,
+                                                String card, int count) {
+        return new MonsterMove(id, damage, hits, 0, 0, null, 0, null, 0, null, 0, card, count);
+    }
+
+    /** 自己**和**所有活着的队友都加格挡（Deca 的 Square of Protection）。 */
+    public static MonsterMove blockAll(int id, int block) {
+        return new MonsterMove(id, 0, 0, block, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, null, 0, Extra.blockAllies(block));
+    }
+
+    /** 全体加格挡 + 全体挂能力（Deca 的 A19 版：16 格挡 + 3 层金属化护甲）。 */
+    public static MonsterMove blockAllAndBuffAll(int id, int block, String power, int amount) {
+        return new MonsterMove(id, 0, 0, block, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, power, amount, Extra.blockAllies(block));
+    }
+
     /** 本体什么都不做、只有 {@link Extra} 载荷（Repulsor 的 Daze：往抽牌堆塞牌）。 */
     public static MonsterMove extra(int id, Extra extra) {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,

@@ -55,6 +55,8 @@
 | `OrbWalker` | 3 | 两招互斥（连打两次就换）；带 Burn 的那招 10\|11，另一招 15\|16。原版字段名反着存（`damage[0]` 叫 laserDmg 却给 Claw 用） |
 | `Maw` | 3 | 第 1 招必 Roar（Weak+Frail 3，A17 各 5）；之后 Nom（5 伤 × turnCount/2 段）/ Bellow（+力量）/ Slam（25\|30） |
 | `Transient` | 3 | 一招到底：30\|40 起、每回合 +10；**Fading 5\|6** 到点当场消散（CombatFlow 统一递减） |
+| `Deca` | 3（boss） | 攻击↔辅助交替（`isAttacking` 初值 true）：攻击 2 段 10\|12 + 2 张 Dazed；辅助全队 16 格挡，A19 起再 +3 Plated Armor |
+| `Donu` | 3（boss） | 同一套交替：攻击 2 段 10\|12；辅助全体 +3 力量 |
 | `SpireGrowth` | 3 | 没缠绕就先挂 Constricted 10\|12（A17 起前置条件多一条）；之后快拍 16\|18 / 重砸 22\|25 交替，不连砸 |
 | `Spiker` | 3 | 开场自带 Thorns 3\|4（真机快照已有）；`num<50` 且没连打就刺 7\|9，否则 Sharpen +2 荆棘，磨满 6 次后只刺 |
 | `Repulsor` | 3 | 80% 往**抽牌堆**塞 2 张 Dazed，20% 打 11\|13；不会连着打两下 |
@@ -367,7 +369,7 @@ setMove((byte)1, ATTACK, damage.get(2).base, 6, true);     // 硬设 Divider，�
 |---|---|
 | **死亡时爆炸 / 自毁** | `Exploder`（`ExplosivePower` 在字节码里只有 description，触发点待查） |
 | **半血复活 / 形态切换** | `Darkling`（`halfDead` + Reincarnate）、`AwakenedOne`、`TimeEater` |
-| **多段固定循环 + 队友联动** | `Deca` / `Donu`、`SpireShield` / `SpireSpear`、`GiantHead`、`Nemesis`、`WrithingMass`、`SnakeDagger` |
+| **多段固定循环 + 队友联动** | `SpireShield` / `SpireSpear`、`GiantHead`、`Nemesis`、`WrithingMass`、`SnakeDagger` |
 
 ⚠️ 这 14 只**不是「抄不动」而是「抄了会假」**：缺的那条机制不建，影子会把它们的威胁算错
 （例如 SpireGrowth 的 Constrict 每回合 10 点、Spiker 的荆棘 4–10 点）。
@@ -395,3 +397,18 @@ if (ascensionLevel >= 17) new ConstrictedPower(player, this, constrictDmg + 2);
 else                      new ConstrictedPower(player, this, constrictDmg);
 ```
 所以 A17 是每回合 12，不是 20。
+
+### Deca / Donu：一个字段管两只
+
+两只共用同一套交替模型，**不需要任何新机制**（只有「全体加格挡」和「全体加能力」两个载荷组合）：
+
+- `isAttacking` **初值 true**；攻击招（id **0**）打完后置 false，辅助招（id 2）做完置 true。
+  所以下一个是不是攻击 = 「上一招不是 0」。
+- Deca 攻击 = 2 段 × 10|12（A4 起）**+ 弃牌堆 2 张 Dazed**；辅助 = 全体 16 格挡，
+  A19 起额外给全体 `PlatedArmor +3`（**不是**给自己）。
+- Donu 攻击 = 2 段 × 10|12；辅助 = 全体 +3 力量。
+- 开场 Artifact（A19: 3 / 否则 2）是 `usePreBattleAction` 挂的，快照里已有。
+
+新增三个载荷组合（都在 `MonsterMove`）：
+`multiAttackStatus`（多段 + 塞牌）、`blockAll`（自己 + 队友一起加格挡）、
+`blockAllAndBuffAll`（全体格挡 + 全体能力）。

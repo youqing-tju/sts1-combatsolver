@@ -2376,4 +2376,63 @@ class MonsterMovesTest {
         assertEquals(70, s.hp, "格挡吃掉缠绕的 10 点");
         assertEquals(10, s.playerPowers.get("Constricted").intValue(), "缠绕不会自己消失");
     }
+
+    // ============================ 第二十二批：Deca / Donu（第三章 boss 对）============================
+
+    /** 迪卡：攻击↔辅助交替，攻击两段还塞 2 张 Dazed，辅助给全队 16 格挡。 */
+    @Test
+    void decaAlternatesBeamAndSquare() {
+        MonsterMove beam = decide("Deca", history(), 50, 0, 0);
+        assertEquals(0, beam.id, "第一招是攻击（isAttacking 初值 true）");
+        assertEquals(2, beam.hits, "两段");
+        assertEquals(10, beam.damage, "A0：10 点");
+        assertEquals(12, decide("Deca", history(), 50, 0, 4).damage, "A4 起 12");
+        assertEquals("Dazed", beam.statusCard, "Beam 还塞 Dazed");
+        assertEquals(2, beam.statusCount);
+
+        MonsterMove square = decide("Deca", history(0), 50, 0, 0);
+        assertEquals(2, square.id, "打完就换辅助");
+        assertEquals(16, square.block, "自己和队友各 16 格挡");
+        assertEquals(16, square.extra.blockAllies);
+        assertNull(square.buffAlliesPower, "A19 以下不给 Plated Armor");
+
+        MonsterMove a19 = decide("Deca", history(0), 50, 0, 19);
+        assertEquals("Plated Armor", a19.buffAlliesPower, "A19 起再给全体 3 层");
+        assertEquals(3, a19.buffAlliesAmount);
+
+        assertEquals(0, decide("Deca", history(0, 2), 50, 0, 0).id, "辅助之后回到攻击");
+    }
+
+    /** 多努：同样交替；辅助是全体 +3 力量。 */
+    @Test
+    void donuAlternatesBeamAndCircleOfPower() {
+        MonsterMove beam = decide("Donu", history(), 50, 0, 0);
+        assertEquals(0, beam.id);
+        assertEquals(2, beam.hits);
+        assertEquals(10, beam.damage, "A0：10 点");
+        assertEquals(12, decide("Donu", history(), 50, 0, 4).damage, "A4 起 12");
+        assertNull(beam.statusCard, "多努的攻击不塞牌");
+
+        MonsterMove circle = decide("Donu", history(0), 50, 0, 0);
+        assertEquals(2, circle.id, "打完换 Circle of Power");
+        assertEquals("Strength", circle.buffAlliesPower);
+        assertEquals(3, circle.buffAlliesAmount, "全体 +3 力量");
+        assertEquals(0, decide("Donu", history(0, 2), 50, 0, 0).id, "辅助之后回到攻击");
+    }
+
+    /** 全队格挡真的落到队友头上（Deca 的 Square of Protection）。 */
+    @Test
+    void decaSquareBlocksBothBosses() {
+        SimMonster deca = new SimMonster("Deca", 250, 250, 0, NO_POWERS);
+        SimMonster donu = new SimMonster("Donu", 250, 250, 0, NO_POWERS);
+        SimState s = field(deca, donu);
+        MonsterMove square = decideIn(s, "Deca", deca, history(0), 50, 0);
+        deca.pendingMove = square;
+        deca.pendingMoveId = square.id;
+        donu.pendingMove = MonsterMove.none(9);
+        donu.pendingMoveId = 9;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(16, deca.block, "迪卡自己 16 格挡");
+        assertEquals(16, donu.block, "队友也多努同样 16 格挡");
+    }
 }
