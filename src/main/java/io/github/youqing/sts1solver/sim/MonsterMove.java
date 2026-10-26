@@ -335,6 +335,12 @@ public final class MonsterMove {
                 null, 0, null, 0, false, false, 0, null, 0, Extra.selfDestruct());
     }
 
+    /** 多段攻击 + 玩家减益（Reptomancer 的 Snake Strike：两段 + Weak 1）。 */
+    public static MonsterMove multiAttackDebuff(int id, int damage, int hits,
+                                               String debuff, int amount) {
+        return new MonsterMove(id, damage, hits, 0, 0, null, 0, debuff, amount, null, 0);
+    }
+
     /** 多段攻击 + 塞状态牌（Deca 的 Beam：2 段 + 2 张 Dazed）。 */
     public static MonsterMove multiAttackStatus(int id, int damage, int hits,
                                                 String card, int count) {

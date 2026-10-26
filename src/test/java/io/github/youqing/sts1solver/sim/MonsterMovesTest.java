@@ -2728,4 +2728,44 @@ class MonsterMovesTest {
         assertEquals(4, dagger.block, "这次补 4 点");
         assertEquals(5, dagger.powers.get("Malleable").intValue(), "amount 4 → 5");
     }
+
+    // ============================ 第二十八批：Reptomancer（蛇法师，精英）============================
+
+    /** 蛇法师：开场召唤；之后在 Snake Strike / 再召唤 / Big Bite 之间按 num 走。 */
+    @Test
+    void reptomancerSummonsThenStrikesOrBites() {
+        MonsterMove summon = decide("Reptomancer", history(), 50, 0, 0);
+        assertEquals(2, summon.id, "第一招必是召唤");
+        assertNotNull(summon.extra.summon);
+        assertEquals("SnakeDagger", summon.extra.summon.pool[0].type);
+        assertEquals(1, summon.extra.summon.count, "A18 以下一次 1 只");
+        assertEquals(2, decide("Reptomancer", history(), 50, 0, 18).extra.summon.count,
+                "A18 起一次 2 只");
+        assertEquals(20, summon.extra.summon.pool[0].hpMin, "匕首血量走 monsterHpRng(20,25)");
+        assertEquals(25, summon.extra.summon.pool[0].hpMax);
+
+        MonsterMove strike = decide("Reptomancer", history(2), 10, 0, 0);
+        assertEquals(1, strike.id, "num<33 → Snake Strike");
+        assertEquals(2, strike.hits, "两段");
+        assertEquals(16, strike.damage, "A0：16");
+        assertEquals("Weakened", strike.playerDebuff);
+        assertEquals(1, strike.playerDebuffAmount);
+
+        MonsterMove bite = decide("Reptomancer", history(2), 80, 0, 0);
+        assertEquals(3, bite.id, "num>=66 → Big Bite");
+        assertEquals(34, bite.damage, "A0：34");
+        assertEquals(38, decide("Reptomancer", history(2), 80, 0, 3).damage, "A3 起 38");
+    }
+
+    /** 场上已经有 3 只别的活怪 → canSpawn 为假，不能召唤。 */
+    @Test
+    void reptomancerStopsSummoningWhenFieldIsFull() {
+        SimMonster boss = new SimMonster("Reptomancer", 190, 190, 0, NO_POWERS);
+        SimState s = field(boss,
+                new SimMonster("SnakeDagger", 20, 20, 0, NO_POWERS),
+                new SimMonster("SnakeDagger", 20, 20, 0, NO_POWERS),
+                new SimMonster("SnakeDagger", 20, 20, 0, NO_POWERS));
+        MonsterMove move = decideIn(s, "Reptomancer", boss, history(2), 50, 0);
+        assertEquals(1, move.id, "召唤位置满了 → 改打 Snake Strike");
+    }
 }

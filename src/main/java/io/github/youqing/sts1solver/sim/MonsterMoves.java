@@ -226,6 +226,7 @@ public final class MonsterMoves {
         MACHINES.put("Nemesis", new NemesisMachine());
         MACHINES.put("Darkling", new DarklingMachine());
         MACHINES.put("SnakeDagger", new SnakeDaggerMachine());
+        MACHINES.put("Reptomancer", new ReptomancerMachine());
     }
 
     private MonsterMoves() {
@@ -2164,6 +2165,56 @@ public final class MonsterMoves {
         private static MonsterMove divider(Context c) {
             int hp = c.state == null ? 12 : c.state.hp;
             return MonsterMove.multiAttack(1, hp / 12 + 1, 6);
+        }
+    }
+
+    /**
+     * 蛇法师（{@code Reptomancer}，第三章精英）。
+     *
+     * <pre>
+     * 第 1 招固定 2（召唤）：开场先放 {@code daggersPerSpawn} 只蛇匕首（A18: 2，否则 1）
+     * num&lt;33 ：上一招不是 1 → 1 Snake Strike（两段 16|18 + Weak 1）；否则**递归** random(33,99)
+     * num&lt;66 ：没连打两次 2 且「场上除自己外活怪 &lt; 3」→ 2 再召唤；否则 1
+     * 否则    ：上一招不是 3 → 3 Big Bite（34|38）；否则**递归** random(65)
+     * </pre>
+     *
+     * <p>`canSpawn()` 的判据是「除自己以外的活怪数量 < 3」（含别的召唤物）。
+     * 召唤物 `SnakeDagger` 已单独镜像（HP 走 `monsterHpRng.random(20,25)`）。
+     */
+    static final class ReptomancerMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int perSpawn = c.ascension >= 18 ? 2 : 1;
+            int snake = c.baseDamage(0, c.ascension >= 3 ? 18 : 16);
+            int bite = c.baseDamage(1, c.ascension >= 3 ? 38 : 34);
+            if (c.history.isEmpty()) {
+                return summon(perSpawn);
+            }
+            int num = c.num;
+            for (int guard = 0; guard < 16; guard++) {
+                if (num < 33) {
+                    if (!c.lastMove(1)) {
+                        return MonsterMove.multiAttackDebuff(1, snake, 2, "Weakened", 1);
+                    }
+                    num = c.rollAiRange(33, 99);
+                    continue;
+                }
+                if (num < 66) {
+                    if (!c.lastTwoMoves(2) && c.aliveOthers() < 3) {
+                        return summon(perSpawn);
+                    }
+                    return MonsterMove.multiAttackDebuff(1, snake, 2, "Weakened", 1);
+                }
+                if (!c.lastMove(3)) {
+                    return MonsterMove.attack(3, bite);
+                }
+                num = c.rollAiRange(0, 65);
+            }
+            return MonsterMove.attack(3, bite);
+        }
+
+        private static MonsterMove summon(int count) {
+            return MonsterMove.summon(2, MonsterMove.Summon.of("SnakeDagger", 20, 25, count, false));
         }
     }
 

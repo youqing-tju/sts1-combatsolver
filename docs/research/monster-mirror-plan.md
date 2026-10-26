@@ -56,6 +56,7 @@
 | `Maw` | 3 | 第 1 招必 Roar（Weak+Frail 3，A17 各 5）；之后 Nom（5 伤 × turnCount/2 段）/ Bellow（+力量）/ Slam（25\|30） |
 | `Transient` | 3 | 一招到底：30\|40 起、每回合 +10；**Fading 5\|6** 到点当场消散（CombatFlow 统一递减） |
 | `Darkling` | 3 | 三只一组：**第一次致死只算「半死」**（血留 1 + `Half Dead` 标记），下回合 Reincarnate 回半血；三只全半死才一起真死 |
+| `Reptomancer` | 3（精英） | 开场召唤 `daggersPerSpawn` 只蛇匕首（A18: 2、否则 1）；之后 num 三段 → Snake Strike（两段 + Weak 1）/ 再召唤（场上除自己外 < 3 只才允许）/ Big Bite |
 | `SnakeDagger` | 3 | 先 9 伤 + Wound，第二招 25 伤**自爆**；开场带 **Malleable 3**（挨打加格挡，一回合内越挡越多） |
 | `Nemesis` | 3（精英） | num 三段状态机 + 巨镰冷却（初值 0、每次 -1、打完归 2），分支里还会**额外掷 aiRng 硬币**；**每招末尾补一层无实体**（缺失才补） |
 | `GiantHead` | 3（精英） | `count` 初值 5、每次决策 -1：前四招 Glare（Weak **1**）/ 13 伤交替，之后 It's Time（30\|40 起、每回合 +5、封顶 +30）。真威胁是 **Slow**（每张牌 +10% 受伤，回合末清零） |
@@ -443,9 +444,9 @@ public void duringTurn() {
 
 ## 收口状态（2026-10-26 11:00 前后）
 
-**已镜像 59 / 68**（`jar` 里 68 个 `monsters/*` 类，其中 `HexaghostBody` / `HexaghostOrb` 是纯视觉对象，不算；
+**已镜像 60 / 68**（`jar` 里 68 个 `monsters/*` 类，其中 `HexaghostBody` / `HexaghostOrb` 是纯视觉对象，不算；
 真·怪物 66 只，已做 59）。
-Act 1 全齐、Act 2 全齐、Act 3 已做 16 只、Act 4 未开。
+Act 1 全齐、Act 2 全齐、Act 3 已做 17 只、Act 4 未开。
 
 剩余 13 只**全部卡在同一个模式**：它们的核心机制在**玩家侧**（或需要跨回合计数器），
 影子现在还没有那个「容器」：
@@ -515,17 +516,30 @@ SnakeDagger 本身：1 号招 9 伤 + 塞 Wound；2 号招 25 伤后自爆（`Lo
 
 ---
 
-## 剩余 7 只的精确卡点（2026-10-26 收尾时逐个查过）
+## 剩余 6 只的精确卡点（2026-10-26 收尾时逐个查过）
 
 | 怪 | 卡在哪（已核实到字节码） | 需要什么 |
 |---|---|---|
 | `TimeEater` | **`TimeWarpPower.onAfterUseCard`：玩家打出第 12 张牌时 `callEndTurnEarlySequence()` —— 当场结束玩家回合** | 搜索层要能「中途打断玩家回合」，是新容器；不是怪物 AI 层能解决的 |
 | `AwakenedOne` | `die()` 里换一只（`form 2`）重新上场并保留血线 | 「换怪上场」容器 + 保留状态 |
 | `WrithingMass` | 被打时可能塞 `Parasite`（诅咒）进牌组 + 挨打会改下一招 | 牌组级污染 + 挨打回调改意图 |
-| `Reptomancer` | `daggersPerSpawn` 字段我还没核准（`iconst_1` 与 `bipush 8` 各对应谁） | 核准后直接用现成的 `Summon`（`SnakeDagger` 已镜像，HP 走 `monsterHpRng.random(20,25)`） |
 | `SpireShield` | `moveCount % 3` 分支 + 1 号招里 `if (玩家有 orb && randomBoolean())` 追加两个 -1 减益 | ⚠️ **铁甲战士没有 orb → 那条分支恒不触发**，可只做攻击/格挡/attack+block |
 | `SpireSpear` | 同上（`moveCount % 3` + Skewer 多段 + BUFF） | 同上，可直接做 |
 | `CorruptHeart` | Act 4 boss，四阶段 + `Invincible`（每回合最多掉 X 血） | `InvinciblePower` 是**受伤上限**，需要新钩子 |
 
-**结论**：Act 1/2 全齐、Act 3 除 `AwakenedOne`/`TimeEater`/`WrithingMass`/`Reptomancer` 外全齐。
+**结论**：Act 1/2 全齐、Act 3 除 `AwakenedOne`/`TimeEater`/`WrithingMass` 外全齐（`Reptomancer` 已补）。
 剩下这几只都不是「再抄一段」的量级，而是各缺一个容器 —— 先记着，等对应容器立项。
+
+### Reptomancer：`daggersPerSpawn` 是 A18 档
+
+```java
+if (ascensionLevel >= 18) daggersPerSpawn = 2; else daggersPerSpawn = 1;
+daggers = new AbstractMonster[4];        // 只记前 4 只
+canSpawn() = 「除自己外的活怪数量 < 3」
+```
+
+`getMove`：开场固定召唤；`num<33` → Snake Strike（两段 16|18 + Weak 1）；`num<66` → 再召唤
+（要 `!lastTwoMoves(2) && canSpawn()`，否则打 Snake Strike）；`num>=66` → Big Bite（34|38）。
+两条 `getMove` 递归（`random(33,99)` / `random(65)`）照抄。
+
+召唤物 `SnakeDagger`（ID 其实是 `Dagger`）血量走 `monsterHpRng.random(20,25)` —— 已经被我们捕获。
