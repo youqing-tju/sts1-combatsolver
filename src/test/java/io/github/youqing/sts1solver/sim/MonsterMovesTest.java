@@ -2560,4 +2560,62 @@ class MonsterMovesTest {
             }
         }
     }
+
+    // ============================ 第二十五批：Nemesis（梦魇）+ Intangible justApplied ============================
+
+    /** 梦魇：开场三连火或塞 Burn；num 低且冷却好了就上巨镰。 */
+    @Test
+    void nemesisOpensThenScythes() {
+        MonsterMove fire = decide("Nemesis", history(), 10, 0, 0);
+        assertEquals(2, fire.id, "num<50 → 三连火");
+        assertEquals(3, fire.hits);
+        assertEquals(6, fire.damage, "A0：6 点一段");
+        assertEquals(7, decide("Nemesis", history(), 10, 0, 3).damage, "A3 起 7");
+        assertEquals("Intangible", fire.extra.absentBuff, "每招都补无实体");
+
+        MonsterMove burn = decide("Nemesis", history(), 80, 0, 0);
+        assertEquals(4, burn.id, "num>=50 → 塞 Burn");
+        assertEquals("Burn", burn.statusCard);
+        assertEquals(3, burn.statusCount, "A18 以下 3 张");
+        assertEquals(5, decide("Nemesis", history(), 80, 0, 18).statusCount, "A18 起 5 张");
+
+        MonsterMove scythe = decide("Nemesis", history(4), 10, 0, 0);
+        assertEquals(3, scythe.id, "冷却好了 → 巨镰");
+        assertEquals(45, scythe.damage);
+    }
+
+    /** 巨镰冷却重放：初值 0，每次决策 -1，打出后归 2。 */
+    @Test
+    void nemesisCooldownReplays() {
+        assertEquals(-1, MonsterMoves.nemesisCooldown(history()), "开局 0，决策前 -1");
+        assertEquals(1, MonsterMoves.nemesisCooldown(history(3)), "刚放完巨镰 → 2-1");
+        assertEquals(0, MonsterMoves.nemesisCooldown(history(3, 4)), "再过一回合 → 0");
+    }
+
+    /** Intangible 的 justApplied：刚挂上那回合的 tick 要跳过（否则少算一整回合无实体）。 */
+    @Test
+    void intangibleSkipsTheFirstTick() {
+        java.util.Map<String, Integer> powers = new java.util.HashMap<String, Integer>();
+        powers.put("Intangible", 2);
+        io.github.youqing.sts1solver.mirror.DamageCalc.markIntangibleFresh(powers, "Intangible");
+        io.github.youqing.sts1solver.mirror.DamageCalc.tickIntangible(powers);
+        assertEquals(2, powers.get("Intangible").intValue(), "第一次 tick 跳过");
+        io.github.youqing.sts1solver.mirror.DamageCalc.tickIntangible(powers);
+        assertEquals(1, powers.get("Intangible").intValue(), "第二次才 -1");
+        io.github.youqing.sts1solver.mirror.DamageCalc.tickIntangible(powers);
+        assertNull(powers.get("Intangible"), "到 0 移除");
+    }
+
+    /** 梦魇落地：打完自己挂上无实体，且这回合不会被 tick 掉（玩家下回合打不动它）。 */
+    @Test
+    void nemesisGainsIntangibleAfterActing() {
+        SimMonster nemesis = new SimMonster("Nemesis", 200, 200, 0, NO_POWERS);
+        SimState s = field(nemesis);
+        MonsterMove move = decideIn(s, "Nemesis", nemesis, history(), 10, 0);
+        nemesis.pendingMove = move;
+        nemesis.pendingMoveId = move.id;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(1, nemesis.powers.get("Intangible").intValue(),
+                "回合末的 tick 被 justApplied 跳过 → 玩家回合仍然无实体");
+    }
 }

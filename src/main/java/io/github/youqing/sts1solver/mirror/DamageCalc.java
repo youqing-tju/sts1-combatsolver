@@ -333,10 +333,26 @@ public final class DamageCalc {
     }
 
     /**
+     * 「刚挂上、还没 tick 过」的标记键：{@code IntangiblePower} 的 {@code justApplied} 字段。
+     *
+     * <p>它不是真能力，只是 {@code powers} 表里的一个 1，任何按 ID 查 handler / 估值的
+     * 地方都查不到它；{@link #tickIntangible} 消费掉它就删。
+     */
+    public static final String INTANGIBLE_FRESH = "Intangible#fresh";
+
+    /** 挂无实体时打上 {@code justApplied}（原版构造函数里就是 {@code justApplied = true}）。 */
+    public static void markIntangibleFresh(java.util.Map<String, Integer> powers, String id) {
+        if (powers != null && INTANGIBLE.equals(id)) {
+            powers.put(INTANGIBLE_FRESH, Integer.valueOf(1));
+        }
+    }
+
+    /**
      * 无实体回合末递减（{@code IntangiblePower.atEndOfTurn}）：{@code amount--}，到 0 移除。
      *
-     * <p>⚠️ 原版有 {@code justApplied} 保护（刚施加的那回合不递减），我们没记这个标志 ——
-     * 施加那回合会多递减一次。偏差方向是**低估防御**（不会让 AI 以为无实体更值钱）。
+     * <p>原版的 {@code justApplied} 保护：**刚挂上的那一次 tick 直接跳过**（只把标志清掉）。
+     * 这条很关键 —— 不建的话，玩家当回合开的「幽魂形态 2」会在同一回合末掉一层，
+     * 少算一整回合无实体；怪物的无实体（Nemesis 每回合都挂）则会在玩家回合开始前就消失。
      */
     public static void tickIntangible(java.util.Map<String, Integer> powers) {
         if (powers == null) {
@@ -344,7 +360,11 @@ public final class DamageCalc {
         }
         Integer intangible = powers.get(INTANGIBLE);
         if (intangible == null || intangible <= 0) {
+            powers.remove(INTANGIBLE_FRESH);
             return;
+        }
+        if (powers.remove(INTANGIBLE_FRESH) != null) {
+            return;                     // 刚挂上：跳过这次 tick
         }
         if (intangible <= 1) {
             powers.remove(INTANGIBLE);

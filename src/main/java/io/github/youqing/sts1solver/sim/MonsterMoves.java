@@ -223,6 +223,7 @@ public final class MonsterMoves {
         MACHINES.put("Donu", new DonuMachine());
         MACHINES.put("Exploder", new ExploderMachine());
         MACHINES.put("GiantHead", new GiantHeadMachine());
+        MACHINES.put("Nemesis", new NemesisMachine());
     }
 
     private MonsterMoves() {
@@ -2162,6 +2163,109 @@ public final class MonsterMoves {
             int hp = c.state == null ? 12 : c.state.hp;
             return MonsterMove.multiAttack(1, hp / 12 + 1, 6);
         }
+    }
+
+    /**
+     * 梦魇（{@code Nemesis}，第三章精英）。
+     *
+     * <p>三段式 num 状态机 + 一个自减冷却 {@code scytheCooldown}（用完巨镰后归 2，
+     * 每次决策开头 -1），分支里还会**额外抽 aiRng.randomBoolean()** 硬币：
+     *
+     * <pre>
+     * 第 1 招：num&lt;50 → 2 三连火（6|7 × 3）；否则 4 塞 3 张 Burn（A18: 5）
+     * num&lt;30 ：冷却好了就 3 巨镰(45)；否则掷硬币决定「接着打」还是「塞 Burn」
+     * num&lt;65 ：没连打两次 2 就打；否则掷硬币 → 冷却没好塞 Burn / 好了上巨镰
+     * 否则    ：上一招不是 4 就塞 Burn；否则掷硬币 + 冷却好了 → 巨镰，不然三连火
+     * </pre>
+     *
+     * <p>**每回合末尾它都会补一层 Intangible**（`if (!hasPower("Intangible"))`）——
+     * 用 {@code Extra.onlyIfAbsent("Intangible", 1)} 表达，配合
+     * {@code IntangiblePower} 的 {@code justApplied}（挂上那回合不 tick），
+     * 效果就是「玩家每打它两回合，只有一回合能打出伤害」。
+     */
+    static final class NemesisMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int fire = c.baseDamage(1, c.ascension >= 3 ? 7 : 6);
+            int burns = c.ascension >= 18 ? 5 : 3;
+            int scythe = c.baseDamage(0, 45);
+            int cooldown = nemesisCooldown(c.history);
+            if (c.history.isEmpty()) {
+                return c.num < 50 ? fire(fire, burns)
+                        : burn(burns);
+            }
+            if (c.num < 30) {
+                if (!c.lastMove(3) && cooldown <= 0) {
+                    return scythe(scythe, burns);
+                }
+                if (c.randomBoolean()) {
+                    return c.lastTwoMoves(2) ? burn(burns) : fire(fire, burns);
+                }
+                return c.lastMove(4) ? fire(fire, burns) : burn(burns);
+            }
+            if (c.num < 65) {
+                if (!c.lastTwoMoves(2)) {
+                    return fire(fire, burns);
+                }
+                if (c.randomBoolean()) {
+                    return cooldown > 0 ? burn(burns) : scythe(scythe, burns);
+                }
+                return burn(burns);
+            }
+            if (!c.lastMove(4)) {
+                return burn(burns);
+            }
+            if (c.randomBoolean() && cooldown <= 0) {
+                return scythe(scythe, burns);
+            }
+            return fire(fire, burns);
+        }
+
+        /** 2 号招：三段火（`damage[1]`），打完补无实体。 */
+        private static MonsterMove fire(int dmg, int burns) {
+            return withIntangible(new MonsterMove(2, dmg, 3, 0, 0, null, 0, null, 0, null, 0,
+                    null, 0, null, 0, null, 0, false, false, 0, null, 0,
+                    MonsterMove.Extra.onlyIfAbsent("Intangible", 1)));
+        }
+
+        /** 3 号招：巨镰（`damage[0]`）。 */
+        private static MonsterMove scythe(int dmg, int burns) {
+            return withIntangible(new MonsterMove(3, dmg, 1, 0, 0, null, 0, null, 0, null, 0,
+                    null, 0, null, 0, null, 0, false, false, 0, null, 0,
+                    MonsterMove.Extra.onlyIfAbsent("Intangible", 1)));
+        }
+
+        /** 4 号招：往弃牌堆塞 Burn，另补无实体。 */
+        private static MonsterMove burn(int count) {
+            return withIntangible(MonsterMove.status(4, "Burn", count));
+        }
+
+        /** 给任意招式补上「缺失才挂无实体」的载荷（原版写在 takeTurn 末尾，对所有招生效）。 */
+        private static MonsterMove withIntangible(MonsterMove base) {
+            return new MonsterMove(base.id, base.damage, base.hits, base.block,
+                    base.blockRandomAlly, base.selfBuff, base.selfBuffAmount,
+                    base.playerDebuff, base.playerDebuffAmount,
+                    base.playerDebuff2, base.playerDebuff2Amount,
+                    base.statusCard, base.statusCount, base.splitInto, base.splitCount,
+                    base.splitInto2, base.splitCount2, base.escape, base.vampire,
+                    base.healAllies, base.buffAlliesPower, base.buffAlliesAmount,
+                    MonsterMove.Extra.onlyIfAbsent("Intangible", 1));
+        }
+    }
+
+    /**
+     * 重放 {@code Nemesis.scytheCooldown}：初值 0，每次 {@code getMove} 开头 -1，
+     * 打出巨镰（3 号招）后归 2。
+     */
+    static int nemesisCooldown(List<Integer> history) {
+        int cd = 0;
+        for (Integer id : history) {
+            cd--;
+            if (id.intValue() == 3) {
+                cd = 2;
+            }
+        }
+        return cd - 1;                    // 即将到来的那次决策开头还要 -1
     }
 
     /**

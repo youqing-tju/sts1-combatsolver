@@ -237,6 +237,8 @@ public final class CombatFlow {
             // 原版 ApplyPowerAction(owner, owner, power)：给自己叠层
             Integer prior = m.powers.get(move.selfBuff);
             m.powers.put(move.selfBuff, (prior == null ? 0 : prior) + move.selfBuffAmount);
+            io.github.youqing.sts1solver.mirror.DamageCalc
+                    .markIntangibleFresh(m.powers, move.selfBuff);
         }
         // TheGuardian 的 TwinSmash（4 号招）打完就回攻势姿态：移除 Sharp Hide、重挂 Mode Shift。
         // 原版写在 useTwinSmash 里（ChangeState("Offensive Mode") + RemoveSpecificPowerAction）。
@@ -267,6 +269,14 @@ public final class CombatFlow {
             for (int i = 0; i < move.statusCount; i++) {
                 state.discard.add(new SimCard(move.statusCard, false, -2, -1, "STATUS"));
             }
+        }
+        if (move.extra != null && move.extra.absentBuff != null
+                && move.extra.absentBuffAmount > 0
+                && !m.powers.containsKey(move.extra.absentBuff)) {
+            // 原版 Nemesis 在 takeTurn 末尾：if (!hasPower("Intangible")) ApplyPower(...)
+            m.powers.put(move.extra.absentBuff, move.extra.absentBuffAmount);
+            io.github.youqing.sts1solver.mirror.DamageCalc
+                    .markIntangibleFresh(m.powers, move.extra.absentBuff);
         }
         applyExtra(state, m, move.extra, nextTurn);
         // Exploder 的 ExplosivePower.duringTurn：先自杀再打 30，本回合结算完就下场

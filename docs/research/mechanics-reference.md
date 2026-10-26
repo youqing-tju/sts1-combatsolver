@@ -2719,3 +2719,15 @@ Glare 只上 **Weak 1**；HP 500（A8: 520）；`startingDeathDmg` 30（A3: 40�
 - `atEndOfRound` → `amount = 0`：`CombatFlow` ④.5 段。
 
 全量 **358 条**通过；累计 **56 只**。
+
+### 33.36 Nemesis + Intangible 的 justApplied 2026-10-26
+
+`IntangiblePower.atEndOfTurn`：`if (justApplied) { justApplied = false; return; }` —— **刚挂上不 tick**。
+影子用 `DamageCalc.INTANGIBLE_FRESH` 记这个标志（`markIntangibleFresh` / `tickIntangible`）。
+不记的话：幽魂形态少算一回合；Nemesis 的无实体在玩家回合前就掉光（等于没有）。
+
+Nemesis：`scytheCooldown`（0 起、每次 -1、巨镰后归 2）+ 三分支 num 状态机 + 额外硬币；
+每招末尾补 Intangible（`Extra.onlyIfAbsent`）。HP 185（A8: 200）、火 6（A3: 7）、
+巨镰 45、Burn 3 张（A18: 5）。
+
+全量 **363 条**通过；累计 **57 只**。

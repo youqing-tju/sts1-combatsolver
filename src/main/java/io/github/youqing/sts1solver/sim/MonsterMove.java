@@ -466,11 +466,18 @@ public final class MonsterMove {
          * 所以影子里等价于「打完就死」）。
          */
         public final boolean selfDestruct;
+        /**
+         * 「自己没有这个能力时才挂上」（Nemesis 每回合都在 takeTurn 末尾补一层无实体）。
+         *
+         * <p>和主字段 {@code selfBuff} 的区别：那个是无脑叠加，这个是**缺失才补**。
+         */
+        public final String absentBuff;
+        public final int absentBuffAmount;
 
         private Extra(Summon summon, String blockAllyType, int blockAllyTypeAmount,
                       int blockAllies, String playerDebuff3, int playerDebuff3Amount,
                       boolean cleanseSelf, String statusDrawCard, int statusDrawCount,
-                      boolean selfDestruct) {
+                      boolean selfDestruct, String absentBuff, int absentBuffAmount) {
             this.summon = summon;
             this.blockAllyType = blockAllyType;
             this.blockAllyTypeAmount = Math.max(0, blockAllyTypeAmount);
@@ -481,43 +488,50 @@ public final class MonsterMove {
             this.statusDrawCard = statusDrawCard;
             this.statusDrawCount = Math.max(0, statusDrawCount);
             this.selfDestruct = selfDestruct;
+            this.absentBuff = absentBuff;
+            this.absentBuffAmount = Math.max(0, absentBuffAmount);
         }
 
         public static Extra summon(Summon summon) {
-            return new Extra(summon, null, 0, 0, null, 0, false, null, 0, false);
+            return new Extra(summon, null, 0, 0, null, 0, false, null, 0, false, null, 0);
         }
 
         public static Extra blockTypedAlly(String type, int amount) {
-            return new Extra(null, type, amount, 0, null, 0, false, null, 0, false);
+            return new Extra(null, type, amount, 0, null, 0, false, null, 0, false, null, 0);
         }
 
         public static Extra blockAllies(int amount) {
-            return new Extra(null, null, 0, amount, null, 0, false, null, 0, false);
+            return new Extra(null, null, 0, amount, null, 0, false, null, 0, false, null, 0);
         }
 
         public static Extra thirdPlayerDebuff(String power, int amount) {
-            return new Extra(null, null, 0, 0, power, amount, false, null, 0, false);
+            return new Extra(null, null, 0, 0, power, amount, false, null, 0, false, null, 0);
         }
 
         /** 只清自身减益（Champ 的 Anger 另外还给力量，那部分走主字段 selfBuff）。 */
         public static Extra cleanseSelfOnly() {
-            return new Extra(null, null, 0, 0, null, 0, true, null, 0, false);
+            return new Extra(null, null, 0, 0, null, 0, true, null, 0, false, null, 0);
+        }
+
+        /** 自己没有这个能力时才挂上（Nemesis 的无实体回补）。 */
+        public static Extra onlyIfAbsent(String power, int amount) {
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, power, amount);
         }
 
         /** 结算完自己死掉（Exploder）。 */
         public static Extra selfDestruct() {
-            return new Extra(null, null, 0, 0, null, 0, false, null, 0, true);
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, true, null, 0);
         }
 
         /** 往抽牌堆塞状态牌（Repulsor 的 Dazed）。 */
         public static Extra statusToDraw(String card, int count) {
-            return new Extra(null, null, 0, 0, null, 0, false, card, count, false);
+            return new Extra(null, null, 0, 0, null, 0, false, card, count, false, null, 0);
         }
 
         public boolean isEmpty() {
             return summon == null && blockAllyType == null && blockAllies <= 0
                     && playerDebuff3 == null && !cleanseSelf && statusDrawCard == null
-                    && !selfDestruct;
+                    && !selfDestruct && absentBuff == null;
         }
     }
 

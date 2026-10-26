@@ -1580,6 +1580,7 @@ public final class Effects {
     private static void add(java.util.Map<String, Integer> powers, String id, int amount) {
         Integer current = powers.get(id);
         powers.put(id, (current == null ? 0 : current) + amount);
+        DamageCalc.markIntangibleFresh(powers, id);
     }
 
     /**
