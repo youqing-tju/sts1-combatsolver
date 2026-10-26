@@ -255,6 +255,7 @@ public final class Potions {
             // GamblingChipAction：把选中的手牌移到弃牌堆，再抽等量
             int discarded = moveSelectedHandTo(state, choices, state.discard);
             io.github.youqing.sts1solver.sim.CombatFlow.drawAfterPotion(state, discarded);
+            io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onUsePotion(state);
             return true;
         }
         if (ELIXIR.equals(potionId)) {
@@ -320,7 +321,20 @@ public final class Potions {
      * {@code if (getCurrRoom().phase == RoomPhase.COMBAT)} —— 非战斗用是空效果。
      * 我们只在战斗里调这里，所以恒过，但**这一条要记住**：将来接非战斗路径时不能漏。
      */
+    /**
+     * 喝药的成功出口：{@code ToyOrnithopter.onUsePotion}（回 5 血）挂在这里，
+     * 这样每个分支都不用自己记得调。
+     */
     public static boolean use(SimState state, String potionId, int targetIndex, int choiceIndex) {
+        boolean used = useInternal(state, potionId, targetIndex, choiceIndex);
+        if (used) {
+            io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onUsePotion(state);
+        }
+        return used;
+    }
+
+    private static boolean useInternal(SimState state, String potionId, int targetIndex,
+                                       int choiceIndex) {
         if (FAIRY_POTION.equals(potionId)) {
             return false;                       // 被动药水，不能主动用
         }
@@ -445,7 +459,8 @@ public final class Potions {
         }
         if (BLOOD_POTION.equals(potionId)) {
             // (int)(maxHp * (20/100.0f))，向零截断
-            int healAmt = (int) (state.maxHp * (BLOOD_POTION_PERCENT / 100.0f));
+            int healAmt = io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                    .healAmount(state, (int) (state.maxHp * (BLOOD_POTION_PERCENT / 100.0f)));
             state.hp = Math.min(state.maxHp, state.hp + Math.max(0, healAmt));
             io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
             return true;

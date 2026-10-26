@@ -74,6 +74,31 @@ public final class RelicHooks {
     /** {@code RedSkull}: {@code StrengthPower(player, 3)} / {@code (player, -3)}。 */
     private static final int RED_SKULL_STRENGTH = 3;
 
+    // ---- 第四批：消耗 / 洗牌 / 击杀 / 回血 / 格挡衰减 / 药水（2026-10-26）----
+
+    /** 灰烬之主（{@code CharonsAshes}）：每消耗一张牌，对全体 3 点纯伤。 */
+    public static final String CHARONS_ASHES = "Charon's Ashes";
+    /** 日晷（{@code Sundial}）：每洗牌 3 次回 2 能量。 */
+    public static final String SUNDIAL = "Sundial";
+    /** 小鬼号角（{@code GremlinHorn}）：每击杀一只怪回 1 能量、抽 1 张。 */
+    public static final String GREMLIN_HORN = "Gremlin Horn";
+    /** 魔法花（{@code MagicFlower}）：战斗中所有回血 ×1.5。 */
+    public static final String MAGIC_FLOWER = "Magic Flower";
+    /** 卡尺（{@code Calipers}）：回合结束格挡只掉 15，不是全清。 */
+    public static final String CALIPERS = "Calipers";
+    /** 玩具鸟翼飞机（{@code ToyOrnithopter}）：每喝一瓶药回 5 血。 */
+    public static final String TOY_ORNITHOPTER = "Toy Ornithopter";
+
+    /** {@code CharonsAshes.onExhaust}: {@code createDamageMatrix(3, true)}。 */
+    private static final int CHARONS_ASHES_DAMAGE = 3;
+    /** {@code Sundial.onShuffle}: {@code counter == 3} → {@code counter = 0} + {@code GainEnergyAction(2)}。 */
+    private static final int SUNDIAL_SHUFFLES = 3;
+    private static final int SUNDIAL_ENERGY = 2;
+    /** {@code Calipers}: {@code loseBlock(15)}。 */
+    private static final int CALIPERS_DECAY = 15;
+    /** {@code ToyOrnithopter.onUsePotion}: {@code HealAction(player, player, 5)}。 */
+    private static final int TOY_ORNITHOPTER_HEAL = 5;
+
     /** {@code MercuryHourglass}: {@code createDamageMatrix(3, true)}。 */
     private static final int MERCURY_DAMAGE = 3;
     /** {@code HornCleat}: {@code GainBlockAction(player, player, 14)}，触发回合 2。 */
@@ -188,6 +213,99 @@ public final class RelicHooks {
         int delta = shouldBeActive ? RED_SKULL_STRENGTH : -RED_SKULL_STRENGTH;
         state.playerPowers.put(DamageCalc.STRENGTH,
                 intOf(state.playerPowers.get(DamageCalc.STRENGTH)) + delta);
+    }
+
+    /**
+     * 消耗一张牌（{@code AbstractRelic.onExhaust}）：灰烬之主 → 全体 3 点**纯伤**
+     * （{@code createDamageMatrix(3, true)}，不吃力量/易伤，但会被格挡吃掉）。
+     */
+    public static void onExhaust(SimState state) {
+        if (state == null || !state.relics.containsKey(CHARONS_ASHES)) {
+            return;
+        }
+        PowerHooks.damageAll(state, CHARONS_ASHES_DAMAGE);
+    }
+
+    /**
+     * 洗牌（{@code Sundial.onShuffle}）：{@code counter++}，到 3 归零并回 2 能量。
+     *
+     * <p>{@code onEquip} 会把 counter 置 0，所以捕获到的初值就是「已经洗过几次」。
+     */
+    public static void onShuffle(SimState state) {
+        if (state == null) {
+            return;
+        }
+        Integer counter = state.relics.get(SUNDIAL);
+        if (counter == null) {
+            return;
+        }
+        int next = counter.intValue() + 1;
+        if (next >= SUNDIAL_SHUFFLES) {
+            state.relics.put(SUNDIAL, Integer.valueOf(0));
+            state.energy += SUNDIAL_ENERGY;
+        } else {
+            state.relics.put(SUNDIAL, Integer.valueOf(next));
+        }
+    }
+
+    /**
+     * 击杀一只怪（{@code GremlinHorn.onMonsterDeath}）：回 1 能量 + 抽 1 张。
+     *
+     * <p>原版有 {@code if (!monsters.areMonstersBasicallyDead())} 这层判断 ——
+     * 也就是「这一下把整场怪都打完了」时**不触发**（战斗都要结束了，给能量没意义）。
+     * 影子的等价判据是「还有别的怪活着」。
+     */
+    public static void onMonsterKilled(SimState state, SimMonster dead, int hpBefore) {
+        if (state == null || dead == null || hpBefore <= 0 || dead.hp > 0) {
+            return;
+        }
+        boolean anyLeft = false;
+        for (SimMonster m : state.monsters) {
+            if (m.hp > 0) {
+                anyLeft = true;
+                break;
+            }
+        }
+        if (!anyLeft) {
+            return;
+        }
+        if (state.relics.containsKey(GREMLIN_HORN)) {
+            state.energy += 1;
+            io.github.youqing.sts1solver.sim.CombatFlow.drawCards(state, 1);
+        }
+    }
+
+    /**
+     * 战斗中的回血量（{@code MagicFlower.onPlayerHeal}）：{@code MathUtils.round(amount * 1.5f)}。
+     *
+     * <p>libgdx 的 {@code MathUtils.round(float)} 是 {@code (int)(x + 0.5f)}（正数），
+     * 也就是「四舍五入」而不是截断 —— {@code heal(5)} → 8（不是 7）。
+     */
+    public static int healAmount(SimState state, int amount) {
+        if (state == null || amount <= 0 || !state.relics.containsKey(MAGIC_FLOWER)) {
+            return amount;
+        }
+        return (int) Math.floor(amount * 1.5f + 0.5f);
+    }
+
+    /**
+     * 回合结束时玩家格挡变成多少（{@code GameActionManager} 的那段）：
+     * {@code Barricade / Blur} 不动；{@code Calipers} 只掉 15；否则全清。
+     */
+    public static int blockAfterTurnEnd(SimState state, int block) {
+        if (state != null && state.relics.containsKey(CALIPERS)) {
+            return Math.max(0, block - CALIPERS_DECAY);
+        }
+        return 0;
+    }
+
+    /** 喝一瓶药（{@code ToyOrnithopter.onUsePotion}）：回 5 血。 */
+    public static void onUsePotion(SimState state) {
+        if (state == null || !state.relics.containsKey(TOY_ORNITHOPTER)) {
+            return;
+        }
+        state.hp = Math.min(state.maxHp, state.hp + TOY_ORNITHOPTER_HEAL);
+        syncRedSkull(state);
     }
 
     private static int intOf(Integer value) {

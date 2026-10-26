@@ -262,7 +262,9 @@ public final class Effects {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
-                state.hp = Math.min(state.maxHp, state.hp + amount);
+                state.hp = Math.min(state.maxHp, state.hp
+                        + io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                                .healAmount(state, amount));
                 io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
             }
 
@@ -390,11 +392,13 @@ public final class Effects {
                 int total = 0;
                 for (SimMonster m : state.monsters) {
                     if (m.hp > 0) {
-                        total += DamageCalc.hitAndReturnDealt(m,
+                        total += DamageCalc.hitAndReturnDealt(state, m,
                                 DamageCalc.attackDamage(state, base, m));
                     }
                 }
-                state.hp = Math.min(state.maxHp, state.hp + total);
+                state.hp = Math.min(state.maxHp, state.hp
+                        + io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                                .healAmount(state, total));
                 io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
             }
 
@@ -649,6 +653,8 @@ public final class Effects {
             return;
         }
         state.exhaust.add(card);
+        // AbstractRelic.onExhaust（灰烬之主）：每消耗一张牌，全体 3 点纯伤
+        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onExhaust(state);
         if ("Sentinel".equals(card.id) || "Sentinel+".equals(card.id)
                 || "Sentinel".equals(card.id)) {
             state.energy += 2;
@@ -803,6 +809,8 @@ public final class Effects {
             state.draw.add(c);
         }
         state.discard.clear();
+        // Sundial.onShuffle：弃牌堆洗回抽牌堆算一次洗牌
+        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onShuffle(state);
     }
 
     /**
@@ -819,6 +827,8 @@ public final class Effects {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 reshuffleDiscardIntoDraw(state);
+                // Sundial.onShuffle：DeepBreath 的第二次洗牌（抽牌堆整体重洗）也算一次
+                io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onShuffle(state);
                 io.github.youqing.sts1solver.sim.Shuffle.shuffle(state.draw,
                         state.rng.get(SimState.RngKind.SHUFFLE));
                 draw(drawCount).applyTo(state, targetIndex, played);

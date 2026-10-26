@@ -122,7 +122,7 @@ public final class PowerHooks {
         reg("Regeneration", HookPhase.END_OF_TURN, new Handler() {
             @Override
             public void fire(SimState state, int amount, HookContext ctx) {
-                state.hp = Math.min(state.maxHp, state.hp + amount);
+                state.hp = Math.min(state.maxHp, state.hp + RelicHooks.healAmount(state, amount));
                 RelicHooks.syncRedSkull(state);
                 if (amount - 1 <= 0) {
                     state.playerPowers.remove("Regeneration");

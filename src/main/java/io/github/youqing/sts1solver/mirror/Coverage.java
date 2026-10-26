@@ -63,6 +63,9 @@ public final class Coverage {
                     "Runic Pyramid",
                     // 蛇眼：+2 手牌走 gameHandSize（捕获时已含），费用随机的 Confusion 走抽牌
                     "Snecko Eye",
+                    // 第四批（2026-10-26）：消耗 / 洗牌 / 击杀 / 回血 / 格挡衰减 / 药水
+                    "Charon's Ashes", "Sundial", "Gremlin Horn", "Magic Flower",
+                    "Calipers", "Toy Ornithopter",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));

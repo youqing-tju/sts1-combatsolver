@@ -3164,3 +3164,32 @@ ID 全部按构造器首参核实（又是一堆空格差异）：
 （那会让整条路线建立在假费用上）。
 
 全量 **430 条**通过；遗物镜像 **21 件**。
+
+### 33.48 遗物第四批：消耗 / 洗牌 / 击杀 / 回血 / 格挡衰减 / 药水 2026-10-26
+
+| 类 | 运行时 ID | 钩子（字节码） | 影子落点 |
+|---|---|---|---|
+| `CharonsAshes` | **`Charon's Ashes`**（带撇号） | `onExhaust(card)` → `DamageAllEnemiesAction(player, createDamageMatrix(3, true), THORNS, …)` | `Effects.exhaustCard` |
+| `Sundial` | `Sundial` | `onShuffle()`：`counter++`，`== 3` → `counter = 0` + `GainEnergyAction(2)` | `Effects.reshuffleDiscardIntoDraw` + DeepBreath 的第二次洗牌 |
+| `GremlinHorn` | **`Gremlin Horn`** | `onMonsterDeath`：`if (!monsters.areMonstersBasicallyDead())` → `GainEnergy(1)` + `DrawCard(1)` | `DamageCalc.hitAndReturnDealt` |
+| `MagicFlower` | **`Magic Flower`** | `onPlayerHeal(int)`：战斗中 → `MathUtils.round(n * 1.5f)` | `RelicHooks.healAmount`（4 个回血落点） |
+| `Calipers` | `Calipers` | 没有钩子方法，被 `GameActionManager` 直接读：`Barricade/Blur/Calipers` 三分支，Calipers → `loseBlock(15)` | `RelicHooks.blockAfterTurnEnd` |
+| `ToyOrnithopter` | **`Toy Ornithopter`** | `onUsePotion()` → `HealAction(player, player, 5)` | `Potions.use` 的成功出口 |
+
+**四个容易写错的点**：
+
+1. **`MathUtils.round` 是四舍五入，不是截断**：`(int)(x + 0.5f)`。
+   所以魔法花把 `heal(5)` 变成 **8**（7.5 → 8），不是 7。写成截断每回合少 1 点。
+2. **`GremlinHorn` 有「整场打完就不给」这层判断**。等价判据是「还有别的怪活着」；
+   写成「每次击杀都给」的话，最后一击会凭空多 1 能量 + 1 张牌。
+3. **`Sundial` 的计数是遗物 `counter`**，`onEquip` 置 0 —— 所以捕获到的值直接可用。
+   洗牌点有两个：弃牌堆洗回抽牌堆（`EmptyDeckShuffleAction`）和深呼吸的抽牌堆重洗
+   （`ShuffleAction`），**两处都要记**，只记一处会少算次数。
+4. **`Calipers` 的判据里有 `Blur`**（`Barricade || Blur || Calipers`）。`Blur` 我们还没建模
+   （静默的「无实体格挡保留」），所以现在只对齐了 `Barricade` 与 `Calipers` 两支；
+   铁甲战士拿不到 `Blur`，短期无影响，但**别以为三分支只做了两支就等于做完了**。
+
+顺带把 `DamageCalc.hitAndReturnDealt` 的签名改成带 `SimState`（小鬼号角要读遗物、要抽牌），
+三个调用点（普通攻击 / 烈焰屏障 / 收割）全部同步。
+
+全量 **436 条**通过；遗物镜像 **27 件**。

@@ -420,16 +420,16 @@ class PotionsTest {
         byrd.hp = 40;
         byrd.powers.put("Flight", 2);
 
-        DamageCalc.hitAndReturnDealt(byrd, 21);   // 21 / 2 = 10.5 -> 10
+        DamageCalc.hitAndReturnDealt(s, byrd, 21);   // 21 / 2 = 10.5 -> 10
 
         assertEquals(30, byrd.hp, "40 - 10");
         assertEquals(1, byrd.powers.get("Flight").intValue(), "掉 1 层");
 
-        DamageCalc.hitAndReturnDealt(byrd, 10);
+        DamageCalc.hitAndReturnDealt(s, byrd, 10);
         assertEquals(25, byrd.hp, "5 / 2 = 2.5 -> 2");
         assertFalse(byrd.powers.containsKey("Flight"), "第 2 层掉完就没了");
 
-        DamageCalc.hitAndReturnDealt(byrd, 10);
+        DamageCalc.hitAndReturnDealt(s, byrd, 10);
         assertEquals(15, byrd.hp, "没飞行了，全额 10");
     }
 
@@ -476,7 +476,7 @@ class PotionsTest {
 
         assertEquals(3, s.monsters.get(0).block, "回合末加 3 格挡");
 
-        DamageCalc.hitAndReturnDealt(s.monsters.get(0), 5);
+        DamageCalc.hitAndReturnDealt(s, s.monsters.get(0), 5);
         assertEquals(2, s.monsters.get(0).powers.get("Plated Armor").intValue(), "受伤掉 1 层");
     }
 
@@ -523,10 +523,10 @@ class PotionsTest {
         SimMonster m = s.monsters.get(0);
         m.powers.put("Angry", 1);
 
-        DamageCalc.hitAndReturnDealt(m, 5);
+        DamageCalc.hitAndReturnDealt(s, m, 5);
         assertEquals(1, m.powers.get("Strength").intValue(), "受击 +1 力量");
 
-        DamageCalc.hitAndReturnDealt(m, 5);
+        DamageCalc.hitAndReturnDealt(s, m, 5);
         assertEquals(2, m.powers.get("Strength").intValue(), "再受击再 +1");
     }
 
@@ -539,11 +539,11 @@ class PotionsTest {
         m.hp = 40;
         m.powers.put("Curl Up", 6);
 
-        DamageCalc.hitAndReturnDealt(m, 5);
+        DamageCalc.hitAndReturnDealt(s, m, 5);
         assertEquals(6, m.block, "蜷缩加 6 格挡");
         assertFalse(m.powers.containsKey("Curl Up"), "一次性，用完即弃");
 
-        DamageCalc.hitAndReturnDealt(m, 5);
+        DamageCalc.hitAndReturnDealt(s, m, 5);
         assertEquals(1, m.block, "第二次打 5 伤，格挡吃掉 5 → 剩 1；不再触发蜷缩");
     }
 

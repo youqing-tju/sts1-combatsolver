@@ -176,9 +176,10 @@ public final class CombatFlow {
             m.intentAttack = planned.attacks();
         }
 
-        // ⑤ 敌人打完，剩余格挡清零（壁垒除外）
+        // ⑤ 敌人打完，剩余格挡衰减（Barricade 不动；Calipers 只掉 15；否则全清）
         if (power(state, "Barricade") <= 0) {
-            state.block = 0;
+            state.block = io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                    .blockAfterTurnEnd(state, state.block);
         }
 
         // ⑥ 进入下一回合（意图已在 ④ 里逐只刷新过）

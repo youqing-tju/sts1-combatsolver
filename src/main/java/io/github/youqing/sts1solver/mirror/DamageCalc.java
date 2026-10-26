@@ -110,7 +110,7 @@ public final class DamageCalc {
     public static void hit(SimState state, SimMonster target, int damage) {
         int hpBefore = target.hp;
         damage = capByInvincible(target, damage);
-        hitAndReturnDealt(target, damage);
+        hitAndReturnDealt(state, target, damage);
         // Lagavulin.damage(DamageInfo) 被重写过：**血量真的变了** 且还没醒过 → 立刻醒并晕一回合。
         // 这是它作为精英的核心机制（睡着的 3 回合是可以白打的窗口，一旦动手就换它先手）。
         if (target.hp != hpBefore) {
@@ -350,11 +350,11 @@ public final class DamageCalc {
         if (flame == null || flame <= 0) {
             return;
         }
-        hitAndReturnDealt(attacker, flame);
+        hitAndReturnDealt(state, attacker, flame);
     }
 
     /** 同上，但返回**实际扣掉的血量**（吸血类卡牌需要）。 */
-    public static int hitAndReturnDealt(SimMonster target, int damage) {
+    public static int hitAndReturnDealt(SimState state, SimMonster target, int damage) {
         int hpBefore = target.hp;
         int remaining = intangibleAdjusted(target.powers, flightAdjusted(target, damage));
         if (target.block > 0) {
@@ -370,6 +370,9 @@ public final class DamageCalc {
         tickPlatedArmor(target, damage);
         tickAngry(target, damage);
         tickCurlUp(target, damage, hpBefore);
+        // GremlinHorn.onMonsterDeath：这一下打死它 → 回 1 能量 + 抽 1 张（整场清空时不触发）
+        io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                .onMonsterKilled(state, target, hpBefore);
         return remaining;
     }
 

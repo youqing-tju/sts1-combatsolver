@@ -12,6 +12,7 @@ import io.github.youqing.sts1solver.sim.SimState;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * 遗物第二批：被动 / 回合钩子（纸青蛙 / 鸟居 / 水银沙漏 / 号角夹板 / 舵轮 / 山铜）。
@@ -533,5 +534,131 @@ class RelicHooksTest {
         CombatFlow.drawCards(s2, 1);
         assertEquals(1, s2.hand.get(0).cost);
         assertEquals(0, s2.rng.get(SimState.RngKind.CARD).counter());
+    }
+    // ---------------------------------------------------------------- 第四批：消耗/洗牌/击杀/回血/格挡
+
+    /** 灰烬之主：每消耗一张牌，对**全体** 3 点纯伤（不吃力量/易伤，但会被格挡吃掉）。 */
+    @Test
+    void charonsAshesHitsEveryEnemyOnExhaust() {
+        SimState s = fight();
+        s.monsters.add(new SimMonster("JawWorm", 40, 40, 0,
+                Collections.<String, Integer>emptyMap()));
+        s.relics.put(RelicHooks.CHARONS_ASHES, Integer.valueOf(-1));
+
+        io.github.youqing.sts1solver.mirror.Effects.exhaustCard(s,
+                new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+
+        assertEquals(97, s.monsters.get(0).hp, "第一只 -3");
+        assertEquals(37, s.monsters.get(1).hp, "第二只也 -3");
+        assertEquals(1, s.exhaust.size());
+
+        // 没有遗物：不掉血
+        SimState s2 = fight();
+        io.github.youqing.sts1solver.mirror.Effects.exhaustCard(s2,
+                new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        assertEquals(100, s2.monsters.get(0).hp);
+    }
+
+    /** 日晷：洗牌 3 次回 2 能量，计数归零。 */
+    @Test
+    void sundialPaysTwoEnergyEveryThirdShuffle() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.SUNDIAL, Integer.valueOf(0));
+        s.energy = 1;
+
+        RelicHooks.onShuffle(s);
+        assertEquals(Integer.valueOf(1), s.relics.get(RelicHooks.SUNDIAL));
+        assertEquals(1, s.energy, "第 1 次不给");
+        RelicHooks.onShuffle(s);
+        assertEquals(1, s.energy, "第 2 次不给");
+        RelicHooks.onShuffle(s);
+        assertEquals(3, s.energy, "第 3 次 +2");
+        assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.SUNDIAL), "计数归零");
+
+        // 真路径：弃牌堆洗回抽牌堆也算一次
+        s.discard.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        s.rng.put(SimState.RngKind.SHUFFLE,
+                io.github.youqing.sts1solver.sim.RngStream.from(9L, 9L, 0));
+        io.github.youqing.sts1solver.mirror.Effects.reshuffleDiscardIntoDraw(s);
+        assertEquals(Integer.valueOf(1), s.relics.get(RelicHooks.SUNDIAL),
+                "reshuffleDiscardIntoDraw 也要计一次");
+    }
+
+    /** 小鬼号角：击杀时回 1 能量 + 抽 1 张；**清场那一下不给**。 */
+    @Test
+    void gremlinHornPaysOutOnKillButNotOnTheFinalOne() {
+        SimState s = fight();
+        s.monsters.add(new SimMonster("JawWorm", 5, 5, 0,
+                Collections.<String, Integer>emptyMap()));
+        s.relics.put(RelicHooks.GREMLIN_HORN, Integer.valueOf(-1));
+        s.energy = 0;
+        s.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+
+        DamageCalc.hit(s, s.monsters.get(1), 99);
+        assertEquals(0, s.monsters.get(1).hp);
+        assertEquals(1, s.energy, "击杀回 1 能量");
+        assertEquals(1, s.hand.size(), "击杀抽 1 张");
+
+        // 打死最后一只：整场清空 → 不给
+        DamageCalc.hit(s, s.monsters.get(0), 999);
+        assertEquals(0, s.monsters.get(0).hp);
+        assertEquals(1, s.energy, "清场那一下不再给能量");
+        assertEquals(1, s.hand.size());
+    }
+
+    /** 魔法花：战斗中回血 ×1.5，**四舍五入**（5 → 8，7 → 11）。 */
+    @Test
+    void magicFlowerRoundsHealingUpByHalf() {
+        SimState s = fight();
+        assertEquals(5, RelicHooks.healAmount(s, 5), "没遗物：原值");
+
+        s.relics.put(RelicHooks.MAGIC_FLOWER, Integer.valueOf(-1));
+        assertEquals(8, RelicHooks.healAmount(s, 5), "5 × 1.5 = 7.5 → 8（四舍五入）");
+        assertEquals(11, RelicHooks.healAmount(s, 7), "7 × 1.5 = 10.5 → 11");
+        assertEquals(2, RelicHooks.healAmount(s, 1), "1 × 1.5 = 1.5 → 2");
+    }
+
+    /** 卡尺：回合结束只掉 15 格挡，不是全清。 */
+    @Test
+    void calipersDecaysOnlyFifteenBlock() {
+        SimState s = fight();
+        armedMonster(s);
+        s.relics.put(RelicHooks.CALIPERS, Integer.valueOf(-1));
+        s.block = 30;
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(15, s.block, "30 - 15 = 15 留到下一回合");
+
+        // 不足 15 就清零
+        SimState s2 = fight();
+        armedMonster(s2);
+        s2.relics.put(RelicHooks.CALIPERS, Integer.valueOf(-1));
+        s2.block = 10;
+        CombatFlow.endTurn(s2, 3, 5);
+        assertEquals(0, s2.block);
+
+        // 没有遗物：全清
+        SimState s3 = fight();
+        armedMonster(s3);
+        s3.block = 30;
+        CombatFlow.endTurn(s3, 3, 5);
+        assertEquals(0, s3.block);
+    }
+
+    /** 玩具鸟翼飞机：每喝一瓶药回 5 血（失败的那次不算）。 */
+    @Test
+    void toyOrnithopterHealsOnPotionUse() {
+        SimState s = fight();
+        s.hp = 60;
+        s.relics.put(RelicHooks.TOY_ORNITHOPTER, Integer.valueOf(-1));
+
+        assertTrue(io.github.youqing.sts1solver.mirror.Potions.use(
+                s, io.github.youqing.sts1solver.mirror.Potions.BLOCK_POTION, -1));
+        assertEquals(65, s.hp, "回 5 血");
+
+        // 失败（目标越界）不触发
+        assertFalse(io.github.youqing.sts1solver.mirror.Potions.use(
+                s, io.github.youqing.sts1solver.mirror.Potions.FIRE_POTION, 5));
+        assertEquals(65, s.hp);
     }
 }
