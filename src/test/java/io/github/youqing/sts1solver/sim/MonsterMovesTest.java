@@ -2768,4 +2768,126 @@ class MonsterMovesTest {
         MonsterMove move = decideIn(s, "Reptomancer", boss, history(2), 50, 0);
         assertEquals(1, move.id, "召唤位置满了 → 改打 Snake Strike");
     }
+
+    // ============================ 第二十九批：Act 4 盾与矛（SpireShield / SpireSpear）============================
+
+    /**
+     * 盾：`moveCount % 3` 三支。
+     *
+     * <ul>
+     *   <li>{@code %3==0} → 抽一次 aiRng 决定 FORTIFY / BASH（两支都合法，只钉「是这两个之一」）；</li>
+     *   <li>{@code %3==1} → 上一招不是 BASH 才 BASH，否则 FORTIFY；</li>
+     *   <li>{@code %3==2} → SMASH。</li>
+     * </ul>
+     */
+    @Test
+    void spireShieldFollowsMoveCountModThree() {
+        MonsterMove first = decide("SpireShield", history(), 50, 0, 0);
+        assertTrue(first.id == 1 || first.id == 2,
+                "moveCount%3==0：随机取 BASH(1) 或 FORTIFY(2)，实际 " + first.id);
+
+        MonsterMove bash = decide("SpireShield", history(2), 50, 0, 0);
+        assertEquals(1, bash.id, "上一招不是 1 → BASH");
+        assertEquals(12, bash.damage, "A0：12");
+        assertEquals(14, decide("SpireShield", history(2), 50, 0, 3).damage, "A3 起 14");
+        assertEquals("Strength", bash.playerDebuff);
+        assertEquals(-1, bash.playerDebuffAmount, "铁甲战士没有 orb → 恒扣力量 1 点");
+
+        MonsterMove fortify = decide("SpireShield", history(1), 50, 0, 0);
+        assertEquals(2, fortify.id, "刚 BASH 过 → FORTIFY");
+        assertEquals(30, fortify.block, "自己 30 格挡");
+        assertEquals(30, fortify.extra.blockAllies, "矛也有 30 格挡（全体）");
+
+        MonsterMove smash = decide("SpireShield", history(1, 2), 50, 0, 0);
+        assertEquals(3, smash.id);
+        assertEquals(34, smash.damage, "A0：34");
+        assertEquals(38, decide("SpireShield", history(1, 2), 50, 0, 3).damage, "A3 起 38");
+        assertTrue(smash.extra.blockFromDamage, "格挡 = damage[1].output（不是常量）");
+        assertEquals(0, smash.block, "主字段 block 必须留 0，否则会叠加");
+        assertEquals(99, decide("SpireShield", history(1, 2), 50, 0, 18).block,
+                "A18 起改成固定 99 格挡");
+    }
+
+    /** 盾的 SMASH：格挡跟着**实际伤害**走（力量 +3 → 34+3=37 点格挡）。 */
+    @Test
+    void spireShieldSmashBlocksTheDamageItDeals() {
+        SimState s = new SimState();
+        s.hp = 100;
+        s.maxHp = 100;
+        SimMonster shield = new SimMonster("SpireShield", 200, 200, 0,
+                new java.util.HashMap<String, Integer>());
+        shield.powers.put("Strength", Integer.valueOf(3));
+        shield.pendingMove = MonsterMove.attackBlockFromDamage(3, 34);
+        shield.pendingMoveId = 3;
+        s.monsters.add(shield);
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(63, s.hp, "34 + 3 力量 = 37 点伤害");
+        assertEquals(37, shield.block, "格挡 = 这份实际伤害（不是 34）");
+    }
+
+    /** 矛：`moveCount % 3` 三支；SKEWER 固定 2 段、BURN STRIKE 段数走 skewerCount。 */
+    @Test
+    void spireSpearFollowsMoveCountModThree() {
+        MonsterMove skewer = decide("SpireSpear", history(), 50, 0, 0);
+        assertEquals(1, skewer.id, "moveCount%3==0 且上一招不是 1 → SKEWER");
+        assertEquals(2, skewer.hits, "SKEWER 恒 2 段（字面量，不是 skewerCount）");
+        assertEquals(5, skewer.damage, "A0：5");
+        assertEquals(6, decide("SpireSpear", history(), 50, 0, 3).damage, "A3 起 6");
+        assertEquals("Burn", skewer.statusCard);
+        assertEquals(2, skewer.statusCount, "A18 以下 2 张 Burn 进弃牌堆");
+
+        MonsterMove a18 = decide("SpireSpear", history(), 50, 0, 18);
+        assertNull(a18.statusCard, "A18 起不再进弃牌堆");
+        assertEquals("Burn", a18.extra.statusDrawCard, "改成进抽牌堆");
+        assertEquals(2, a18.extra.statusDrawCount);
+
+        MonsterMove burnStrike = decide("SpireSpear", history(2), 50, 0, 0);
+        assertEquals(3, burnStrike.id, "moveCount%3==1 恒 BURN STRIKE（与历史无关）");
+        assertEquals(10, burnStrike.damage);
+        assertEquals(3, burnStrike.hits, "A3 以下 3 段");
+        assertEquals(4, decide("SpireSpear", history(2), 50, 0, 3).hits, "A3 起 4 段");
+
+        MonsterMove prepare = decide("SpireSpear", history(3, 3, 1), 50, 0, 0);
+        assertEquals(2, prepare.id, "moveCount%3==0 且刚 SKEWER 过 → PREPARE");
+        assertEquals("Strength", prepare.buffAlliesPower, "全体 +2 力量（含自己）");
+        assertEquals(2, prepare.buffAlliesAmount);
+
+        MonsterMove last = decide("SpireSpear", history(1, 3), 50, 0, 0);
+        assertTrue(last.id == 1 || last.id == 2,
+                "moveCount%3==2：随机取 PREPARE(2) 或 SKEWER(1)，实际 " + last.id);
+    }
+
+    /** 矛的 A18 SKEWER：2 张 Burn 进的是**抽牌堆**（会马上摸到），不是弃牌堆。 */
+    @Test
+    void spireSpearA18PutsBurnsIntoTheDrawPile() {
+        SimState s = new SimState();
+        s.hp = 100;
+        s.maxHp = 100;
+        SimMonster spear = new SimMonster("SpireSpear", 200, 200, 0, NO_POWERS);
+        spear.pendingMove = MonsterMove.multiAttackStatusToDraw(1, 5, 2, "Burn", 2);
+        spear.pendingMoveId = 1;
+        s.monsters.add(spear);
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(90, s.hp, "5 × 2 段 = 10 点伤害");
+        // 塞进抽牌堆的牌会被**立刻**摸上来（抽 5 张），所以「不在弃牌堆」才是关键判据。
+        int burnsOutsideDiscard = 0;
+        for (SimCard c : s.hand) {
+            if ("Burn".equals(c.id)) {
+                burnsOutsideDiscard++;
+            }
+        }
+        for (SimCard c : s.draw) {
+            if ("Burn".equals(c.id)) {
+                burnsOutsideDiscard++;
+            }
+        }
+        assertEquals(2, burnsOutsideDiscard, "两张 Burn 都在手里/抽牌堆");
+        for (SimCard c : s.discard) {
+            assertFalse("Burn".equals(c.id), "弃牌堆不该有 Burn");
+        }
+    }
 }

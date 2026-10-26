@@ -227,6 +227,8 @@ public final class MonsterMoves {
         MACHINES.put("Darkling", new DarklingMachine());
         MACHINES.put("SnakeDagger", new SnakeDaggerMachine());
         MACHINES.put("Reptomancer", new ReptomancerMachine());
+        MACHINES.put("SpireShield", new SpireShieldMachine());
+        MACHINES.put("SpireSpear", new SpireSpearMachine());
     }
 
     private MonsterMoves() {
@@ -2773,5 +2775,101 @@ public final class MonsterMoves {
             }
         }
         return count;
+    }
+
+    // ==================================================================
+    // 第二十九批：Act 4「盾与矛」（SpireShield / SpireSpear）
+    //
+    // 两只共用同一个 `moveCount % 3` 骨架：moveCount 初值 0、**每次 getMove 末尾 +1**，
+    // 所以「下一次决策看到的 moveCount」= history.size()（第一次是 0）。
+    // 但两只的**分支内容完全不同**，所以各写一个机器，只有这一步共用口径。
+    //
+    // 开场的 Artifact（A18: 2 / 否则 1）是 usePreBattleAction 挂的，快照里已有；
+    // 玩家身上的 Surrounded 只是翻转立绘（javap -p 核实：没有 hook），不用建。
+    // ==================================================================
+
+    /**
+     * 尖塔之盾（{@code SpireShield}，Act 4 精英双子之一）。HP 110（A8: 125）。
+     *
+     * <pre>
+     * getMove:  moveCount % 3 == 0 → aiRng.randomBoolean() ? 2 FORTIFY : 1 BASH
+     *           moveCount % 3 == 1 → !lastMove(1) ? 1 BASH : 2 FORTIFY
+     *           moveCount % 3 == 2 → 3 SMASH
+     * takeTurn: 1 BASH ：damage[0]（12|A3:14）
+     *                    → 玩家 orbs 非空 &amp;&amp; randomBoolean() ? Focus -1 : **力量 -1**
+     *                      （铁甲战士没有 orb → 恒走「力量 -1」，而且这条路径**不抽随机**）
+     *           2 FORTIFY：**所有怪**（含自己）各 +30 格挡
+     *           3 SMASH ：damage[1]（34|A3:38）→ A18 起自己 +99 格挡，
+     *                      否则自己 + damage[1].output（= 算完力量/虚弱后的实际伤害）
+     * </pre>
+     *
+     * <p>⚠️ SMASH 的格挡不是常量：{@code DamageInfo.output} 已经吃过了力量/虚弱/玩家易伤，
+     * 所以用 {@link MonsterMove#attackBlockFromDamage}，不要写成 {@code attackBlock(…, 34)}。
+     */
+    static final class SpireShieldMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int bash = c.baseDamage(0, c.ascension >= 3 ? 14 : 12);
+            int smash = c.baseDamage(1, c.ascension >= 3 ? 38 : 34);
+            switch (c.history.size() % 3) {
+                case 0:
+                    // 原版这一支真的抽一次 aiRng，不管结果是哪边都要抽，所以先抽再分支。
+                    return c.randomBoolean()
+                            ? MonsterMove.blockAll(2, 30)
+                            : MonsterMove.attackDebuff(1, bash, "Strength", -1);
+                case 1:
+                    return c.lastMove(1)
+                            ? MonsterMove.blockAll(2, 30)
+                            : MonsterMove.attackDebuff(1, bash, "Strength", -1);
+                default:
+                    return c.ascension >= 18
+                            ? MonsterMove.attackBlock(3, smash, 99)
+                            : MonsterMove.attackBlockFromDamage(3, smash);
+            }
+        }
+    }
+
+    /**
+     * 尖塔之矛（{@code SpireSpear}，Act 4 精英双子之一）。HP 160（A8: 180）。
+     *
+     * <pre>
+     * getMove:  moveCount % 3 == 0 → !lastMove(1) ? 1 SKEWER : 2 PREPARE
+     *           moveCount % 3 == 1 → 3 BURN STRIKE
+     *           moveCount % 3 == 2 → aiRng.randomBoolean() ? 2 PREPARE : 1 SKEWER
+     * takeTurn: 1 SKEWER     ：2 段 × damage[0]（5|A3:6）
+     *                          → A18 起 2 张 Burn 进**抽牌堆**，否则 2 张进弃牌堆
+     *           2 PREPARE    ：**所有怪**（含自己）+2 力量
+     *           3 BURN STRIKE：skewerCount 段 × damage[1]（10）  （A3 起 skewerCount 4、否则 3）
+     * </pre>
+     *
+     * <p>⚠️ SKEWER 的段数是**字面量 2**（takeTurn 里 `iconst_2` 的循环），不是 skewerCount
+     * ——{@code skewerCount} 只给 BURN STRIKE 用。
+     */
+    static final class SpireSpearMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int skewer = c.baseDamage(0, c.ascension >= 3 ? 6 : 5);
+            int burnStrike = c.baseDamage(1, 10);
+            int skewerCount = c.ascension >= 3 ? 4 : 3;
+            switch (c.history.size() % 3) {
+                case 0:
+                    return c.lastMove(1)
+                            ? MonsterMove.buffAll(2, "Strength", 2)
+                            : skewer(c, skewer);
+                case 1:
+                    return MonsterMove.multiAttack(3, burnStrike, skewerCount);
+                default:
+                    return c.randomBoolean()
+                            ? MonsterMove.buffAll(2, "Strength", 2)
+                            : skewer(c, skewer);
+            }
+        }
+
+        /** SKEWER：固定 2 段；A18 起改成往抽牌堆塞 2 张 Burn。 */
+        private static MonsterMove skewer(Context c, int damage) {
+            return c.ascension >= 18
+                    ? MonsterMove.multiAttackStatusToDraw(1, damage, 2, "Burn", 2)
+                    : MonsterMove.multiAttackStatus(1, damage, 2, "Burn", 2);
+        }
     }
 }

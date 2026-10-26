@@ -359,6 +359,25 @@ public final class MonsterMove {
                 null, 0, null, 0, false, false, 0, power, amount, Extra.blockAllies(block));
     }
 
+    /**
+     * 攻击 + 自己获得**等于这次实际打出伤害**的格挡（SpireShield 的 SMASH）。
+     *
+     * <p>原版写的是 {@code GainBlockAction(this, this, damage.get(1).output)} ——
+     * {@code output} 是「算完力量/虚弱之后」的数，不是卡面 {@code base}，所以不能用
+     * {@link #attackBlock} 传一个常量。
+     */
+    public static MonsterMove attackBlockFromDamage(int id, int damage) {
+        return new MonsterMove(id, damage, 1, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, null, 0, Extra.blockFromDamage());
+    }
+
+    /** 多段攻击 + 往**抽牌堆**塞状态牌（SpireSpear 的 A18 版 Skewer：2 段 + 2 张 Burn）。 */
+    public static MonsterMove multiAttackStatusToDraw(int id, int damage, int hits,
+                                                      String card, int count) {
+        return new MonsterMove(id, damage, hits, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, null, 0, Extra.statusToDraw(card, count));
+    }
+
     /** 本体什么都不做、只有 {@link Extra} 载荷（Repulsor 的 Daze：往抽牌堆塞牌）。 */
     public static MonsterMove extra(int id, Extra extra) {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
@@ -484,12 +503,17 @@ public final class MonsterMove {
          * 原版是 {@code HealAction(this, this, maxHealth / 2)}，只治自己、不治队友。
          */
         public final boolean reincarnate;
+        /**
+         * 自己获得**等于本招实际打出伤害**的格挡（SpireShield 的 SMASH：
+         * {@code GainBlockAction(this, this, damage.get(1).output)}）。
+         */
+        public final boolean blockFromDamage;
 
         private Extra(Summon summon, String blockAllyType, int blockAllyTypeAmount,
                       int blockAllies, String playerDebuff3, int playerDebuff3Amount,
                       boolean cleanseSelf, String statusDrawCard, int statusDrawCount,
                       boolean selfDestruct, String absentBuff, int absentBuffAmount,
-                      boolean reincarnate) {
+                      boolean reincarnate, boolean blockFromDamage) {
             this.summon = summon;
             this.blockAllyType = blockAllyType;
             this.blockAllyTypeAmount = Math.max(0, blockAllyTypeAmount);
@@ -503,53 +527,65 @@ public final class MonsterMove {
             this.absentBuff = absentBuff;
             this.absentBuffAmount = Math.max(0, absentBuffAmount);
             this.reincarnate = reincarnate;
+            this.blockFromDamage = blockFromDamage;
         }
 
         public static Extra summon(Summon summon) {
-            return new Extra(summon, null, 0, 0, null, 0, false, null, 0, false, null, 0, false);
+            return new Extra(summon, null, 0, 0, null, 0, false, null, 0, false, null, 0, false,
+                    false);
         }
 
         public static Extra blockTypedAlly(String type, int amount) {
-            return new Extra(null, type, amount, 0, null, 0, false, null, 0, false, null, 0, false);
+            return new Extra(null, type, amount, 0, null, 0, false, null, 0, false, null, 0, false,
+                    false);
         }
 
         public static Extra blockAllies(int amount) {
-            return new Extra(null, null, 0, amount, null, 0, false, null, 0, false, null, 0, false);
+            return new Extra(null, null, 0, amount, null, 0, false, null, 0, false, null, 0, false,
+                    false);
         }
 
         public static Extra thirdPlayerDebuff(String power, int amount) {
-            return new Extra(null, null, 0, 0, power, amount, false, null, 0, false, null, 0, false);
+            return new Extra(null, null, 0, 0, power, amount, false, null, 0, false, null, 0, false,
+                    false);
         }
 
         /** 只清自身减益（Champ 的 Anger 另外还给力量，那部分走主字段 selfBuff）。 */
         public static Extra cleanseSelfOnly() {
-            return new Extra(null, null, 0, 0, null, 0, true, null, 0, false, null, 0, false);
+            return new Extra(null, null, 0, 0, null, 0, true, null, 0, false, null, 0, false, false);
         }
 
         /** 复活回半血（Darkling 的 Reincarnate）。 */
         public static Extra reincarnate() {
-            return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, null, 0, true);
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, null, 0, true, false);
         }
 
         /** 自己没有这个能力时才挂上（Nemesis 的无实体回补）。 */
         public static Extra onlyIfAbsent(String power, int amount) {
-            return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, power, amount, false);
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, power, amount, false,
+                    false);
         }
 
         /** 结算完自己死掉（Exploder）。 */
         public static Extra selfDestruct() {
-            return new Extra(null, null, 0, 0, null, 0, false, null, 0, true, null, 0, false);
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, true, null, 0, false, false);
         }
 
         /** 往抽牌堆塞状态牌（Repulsor 的 Dazed）。 */
         public static Extra statusToDraw(String card, int count) {
-            return new Extra(null, null, 0, 0, null, 0, false, card, count, false, null, 0, false);
+            return new Extra(null, null, 0, 0, null, 0, false, card, count, false, null, 0, false,
+                    false);
+        }
+
+        /** 格挡 = 本招实际伤害（SpireShield 的 SMASH）。 */
+        public static Extra blockFromDamage() {
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, null, 0, false, true);
         }
 
         public boolean isEmpty() {
             return summon == null && blockAllyType == null && blockAllies <= 0
                     && playerDebuff3 == null && !cleanseSelf && statusDrawCard == null
-                    && !selfDestruct && absentBuff == null && !reincarnate;
+                    && !selfDestruct && absentBuff == null && !reincarnate && !blockFromDamage;
         }
     }
 

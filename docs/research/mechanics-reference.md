@@ -2744,3 +2744,41 @@ Nemesis：`scytheCooldown`（0 起、每次 -1、巨镰后归 2）+ 三分支 nu
 **SnakeDagger**：9 伤 + Wound → 25 伤 + 自爆。
 
 全量 **369 条**通过；累计 **59 只**。
+
+### 33.38 Act 4 精英双子：SpireShield / SpireSpear（2026-10-26）
+
+两只共用 `moveCount % 3` 骨架，但**各自的 moveCount 都只由 `getMove` 末尾 +1** →
+「本次决策看到的 moveCount」= `history.size()`（第一次 = 0）。开局 Artifact
+（A18: 2 / 否则 1）是 `usePreBattleAction` 挂的，快照已有；玩家身上的 `SurroundedPower`
+`javap -p` 核实**没有任何 hook**（只翻立绘），不建。
+
+**SpireShield**（HP 110｜A8: 125，`damage[0]` BASH 12｜A3:14，`damage[1]` SMASH 34｜A3:38）：
+
+| moveCount%3 | 招 |
+|---|---|
+| 0 | `aiRng.randomBoolean()` ? 2 FORTIFY : 1 BASH |
+| 1 | `!lastMove(1)` ? 1 BASH : 2 FORTIFY |
+| 2 | 3 SMASH |
+
+- **BASH**：`damage[0]` → 玩家 `orbs` 非空 && `randomBoolean()` ? `Focus -1` : **`Strength -1`**。
+  铁甲战士没有 orb → 恒走力量 -1，**而且这条路径不抽随机**（randomBoolean 在 orbs 分支里面）。
+- **FORTIFY**：`for (m : monsters) GainBlockAction(m, this, 30)` —— **全体含自己**，
+  用 `blockAll(2, 30)`（主字段 30 = 自己，`Extra.blockAllies` = 队友）。
+- **SMASH**：`damage[1]` → A18 起自己 `+99` 格挡，否则 `+damage[1].output`。
+  `output` 是算完力量/虚弱/易伤之后的数 → 新增 `Extra.blockFromDamage`，在 `CombatFlow.takeTurn`
+  里用 `DamageCalc.monsterAttackDamage` 重算一次（纯函数，不吃随机）。
+
+**SpireSpear**（HP 160｜A8: 180，`skewerCount` 3｜A3:4，`damage[0]` 5｜A3:6，`damage[1]` 10）：
+
+| moveCount%3 | 招 |
+|---|---|
+| 0 | `!lastMove(1)` ? 1 SKEWER : 2 PREPARE |
+| 1 | 3 BURN STRIKE（**与历史无关**，每三回合固定来一次） |
+| 2 | `randomBoolean()` ? 2 PREPARE : 1 SKEWER |
+
+- **SKEWER**：**字面量 2 段**（`takeTurn` 里 `iconst_2` 的循环，不是 `skewerCount`）× `damage[0]`；
+  然后 A18 起 2 张 Burn 进**抽牌堆**（`multiAttackStatusToDraw`），否则进弃牌堆（`multiAttackStatus`）。
+- **PREPARE**：`for (m : monsters) Strength +2` —— 全体含自己（`buffAll(2,"Strength",2)`）。
+- **BURN STRIKE**：`skewerCount` 段 × `damage[1]`。
+
+全量 **375 条**通过；累计 **61 只**（Act 4 精英双子开张，剩 CorruptHeart）。

@@ -210,6 +210,13 @@ public final class CombatFlow {
         if (move.block > 0) {
             m.block += move.block;
         }
+        // SpireShield 的 SMASH：GainBlockAction(this, this, damage.get(1).output)
+        // output 是「算完力量/虚弱/易伤之后」的数，所以这里重算一次（纯函数，不吃随机）。
+        if (move.extra != null && move.extra.blockFromDamage && move.attacks()) {
+            int perHit = io.github.youqing.sts1solver.mirror.DamageCalc
+                    .monsterAttackDamage(state, move.damage, m);
+            m.block += perHit * move.hits;
+        }
         if (move.blockRandomAlly > 0) {
             // GainBlockRandomMonsterAction：候选 = 除自己外的活怪；取 aiRng.random(size-1)
             java.util.List<SimMonster> others = new java.util.ArrayList<SimMonster>();

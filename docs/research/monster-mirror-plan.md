@@ -523,8 +523,8 @@ SnakeDagger 本身：1 号招 9 伤 + 塞 Wound；2 号招 25 伤后自爆（`Lo
 | `TimeEater` | **`TimeWarpPower.onAfterUseCard`：玩家打出第 12 张牌时 `callEndTurnEarlySequence()` —— 当场结束玩家回合** | 搜索层要能「中途打断玩家回合」，是新容器；不是怪物 AI 层能解决的 |
 | `AwakenedOne` | `die()` 里换一只（`form 2`）重新上场并保留血线 | 「换怪上场」容器 + 保留状态 |
 | `WrithingMass` | 被打时可能塞 `Parasite`（诅咒）进牌组 + 挨打会改下一招 | 牌组级污染 + 挨打回调改意图 |
-| `SpireShield` | `moveCount % 3` 分支 + 1 号招里 `if (玩家有 orb && randomBoolean())` 追加两个 -1 减益 | ⚠️ **铁甲战士没有 orb → 那条分支恒不触发**，可只做攻击/格挡/attack+block |
-| `SpireSpear` | 同上（`moveCount % 3` + Skewer 多段 + BUFF） | 同上，可直接做 |
+| `SpireShield` | ✅ **已做**（§33.38）：`moveCount % 3` 三支 + BASH 恒扣力量 + FORTIFY 全体 30 格挡 + SMASH 的 `block = output`（`Extra.blockFromDamage`） | 完成 |
+| `SpireSpear` | ✅ **已做**（§33.38）：SKEWER 恒 2 段 + A18 改塞抽牌堆；BURN STRIKE 段数走 `skewerCount`；PREPARE 全体 +2 力量 | 完成 |
 | `CorruptHeart` | Act 4 boss，四阶段 + `Invincible`（每回合最多掉 X 血） | `InvinciblePower` 是**受伤上限**，需要新钩子 |
 
 **结论**：Act 1/2 全齐、Act 3 除 `AwakenedOne`/`TimeEater`/`WrithingMass` 外全齐（`Reptomancer` 已补）。
