@@ -212,6 +212,28 @@ public final class CombatFlow {
         Hooks.firePhase(state, HookPhase.START_OF_TURN_POST_DRAW);
     }
 
+    /**
+     * 给玩家挂一个减益（原版 {@code ApplyPowerAction(target=player, power)}）。
+     *
+     * <p>🔴 姜 / 萝卜会在这里**整条拦掉** {@code Weakened} / {@code Frail}
+     * （{@code ApplyPowerAction.update()} 开头就 {@code return}，连层数都不加）。
+     * 所有「怪给我上减益」的路径都必须走这里，否则那两件遗物等于没带。
+     *
+     * <p>量可以是**负数**（Lagavulin 的 Siphon Soul 是「力量/敏捷 -1」），
+     * 所以判据只能是 {@code != 0}，不能用 {@code > 0}。
+     */
+    static void addPlayerDebuff(SimState state, String id, int amount) {
+        if (id == null || amount == 0) {
+            return;
+        }
+        if (io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                .blocksPlayerDebuff(state, id)) {
+            return;
+        }
+        Integer prior = state.playerPowers.get(id);
+        state.playerPowers.put(id, (prior == null ? 0 : prior) + amount);
+    }
+
     /** 结算一只怪这一招的全部载荷（原版 {@code takeTurn()} 排进 action 队列的那些动作）。 */
     private static void takeTurn(SimState state, SimMonster m, int nextTurn) {
         MonsterMove move = m.pendingMove;
@@ -279,16 +301,8 @@ public final class CombatFlow {
             }
         }
         // 注意判 `!= 0` 而不是 `> 0`：扣敏捷/扣力量是**负增量**（BanditBear / Lagavulin）
-        if (move.playerDebuff != null && move.playerDebuffAmount != 0) {
-            Integer prior = state.playerPowers.get(move.playerDebuff);
-            state.playerPowers.put(move.playerDebuff,
-                    (prior == null ? 0 : prior) + move.playerDebuffAmount);
-        }
-        if (move.playerDebuff2 != null && move.playerDebuff2Amount != 0) {
-            Integer prior = state.playerPowers.get(move.playerDebuff2);
-            state.playerPowers.put(move.playerDebuff2,
-                    (prior == null ? 0 : prior) + move.playerDebuff2Amount);
-        }
+        addPlayerDebuff(state, move.playerDebuff, move.playerDebuffAmount);
+        addPlayerDebuff(state, move.playerDebuff2, move.playerDebuff2Amount);
         if (move.selfBuff != null && move.selfBuffAmount > 0) {
             // 原版 ApplyPowerAction(owner, owner, power)：给自己叠层
             Integer prior = m.powers.get(move.selfBuff);
@@ -413,12 +427,8 @@ public final class CombatFlow {
                 }
             }
         }
-        if (extra.playerDebuff3 != null && extra.playerDebuff3Amount != 0) {
-            // TheCollector 的大招一次上三样（Weak + Vulnerable + Frail）
-            Integer prior = state.playerPowers.get(extra.playerDebuff3);
-            state.playerPowers.put(extra.playerDebuff3,
-                    (prior == null ? 0 : prior) + extra.playerDebuff3Amount);
-        }
+        // TheCollector 的大招一次上三样（Weak + Vulnerable + Frail）
+        addPlayerDebuff(state, extra.playerDebuff3, extra.playerDebuff3Amount);
         if (extra.statusDrawCard != null && extra.statusDrawCount > 0) {
             // MakeTempCardInDrawPileAction(card, n, true, true)：随机位置插进**抽牌堆**。
             // 那个「随机位置」用的是 libgdx 的 MathUtils.random，不吃 run seed，我们复现不了；

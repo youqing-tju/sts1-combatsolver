@@ -99,6 +99,34 @@ public final class RelicHooks {
     /** {@code ToyOrnithopter.onUsePotion}: {@code HealAction(player, player, 5)}。 */
     private static final int TOY_ORNITHOPTER_HEAL = 5;
 
+    // ---- 第五批：回合计数 / 能力回血 / 减益免疫（2026-10-26）----
+
+    /** 苦无（{@code Kunai}）：**本回合**每 3 张攻击牌 +1 敏捷（`atTurnStart` 清计数）。 */
+    public static final String KUNAI = "Kunai";
+    /** 快乐花（{@code HappyFlower}）：每 3 个回合开始 +1 能量。 */
+    public static final String HAPPY_FLOWER = "Happy Flower";
+    /** 鸟面罐（{@code BirdFacedUrn}）：每打出一张**能力牌**回 2 血。 */
+    public static final String BIRD_FACED_URN = "Bird Faced Urn";
+    /** 姜（{@code Ginger}）：免疫虚弱（{@code ApplyPowerAction} 直接把 Weakened 整条拦掉）。 */
+    public static final String GINGER = "Ginger";
+    /** 萝卜（{@code Turnip}）：免疫脆弱（同上，拦的是 Frail）。 */
+    public static final String TURNIP = "Turnip";
+
+    /** {@code HappyFlower.atTurnStart}: {@code counter == 3} → {@code counter = 0} + {@code GainEnergyAction(1)}。 */
+    private static final int HAPPY_FLOWER_TURNS = 3;
+    /** {@code BirdFacedUrn.onUseCard}: {@code HealAction(player, player, 2)}。 */
+    private static final int BIRD_FACED_URN_HEAL = 2;
+
+    /**
+     * `atTurnStart` 里把 `counter` **清零**的四只计数遗物。
+     *
+     * <p>🔴 它们数的是「**本回合**打了几张」，<b>不是整场累计</b>。以前影子只在 onUseCard 里
+     * 自增、从不清零，于是搜索跨回合推演时会「2 回合各打 2 张 → 误判成攒够 3 张」。
+     */
+    private static final String[] TURN_RESET_COUNTERS = {
+            "Shuriken", "Ornamental Fan", "Letter Opener", KUNAI
+    };
+
     /** {@code MercuryHourglass}: {@code createDamageMatrix(3, true)}。 */
     private static final int MERCURY_DAMAGE = 3;
     /** {@code HornCleat}: {@code GainBlockAction(player, player, 14)}，触发回合 2。 */
@@ -334,6 +362,28 @@ public final class RelicHooks {
         }
         counterBlockRelic(state, HORN_CLEAT, 2, HORN_CLEAT_BLOCK);
         counterBlockRelic(state, CAPTAINS_WHEEL, 3, CAPTAINS_WHEEL_BLOCK);
+        happyFlower(state);
+        // Shuriken / Ornamental Fan / Letter Opener / Kunai：atTurnStart 里 counter = 0
+        for (String id : TURN_RESET_COUNTERS) {
+            if (state.relics.containsKey(id)) {
+                state.relics.put(id, Integer.valueOf(0));
+            }
+        }
+    }
+
+    /** 快乐花：{@code counter++}，到 3 归零并 +1 能量（装备时 counter = 0，所以第 3/6/9 回合）。 */
+    private static void happyFlower(SimState state) {
+        Integer counter = state.relics.get(HAPPY_FLOWER);
+        if (counter == null) {
+            return;
+        }
+        int next = counter.intValue() + 1;
+        if (next >= HAPPY_FLOWER_TURNS) {
+            state.relics.put(HAPPY_FLOWER, Integer.valueOf(0));
+            state.energy += 1;
+        } else {
+            state.relics.put(HAPPY_FLOWER, Integer.valueOf(next));
+        }
     }
 
     /**
@@ -392,11 +442,55 @@ public final class RelicHooks {
             nunchaku(state);
             ornamentalFan(state);
             shuriken(state);
+            kunai(state);
             penNib(state);
         }
         if (card.isSkill()) {
             letterOpener(state);
         }
+        if (card.isPower()) {
+            birdFacedUrn(state);
+        }
+    }
+
+    /** 苦无：本回合第 3 张攻击牌 → 敏捷 +1（和手里剑同构，只是给的是敏捷）。 */
+    private static void kunai(SimState state) {
+        Integer counter = state.relics.get(KUNAI);
+        if (counter == null) {
+            return;
+        }
+        int next = counter.intValue() + 1;
+        if (next >= 3) {
+            state.relics.put(KUNAI, Integer.valueOf(0));
+            state.playerPowers.put(DamageCalc.DEXTERITY,
+                    intOf(state.playerPowers.get(DamageCalc.DEXTERITY)) + 1);
+        } else {
+            state.relics.put(KUNAI, Integer.valueOf(next));
+        }
+    }
+
+    /** 鸟面罐：每打出一张能力牌回 2 血（走 Magic Flower 的 ×1.5 通道）。 */
+    private static void birdFacedUrn(SimState state) {
+        if (!state.relics.containsKey(BIRD_FACED_URN)) {
+            return;
+        }
+        state.hp = Math.min(state.maxHp, state.hp
+                + healAmount(state, BIRD_FACED_URN_HEAL));
+        syncRedSkull(state);
+    }
+
+    /**
+     * 这个减益能不能挂到玩家身上（{@code ApplyPowerAction.update()} 开头那两段）：
+     * 姜免疫 {@code Weakened}、萝卜免疫 {@code Frail}，**整条动作直接 return**（连层数都不加）。
+     */
+    public static boolean blocksPlayerDebuff(SimState state, String powerId) {
+        if (state == null || powerId == null) {
+            return false;
+        }
+        if ("Weakened".equals(powerId) && state.relics.containsKey(GINGER)) {
+            return true;
+        }
+        return "Frail".equals(powerId) && state.relics.containsKey(TURNIP);
     }
 
     /**

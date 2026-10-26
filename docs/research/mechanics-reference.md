@@ -3193,3 +3193,33 @@ ID 全部按构造器首参核实（又是一堆空格差异）：
 三个调用点（普通攻击 / 烈焰屏障 / 收割）全部同步。
 
 全量 **436 条**通过；遗物镜像 **27 件**。
+
+### 33.49 遗物第五批：回合计数清零 / 快乐花 / 鸟面罐 / 姜与萝卜 2026-10-26
+
+🔴 **又是一种「记反了」的静默 bug**：`Shuriken` / `OrnamentalFan` / `LetterOpener` / `Kunai`
+四个都有 `atTurnStart()`，第一句就是 `counter = 0` —— 它们数的是**本回合**打了几张，
+不是整场累计。影子以前只在 `onUseCard` 里自增、从不清零，于是搜索跨回合推演时
+「两回合各打 2 张」会被误判成「攒够 3 张」触发一次。已在 `RelicHooks.onPlayerTurnStart`
+里统一清零（`TURN_RESET_COUNTERS`）。
+
+对照着看，另外三只是**不清零**的（没有 `atTurnStart`）：`Nunchaku` / `PenNib` / `InkBottle`
+—— 它们的计数是整场累计。这两组别混。
+
+| 类 | 运行时 ID | 钩子（字节码） | 影子落点 |
+|---|---|---|---|
+| `Kunai` | `Kunai` | `atTurnStart` 清零；`onUseCard`：攻击 → `counter++`，`% 3 == 0` → `counter = 0` + 敏捷 +1 | `kunai` |
+| `HappyFlower` | **`Happy Flower`** | `atTurnStart`：`counter++`，`== 3` → `0` + `GainEnergyAction(1)`（`onEquip` 置 0 → 第 3/6/9 回合） | `happyFlower` |
+| `BirdFacedUrn` | **`Bird Faced Urn`** | `onUseCard`：`type == POWER` → `HealAction(player, player, 2)` | `birdFacedUrn` |
+| `Ginger` | `Ginger` | **没有钩子**，判定在 `ApplyPowerAction.update()` 开头 | `RelicHooks.blocksPlayerDebuff` |
+| `Turnip` | `Turnip` | 同上（拦 `Frail`） | 同上 |
+
+**姜 / 萝卜的判定写在 action 里，不在遗物里**：
+`if (player.hasRelic("Ginger") && target.isPlayer && powerToApply.ID.equals("Weakened")) return;`
+—— 是**整条 action 直接 return**，连层数都不加，不是「加了再清掉」。
+所以影子里所有「给玩家上减益」的路径必须走同一个入口：新增
+`CombatFlow.addPlayerDebuff`（替换掉 `takeTurn` 与 `applyExtra` 里三处手写 `playerPowers.put`）。
+顺带一提，那个入口的判据必须是 `amount != 0` —— Lagavulin 的 Siphon Soul 是**负数**减益。
+
+`BirdFacedUrn` 的回血走 `healAmount`（魔法花 ×1.5 通道），所以 `2 → 3`。
+
+全量 **441 条**通过；遗物镜像 **32 件**。

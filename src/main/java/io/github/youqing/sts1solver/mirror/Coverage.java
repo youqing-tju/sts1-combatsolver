@@ -66,6 +66,8 @@ public final class Coverage {
                     // 第四批（2026-10-26）：消耗 / 洗牌 / 击杀 / 回血 / 格挡衰减 / 药水
                     "Charon's Ashes", "Sundial", "Gremlin Horn", "Magic Flower",
                     "Calipers", "Toy Ornithopter",
+                    // 第五批（2026-10-26）：回合计数 / 能力回血 / 减益免疫
+                    "Kunai", "Happy Flower", "Bird Faced Urn", "Ginger", "Turnip",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));

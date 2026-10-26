@@ -71,6 +71,10 @@ public final class SimCard {
         return "SKILL".equals(type);
     }
 
+    public boolean isPower() {
+        return "POWER".equals(type);
+    }
+
     /** 改**永久**费用（本场 0 费 / 永久降费）。 */
     public SimCard withCost(int newCost) {
         return new SimCard(id, upgraded, newCost, baseDamage, type, costForTurn);

@@ -661,4 +661,127 @@ class RelicHooksTest {
                 s, io.github.youqing.sts1solver.mirror.Potions.FIRE_POTION, 5));
         assertEquals(65, s.hp);
     }
+    // ---------------------------------------------------------------- 第五批：回合计数 / 能力回血 / 减益免疫
+
+    /**
+     * 手里剑 / 扇子 / 开信刀 / 苦无 的计数**每回合清零**（原版 {@code atTurnStart} 第一句就是
+     * {@code counter = 0}）。
+     *
+     * <p>🔴 以前影子从不清零，搜索跨回合推演时会「两回合各打 2 张 → 误判成攒够 3 张」。
+     */
+    @Test
+    void turnCountersResetAtTheStartOfEveryTurn() {
+        SimState s = fight();
+        armedMonster(s);
+        s.relics.put("Shuriken", Integer.valueOf(2));
+        s.relics.put("Ornamental Fan", Integer.valueOf(2));
+        s.relics.put("Letter Opener", Integer.valueOf(2));
+        s.relics.put(RelicHooks.KUNAI, Integer.valueOf(2));
+        s.energy = 3;
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(Integer.valueOf(0), s.relics.get("Shuriken"));
+        assertEquals(Integer.valueOf(0), s.relics.get("Ornamental Fan"));
+        assertEquals(Integer.valueOf(0), s.relics.get("Letter Opener"));
+        assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.KUNAI));
+    }
+
+    /** 苦无：**本回合**第 3 张攻击牌 → 敏捷 +1；跨回合不累计。 */
+    @Test
+    void kunaiGivesDexterityOnTheThirdAttackOfTheTurn() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.KUNAI, Integer.valueOf(0));
+
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        assertEquals(null, s.playerPowers.get(DamageCalc.DEXTERITY), "两张还不够");
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        assertEquals(Integer.valueOf(1), s.playerPowers.get(DamageCalc.DEXTERITY), "第 3 张 +1 敏捷");
+
+        // 技能牌不数
+        s.relics.put(RelicHooks.KUNAI, Integer.valueOf(2));
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Defend_R", false, 1, 5, "SKILL"));
+        assertEquals(Integer.valueOf(2), s.relics.get(RelicHooks.KUNAI));
+    }
+
+    /** 快乐花：第 3 / 6 / 9 个回合开始 +1 能量。 */
+    @Test
+    void happyFlowerPaysEnergyEveryThirdTurn() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.HAPPY_FLOWER, Integer.valueOf(0));
+        s.energy = 0;
+
+        RelicHooks.onPlayerTurnStart(s);
+        assertEquals(0, s.energy, "第 1 回合不给");
+        RelicHooks.onPlayerTurnStart(s);
+        assertEquals(0, s.energy, "第 2 回合不给");
+        RelicHooks.onPlayerTurnStart(s);
+        assertEquals(1, s.energy, "第 3 回合 +1");
+        assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.HAPPY_FLOWER), "计数归零");
+
+        RelicHooks.onPlayerTurnStart(s);
+        RelicHooks.onPlayerTurnStart(s);
+        assertEquals(1, s.energy, "第 4/5 回合不给");
+        RelicHooks.onPlayerTurnStart(s);
+        assertEquals(2, s.energy, "第 6 回合再 +1");
+    }
+
+    /** 鸟面罐：每打出一张**能力牌**回 2 血（走魔法花的 ×1.5 通道）。 */
+    @Test
+    void birdFacedUrnHealsOnPowerCards() {
+        SimState s = fight();
+        s.hp = 60;
+        s.relics.put(RelicHooks.BIRD_FACED_URN, Integer.valueOf(-1));
+
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Inflame", false, 1, 0, "POWER"));
+        assertEquals(62, s.hp, "能力牌回 2");
+
+        // 攻击/技能不回
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Defend_R", false, 1, 5, "SKILL"));
+        assertEquals(62, s.hp);
+
+        // 带魔法花：2 × 1.5 = 3
+        s.relics.put(RelicHooks.MAGIC_FLOWER, Integer.valueOf(-1));
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Inflame", false, 1, 0, "POWER"));
+        assertEquals(65, s.hp);
+    }
+
+    /**
+     * 姜 / 萝卜：{@code ApplyPowerAction} 开头就把 Weakened / Frail 整条拦掉
+     * （连层数都不加）。走真实怪招验证，而不是直接调 helper。
+     */
+    @Test
+    void gingerAndTurnipBlockWeakAndFrail() {
+        // 没有遗物
+        SimState s = fight();
+        s.monsters.get(0).pendingMove = MonsterMove.debuff(1, "Weakened", 2);
+        s.monsters.get(0).pendingMoveId = 1;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(Integer.valueOf(2), s.playerPowers.get("Weakened"), "没姜就吃 2 层虚弱");
+
+        // 有姜
+        SimState s2 = fight();
+        s2.relics.put(RelicHooks.GINGER, Integer.valueOf(-1));
+        s2.monsters.get(0).pendingMove = MonsterMove.debuff(1, "Weakened", 2);
+        s2.monsters.get(0).pendingMoveId = 1;
+        CombatFlow.endTurn(s2, 3, 5);
+        assertEquals(null, s2.playerPowers.get("Weakened"), "姜把虚弱整条拦掉");
+
+        // 脆弱：萝卜才管
+        SimState s3 = fight();
+        s3.relics.put(RelicHooks.GINGER, Integer.valueOf(-1));
+        s3.monsters.get(0).pendingMove = MonsterMove.debuff(1, "Frail", 2);
+        s3.monsters.get(0).pendingMoveId = 1;
+        CombatFlow.endTurn(s3, 3, 5);
+        assertEquals(Integer.valueOf(2), s3.playerPowers.get("Frail"), "姜不管脆弱");
+
+        SimState s4 = fight();
+        s4.relics.put(RelicHooks.TURNIP, Integer.valueOf(-1));
+        s4.monsters.get(0).pendingMove = MonsterMove.debuff(1, "Frail", 2);
+        s4.monsters.get(0).pendingMoveId = 1;
+        CombatFlow.endTurn(s4, 3, 5);
+        assertEquals(null, s4.playerPowers.get("Frail"), "萝卜拦脆弱");
+    }
 }
