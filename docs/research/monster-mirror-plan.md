@@ -44,6 +44,8 @@
 | `Mugger` | 2 | 抹两次 → 掷硬币 → 烟雾弹 → 逃跑（与 Looter 同构） |
 | `Taskmaster` | 2 | 永远那一鞭：7 伤 + 2 张 Wound（A18: 3 张 + 自身 +1 力量） |
 | `BanditPointy` | 2 | 永远两段 5（A2: 6） |
+| `BanditBear` | 2（事件） | `getMove` 只给开局那一招（2 Bear Stun），之后全靠 takeTurn 的 SetMove 推：2→3(Slash 伤+9 格挡)→1(Maul)→3→… |
+| `BanditLeader` | 2（事件） | 同上：2 喊话（不打人）→ 3 Agonize（伤 + Weak 2/A17: 3）→ 1 Slash；A17 起可连刺两下（`lastTwoMoves(1)`） |
 | `GremlinLeader` | 2（精英） | Rally = 「现造一只随机小鬼」填 3 个槽（不是预置）；喊话给全队力量、队友才加格挡；`getMove` 会**递归**再抽 aiRng |
 | `TorchHead` | 2 | TheCollector 的召唤物：永远 7 点，HP 走 `monsterHpRng` |
 | `TheCollector` | 2（boss） | 开场召 2 只火把头、第 4 回合大招（Weak+Vulnerable+Frail）、有火把头死掉才补 |
@@ -148,7 +150,7 @@
 |---|---|---|
 | ~~**A. 召唤**~~ ✅ 已完成（2026-10-26） | ~~`GremlinLeader` / `TheCollector` / `BronzeAutomaton`~~ | 见下面「A 组落地记录」——小鬼血量其实是 `monsterHpRng`（seed 控制），补捕获后**精确** |
 | ~~**B. 多阶段**~~ ✅ 已完成（2026-10-26） | ~~`Champ` / `Hexaghost`~~（`BronzeAutomaton`、`TheCollector` 在 A 组顺带做完） | 结论：**一只都不需要通用钩子** —— 全都是在 `getMove` 里读普通字段。详见下面「B 组落地记录」 |
-| **C. 面具强盗事件** | `BanditBear`、`BanditLeader`（`BanditPointy` 已做） | Bear 的 `Bear Stun` / Leader 的「喊话 + 全体格挡」要看 takeTurn 的 SetMove 链 |
+| ~~**C. 面具强盗事件**~~ ✅ 已完成（2026-10-26） | ~~`BanditBear` / `BanditLeader`~~（`BanditPointy` 更早已做） | 两只都是「getMove 只给开局那一招」，其余全在 takeTurn 里 SetMove —— 从历史重放即可 |
 | **D. 第三章**（beyond 包，18 只） | `Darkling`/`OrbWalker`/`Spiker`/`Repulsor`/`SpireGrowth`/`Transient`/`WrithingMass`/`Nemesis`/`GiantHead`/`TimeEater`/`AwakenedOne`/`Deca`/`Donu`/`SpireSpear`/`SpireShield`/`Maw`/`JawWorm`? | 未读；先按 A/B 两组的新基础设施铺完再批量做 |
 
 ⚠️ `GremlinLeader` 比另外两只多一层：构造器里**预先造好 3 只小鬼**（`gremlins[3]` 字段，
@@ -296,3 +298,39 @@ setMove((byte)1, ATTACK, damage.get(2).base, 6, true);     // 硬设 Divider，�
   这条要单独立议题（连同 Slimed/Wound 的「不可打出」是否已建模一起核）。
 - `burnUpgraded`（第一次 Inferno 之后 Sear 塞的是 Burn+）：因为上一条没建，它在影子里没有可观测效果，
   所以只记录不实现。
+
+---
+
+## C 组落地记录（2026-10-26，面具强盗收口）
+
+### 两只都是「getMove 只给开局那一招」
+
+`BanditBear.getMove` 全文只有 `setMove(2, STRONG_DEBUFF)`；`BanditLeader.getMove` 只有
+`setMove(2, UNKNOWN)`。**它们之后的招全在 `takeTurn` 里用 `SetMoveAction` 直接写死**，
+`num` 抽了但从来不看。所以这两只和 Champ 一样：从 `moveHistory` 重放，不需要任何新载荷。
+
+```
+熊  ：2 Bear Stun(敏捷 -2 / A17: -4) → 3 Slash(9|10 伤 + 9 格挡) → 1 Maul(18|20 伤) → 3 → 1 → …
+头目：2 喊话(不打人)                 → 3 Agonize(10|12 伤 + Weak 2 / A17: 3) → 1 Slash(15|17 伤)
+       A17 起 Slash 之后若 !lastTwoMoves(1) 就再刺一下 → 节奏变成 3→1→1→3→1→1→…
+```
+
+熊的 `damage()` / `die()`、头目的 `deathReact()` / `damage()` 全部只有动画和台词 ——
+「熊死了头目会狂暴」是**不存在的**，它只会喊一句。
+
+### 🔴 顺手挖出两个静默 bug（都是「负增量」踩的）
+
+做熊的 Bear Stun 时发现敏捷根本扣不掉，顺藤摸下去是两个叠在一起的坑：
+
+1. **`MonsterMove` 权威构造器用 `Math.max(0, playerDebuffAmount)` 夹住了减益量** ——
+   负增量被静默改成 0。于是「扣敏捷 / 扣力量」这类负增量永远不可能表达。
+2. **`CombatFlow` 里落地条件是 `playerDebuffAmount > 0`** —— 即使构造器放行，也会被这里拦掉。
+
+连带发现 **Lagavulin 的 Siphon Soul 一直是错的**：原版字段 `debuff` 本身就是 `-1`（A18: `-2`），
+我们镜像写成 `+1`。因为 ① 的 clamp 把它压成 0（字段读出来是 0），测试当年只断言了
+「playerDebuff2 是 Dexterity」而没断言**符号**，所以红绿灯一直全绿。
+现在的处理：构造器与三处落地条件都改成「允许负数」，Lagavulin 改成 `-1/-2`，
+并补了一条 CombatFlow 级别的集成测试（Bear Stun 落地后玩家 `Dexterity == -2`）。
+
+**教训**：凡是「原版是 `ApplyPowerAction(amt)`」的字段，amt 就是**带符号增量**，
+不要用 `> 0` 判空、也不要用 `Math.max(0, ...)` 夹 —— 那会把减益变成无操作。

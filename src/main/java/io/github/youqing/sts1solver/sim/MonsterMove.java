@@ -177,9 +177,13 @@ public final class MonsterMove {
         this.selfBuff = selfBuff;
         this.selfBuffAmount = Math.max(0, selfBuffAmount);
         this.playerDebuff = playerDebuff;
-        this.playerDebuffAmount = Math.max(0, playerDebuffAmount);
+        // 🔴 玩家减益**允许负数**：原版 ApplyPowerAction 的 amt 是**带符号增量**
+        //    （Lagavulin 的 Siphon Soul、BanditBear 的 Bear Stun 都是 new DexterityPower(player, -1)）。
+        //    这里原来用 Math.max(0, ...) 夹住，负增量会被静默改成 0 —— 减益根本没落地，
+        //    而且因为「编译器不报错、测试只看字段名」很难发现。别再加回 clamp。
+        this.playerDebuffAmount = playerDebuffAmount;
         this.playerDebuff2 = playerDebuff2;
-        this.playerDebuff2Amount = Math.max(0, playerDebuff2Amount);
+        this.playerDebuff2Amount = playerDebuff2Amount;
         this.statusCard = statusCard;
         this.statusCount = Math.max(0, statusCount);
         this.splitInto = splitInto;
@@ -226,6 +230,17 @@ public final class MonsterMove {
 
     public static MonsterMove attackDebuff(int id, int damage, String debuff, int amount) {
         return new MonsterMove(id, damage, 1, 0, 0, null, 0, debuff, amount, null, 0);
+    }
+
+    /**
+     * 只给玩家上减益、自己不打也不挡（BanditBear 的 Bear Stun）。
+     *
+     * <p>⚠️ 减益量按原版 {@code Power} 的**带符号增量**写：扣敏捷是 {@code "Dexterity", -2}，
+     * 扣力量是 {@code "Strength", -2}。影子把 {@code playerPowers} 当增量表用，
+     * 写正数会变成「加敏捷」，格挡公式 {@code base + Dexterity} 会算反。
+     */
+    public static MonsterMove debuff(int id, String power, int amount) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, power, amount, null, 0, null, 0);
     }
 
     /** 给自己挂能力（Cultist 的 INCANTATION / 各种 BUFF 招）。 */

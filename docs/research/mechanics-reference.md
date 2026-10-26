@@ -2627,3 +2627,26 @@ Shackled / Lose Strength / Lose Dexterity / Strength Down / Dexterity Down / Slo
 `burnUpgraded` 因此没有可观测效果，只记录不实现。
 
 全量 **336 条**通过；累计 **44 只**（Act 1 三十只全齐）。
+
+### 33.31 面具强盗（BanditBear / BanditLeader）+ 负增量 bug 2026-10-26
+
+两只的 `getMove` 都只有一句（熊 `setMove(2, STRONG_DEBUFF)`、头目 `setMove(2, UNKNOWN)`）——
+**只用于开局**，之后全靠 `takeTurn` 里的 `SetMoveAction`。所以从 `moveHistory` 重放即可。
+
+| 怪 | 节奏 | 备注 |
+|---|---|---|
+| `BanditBear` | 2 Stun(敏捷 -2/A17: -4) → 3 Slash(9\|10 伤 + 9 格挡) → 1 Maul(18\|20 伤) → 3 → 1 … | HP 老档 38-42 / A7 起 40-44（`setHp` → `monsterHpRng`） |
+| `BanditLeader` | 2 喊话 → 3 Agonize(10\|12 伤 + Weak 2/A17: 3) → 1 Slash(15\|17 伤) → 3 → 1 … | A17 起 Slash 后若 `!lastTwoMoves(1)` 再刺一下 → 3→1→1→… |
+
+### 🔴 `ApplyPowerAction(amt)` 的 amt 一定是带符号增量
+
+踩坑链：Bear Stun 的敏捷扣不掉 → 查出 `MonsterMove` 构造器 `Math.max(0, playerDebuffAmount)`
+把负数夹成 0 → 再查出 `CombatFlow` 落地条件是 `> 0`（第二道闸门）→ 连带发现
+**Lagavulin 的 Siphon Soul 一直写成 `+1`（应为 `-1`，A18 `-2`）**，因为 clamp 让它读出来是 0，
+而旧测试只断言字段名不断言符号。
+
+现在：构造器不再夹、三处落地条件改 `!= 0`、`MonsterMove.debuff(id, power, amt)` 新工厂
+（专门表达「只上减益、不打不挡」），并加了 CombatFlow 级集成测试钉住符号。
+
+**自查口径**：凡是模型里表示「玩家能力增量」的字段，问一句「原版这里传的是负数吗」；
+是就必须能让负数穿到底（构造器 + 落地 + 读数三处都不能夹）。

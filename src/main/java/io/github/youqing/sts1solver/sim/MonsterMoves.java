@@ -211,6 +211,8 @@ public final class MonsterMoves {
         MACHINES.put("BronzeAutomaton", new BronzeAutomatonMachine());
         MACHINES.put("Champ", new ChampMachine());
         MACHINES.put("Hexaghost", new HexaghostMachine());
+        MACHINES.put("BanditBear", new BanditBearMachine());
+        MACHINES.put("BanditLeader", new BanditLeaderMachine());
     }
 
     private MonsterMoves() {
@@ -802,7 +804,11 @@ public final class MonsterMoves {
         @Override
         public MonsterMove next(Context c) {
             int attackDmg = c.ascension >= 3 ? 20 : 18;
-            int debuff = c.ascension >= 18 ? 2 : 1;
+            // 🔴 原版字段 debuff 就是**带符号**的：A18 起 -2，否则 -1
+            //    （Siphon Soul = new DexterityPower(player, debuff) / 同理 StrengthPower）
+            //    影子把它当成「玩家 Dexterity 的增量」存，所以这里也必须是负数，
+            //    否则 DamageCalc 的格挡公式（base + Dexterity）会把减益算成增益。
+            int debuff = c.ascension >= 18 ? -2 : -1;
             boolean awake = c.history.contains(Integer.valueOf(1))
                     || c.history.contains(Integer.valueOf(3))
                     || c.history.contains(Integer.valueOf(4));
@@ -2145,6 +2151,69 @@ public final class MonsterMoves {
         private static MonsterMove divider(Context c) {
             int hp = c.state == null ? 12 : c.state.hp;
             return MonsterMove.multiAttack(1, hp / 12 + 1, 6);
+        }
+    }
+
+    /**
+     * 面具强盗的熊（{@code BanditBear}，事件怪）。
+     *
+     * <p>{@code getMove} 只有一句 {@code setMove(2, STRONG_DEBUFF)} —— **它只在开局用一次**，
+     * 之后的招全是 {@code takeTurn} 里直接 {@code SetMoveAction} 写死的（绕过 getMove）。
+     * 所以和 Champ 一样：从 {@code moveHistory} 重放，不读 num。
+     *
+     * <pre>
+     * 2 Bear Stun ：玩家敏捷 -2（A17: -4），不打人        → 下一招 3
+     * 3 Bear Slash：9|10 伤 + 自己 9 格挡                → 下一招 1
+     * 1 Maul      ：18|20 伤（单段）                     → 下一招 3
+     * 循环 2 → 3 → 1 → 3 → 1 → …
+     * </pre>
+     *
+     * <p>⚠️ 它的 {@code damage()} / {@code die()} 重写只有动画，没有机制。
+     * 敏捷用**负增量**（原版 {@code con_reduction} 字段本身就是 -2 / -4）。
+     */
+    static final class BanditBearMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int lunge = c.baseDamage(1, c.ascension >= 2 ? 10 : 9);
+            if (c.history.isEmpty()) {
+                return MonsterMove.debuff(2, "Dexterity", c.ascension >= 17 ? -4 : -2);
+            }
+            if (c.lastMove(3)) {
+                return MonsterMove.attack(1, c.baseDamage(0, c.ascension >= 2 ? 20 : 18));
+            }
+            return MonsterMove.attackBlock(3, lunge, 9);
+        }
+    }
+
+    /**
+     * 面具强盗的头目（{@code BanditLeader}，事件怪）。同样是「getMove 只给开局那一招」。
+     *
+     * <pre>
+     * 2 喊话（不打人）                                    → 下一招 3
+     * 3 Agonize：12|10 伤 + 玩家 Weak 2（A17: 3）         → 下一招 1
+     * 1 Slash  ：17|15 伤                                → A17 起若「最近不是连着两下 1」就再刺一下，否则回 3
+     * </pre>
+     *
+     * <p>所以 A17 以下的节奏是 2 → 3 → 1 → 3 → 1 → …；A17 起变成 3 → 1 → 1 → 3 → 1 → 1 → …
+     * （判据是原版的 {@code lastTwoMoves((byte)1)}，正好是「不许连刺三下」）。
+     * 熊死时它只会喊话（{@code deathReact} 只有 TalkAction），没有狂暴。
+     */
+    static final class BanditLeaderMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int agonize = c.baseDamage(1, c.ascension >= 2 ? 12 : 10);
+            int slash = c.baseDamage(0, c.ascension >= 2 ? 17 : 15);
+            int weak = c.ascension >= 17 ? 3 : 2;
+            if (c.history.isEmpty()) {
+                return MonsterMove.none(2);
+            }
+            if (c.lastMove(1) && c.ascension >= 17 && !c.lastTwoMoves(1)) {
+                return MonsterMove.attack(1, slash);
+            }
+            if (c.lastMove(3)) {
+                return MonsterMove.attack(1, slash);
+            }
+            return MonsterMove.attackDebuff(3, agonize, "Weakened", weak);
         }
     }
 

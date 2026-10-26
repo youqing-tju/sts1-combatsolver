@@ -200,12 +200,13 @@ public final class CombatFlow {
                 others.get(pick).block += move.blockRandomAlly;
             }
         }
-        if (move.playerDebuff != null && move.playerDebuffAmount > 0) {
+        // 注意判 `!= 0` 而不是 `> 0`：扣敏捷/扣力量是**负增量**（BanditBear / Lagavulin）
+        if (move.playerDebuff != null && move.playerDebuffAmount != 0) {
             Integer prior = state.playerPowers.get(move.playerDebuff);
             state.playerPowers.put(move.playerDebuff,
                     (prior == null ? 0 : prior) + move.playerDebuffAmount);
         }
-        if (move.playerDebuff2 != null && move.playerDebuff2Amount > 0) {
+        if (move.playerDebuff2 != null && move.playerDebuff2Amount != 0) {
             Integer prior = state.playerPowers.get(move.playerDebuff2);
             state.playerPowers.put(move.playerDebuff2,
                     (prior == null ? 0 : prior) + move.playerDebuff2Amount);
@@ -309,7 +310,7 @@ public final class CombatFlow {
                 }
             }
         }
-        if (extra.playerDebuff3 != null && extra.playerDebuff3Amount > 0) {
+        if (extra.playerDebuff3 != null && extra.playerDebuff3Amount != 0) {
             // TheCollector 的大招一次上三样（Weak + Vulnerable + Frail）
             Integer prior = state.playerPowers.get(extra.playerDebuff3);
             state.playerPowers.put(extra.playerDebuff3,

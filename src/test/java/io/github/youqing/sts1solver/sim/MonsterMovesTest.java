@@ -681,9 +681,9 @@ class MonsterMovesTest {
         assertEquals(1, siphon.id, "连砍两下 → Siphon Soul");
         assertEquals("Strength", siphon.playerDebuff);
         assertEquals("Dexterity", siphon.playerDebuff2, "同时扣敏捷");
-        assertEquals(1, siphon.playerDebuffAmount);
-        assertEquals(2, decide("Lagavulin", history(5, 5, 5, 3, 3), 50, 0, 18).playerDebuffAmount,
-                "A18 起各 -2");
+        assertEquals(-1, siphon.playerDebuffAmount, "原版 debuff 字段带符号：-1");
+        assertEquals(-2, decide("Lagavulin", history(5, 5, 5, 3, 3), 50, 0, 18).playerDebuffAmount,
+                "A18 起各 -2（不是 +2 —— 影子按增量存，负数才是减益）");
     }
 
     /** 睡着时挨打 → 立刻醒并晕一回合（原版 damage() 重写），金属化同时被拿掉。 */
@@ -2119,5 +2119,77 @@ class MonsterMovesTest {
         assertEquals(1, decide("Hexaghost", history(5, 1), 50, 0, 18).statusCount, "A19 以下 Sear 塞 1 张");
         assertEquals(2, decide("Hexaghost", history(5, 1), 50, 0, 19).statusCount, "A19 起塞 2 张");
         assertEquals(3, decide("Hexaghost", history(5, 1, 4, 2, 4), 50, 0, 19).selfBuffAmount, "A19 强化 +3");
+    }
+
+    // ============================ 第二十批：面具强盗的熊与头目 ============================
+
+    /** 熊：getMove 只给开局那一招，之后全靠 takeTurn 里的 SetMove 推着走。 */
+    @Test
+    void banditBearStunsThenAlternatesSlashAndMaul() {
+        MonsterMove stun = decide("BanditBear", history(), 50, 0, 0);
+        assertEquals(2, stun.id, "开局 Bear Stun");
+        assertEquals(0, stun.damage, "Stun 不打人");
+        assertEquals("Dexterity", stun.playerDebuff);
+        assertEquals(-2, stun.playerDebuffAmount, "原版 con_reduction = -2（负增量）");
+        assertEquals(-4, decide("BanditBear", history(), 50, 0, 17).playerDebuffAmount, "A17 起 -4");
+
+        MonsterMove slash = decide("BanditBear", history(2), 50, 0, 0);
+        assertEquals(3, slash.id, "Stun 之后是 Bear Slash");
+        assertEquals(9, slash.damage, "A0：9 伤");
+        assertEquals(9, slash.block, "自带 9 格挡（不随进阶变）");
+        assertEquals(10, decide("BanditBear", history(2), 50, 0, 2).damage, "A2 起 10 伤");
+
+        MonsterMove maul = decide("BanditBear", history(2, 3), 50, 0, 0);
+        assertEquals(1, maul.id, "Slash 之后是 Maul");
+        assertEquals(18, maul.damage, "A0：18 伤（单段）");
+        assertEquals(1, maul.hits);
+        assertEquals(20, decide("BanditBear", history(2, 3), 50, 0, 2).damage, "A2 起 20");
+        assertEquals(3, decide("BanditBear", history(2, 3, 1), 50, 0, 0).id, "Maul 之后回到 Slash");
+    }
+
+    /** 熊的 Stun 在真实结算里必须**扣**玩家敏捷（写正数就会变成加敏捷，格挡算反）。 */
+    @Test
+    void banditBearStunLowersPlayerDexterityInCombat() {
+        SimMonster bear = new SimMonster("BanditBear", 40, 40, 0, NO_POWERS);
+        SimState s = field(bear);
+        MonsterMove stun = decideIn(s, "BanditBear", bear, history(), 50, 0);
+        bear.pendingMove = stun;
+        bear.pendingMoveId = stun.id;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(-2, s.playerPowers.get("Dexterity").intValue(), "Bear Stun 落地是 -2 敏捷");
+    }
+
+    /** 头目：喊话 → Agonize（伤害 + Weak）→ Slash，A17 起允许连刺两下。 */
+    @Test
+    void banditLeaderTauntsThenAgonizesThenSlashes() {
+        MonsterMove taunt = decide("BanditLeader", history(), 50, 0, 0);
+        assertEquals(2, taunt.id, "开场喊话");
+        assertEquals(0, taunt.damage, "喊话不打人");
+
+        MonsterMove agonize = decide("BanditLeader", history(2), 50, 0, 0);
+        assertEquals(3, agonize.id, "喊话之后 Agonize");
+        assertEquals(10, agonize.damage, "A0：10 伤");
+        assertEquals("Weakened", agonize.playerDebuff);
+        assertEquals(2, agonize.playerDebuffAmount, "Weaken 2");
+        assertEquals(12, decide("BanditLeader", history(2), 50, 0, 2).damage, "A2 起 12 伤");
+        assertEquals(3, decide("BanditLeader", history(2), 50, 0, 17).playerDebuffAmount, "A17 起 Weak 3");
+
+        MonsterMove slash = decide("BanditLeader", history(2, 3), 50, 0, 0);
+        assertEquals(1, slash.id, "Agonize 之后 Slash");
+        assertEquals(15, slash.damage, "A0：15 伤");
+        assertEquals(17, decide("BanditLeader", history(2, 3), 50, 0, 2).damage, "A2 起 17 伤");
+        assertEquals(3, decide("BanditLeader", history(2, 3, 1), 50, 0, 16).id,
+                "A17 以下 Slash 之后回到 Agonize");
+    }
+
+    /** 头目 A17 起可以连刺两下，但第三下必须停（lastTwoMoves(1)）。 */
+    @Test
+    void banditLeaderDoubleStabsOnlyOnAscension17() {
+        assertEquals(1, decide("BanditLeader", history(2, 3, 1), 50, 0, 17).id,
+                "A17：刚刺过一下 → 还能再刺");
+        assertEquals(3, decide("BanditLeader", history(2, 3, 1, 1), 50, 0, 17).id,
+                "连刺两下之后必须回 Agonize");
+        assertEquals(3, decide("BanditLeader", history(2, 3, 1, 1), 50, 0, 0).id,
+                "A17 以下不会连刺");
     }
 }
