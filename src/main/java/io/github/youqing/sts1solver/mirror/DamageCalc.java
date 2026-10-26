@@ -105,6 +105,7 @@ public final class DamageCalc {
      */
     public static void hit(SimState state, SimMonster target, int damage) {
         int hpBefore = target.hp;
+        damage = capByInvincible(target, damage);
         hitAndReturnDealt(target, damage);
         // Lagavulin.damage(DamageInfo) 被重写过：**血量真的变了** 且还没醒过 → 立刻醒并晕一回合。
         // 这是它作为精英的核心机制（睡着的 3 回合是可以白打的窗口，一旦动手就换它先手）。
@@ -190,6 +191,28 @@ public final class DamageCalc {
     }
 
     /**
+     * 无懈可击（{@code InvinciblePower.onAttackedToChangeDamage}，腐化之心）：
+     * **每回合最多掉 amount 点**，超出的部分直接不算。原版逐次扣减同一个 {@code amount}，
+     * 所以是「一回合累计上限」而不是「单次上限」；`atStartOfTurn` 把 amount 重置成 maxAmt。
+     *
+     * @return 实际会落地的伤害
+     */
+    private static int capByInvincible(SimMonster target, int damage) {
+        if (target == null || damage <= 0) {
+            return damage;
+        }
+        Integer remaining = target.powers.get("Invincible");
+        if (remaining == null) {
+            return damage;
+        }
+        int left = Math.max(0, remaining.intValue());
+        int capped = Math.min(damage, left);
+        target.powers.put("Invincible", Integer.valueOf(left - capped));
+        return capped;
+    }
+
+    /**
+     * 韧性（{@code MalleablePower.onAttacked}）    /**
      * 韧性（{@code MalleablePower.onAttacked}）：被打中一次 → 加 {@code amount} 点格挡，
      * 然后 {@code amount++}（所以同一回合第二下挡得更多）。回合末 {@code atEndOfTurn}
      * 把 {@code amount} 重置回 {@code basePower}（默认 3，见 {@code CombatFlow} ④.5）。

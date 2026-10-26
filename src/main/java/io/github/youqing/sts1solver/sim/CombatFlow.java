@@ -69,6 +69,12 @@ public final class CombatFlow {
             if (m.hp > 0 && !m.powers.containsKey("Barricade")) {
                 m.block = 0;
             }
+            // InvinciblePower.atStartOfTurn → amount = maxAmt（每回合的受伤上限重置）
+            if (m.hp > 0 && m.powers.containsKey("Invincible")) {
+                m.powers.put("Invincible", Integer.valueOf(
+                        m.invincibleMax > 0 ? m.invincibleMax
+                                : m.powers.get("Invincible").intValue()));
+            }
         }
 
         // 每只怪走完整的一轮：结算本招 → 把这一招记进历史 → **立刻**决策下一招。

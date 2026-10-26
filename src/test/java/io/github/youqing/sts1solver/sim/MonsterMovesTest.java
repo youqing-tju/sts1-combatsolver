@@ -3354,4 +3354,43 @@ class MonsterMovesTest {
         CombatFlow.endTurn(s, 3, 5);
         assertTrue(s.hand.size() <= 5 && s.hand.size() > 0, "下一回合恢复正常抽牌");
     }
+    // ============================ 第三十四批：Invincible（每回合受伤上限）============================
+
+    /** 无懈可击：一回合累计最多掉 amount；打穿之后这一回合再打就不掉血了。 */
+    @Test
+    void invincibleCapsDamagePerRound() {
+        SimMonster heart = new SimMonster("CorruptHeart", 750, 750, 0,
+                new java.util.HashMap<String, Integer>());
+        heart.powers.put("Invincible", Integer.valueOf(300));
+        heart.invincibleMax = 300;
+        SimState s = field(heart);
+
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, heart, 400);
+        assertEquals(450, heart.hp, "400 点只落地 300 点");
+        assertEquals(Integer.valueOf(0), heart.powers.get("Invincible"), "额度用光");
+
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, heart, 50);
+        assertEquals(450, heart.hp, "这一回合再也打不动");
+    }
+
+    /** 上限在怪物回合开始时重置回 maxAmt（原版 atStartOfTurn）。 */
+    @Test
+    void invincibleResetsAtMonsterTurnStart() {
+        SimState s = new SimState();
+        s.hp = 80;
+        s.maxHp = 80;
+        SimMonster heart = new SimMonster("CorruptHeart", 750, 750, 0,
+                new java.util.HashMap<String, Integer>());
+        heart.hp = 600;
+        heart.powers.put("Invincible", Integer.valueOf(0));
+        heart.invincibleMax = 300;
+        heart.pendingMove = MonsterMove.none(3);
+        heart.pendingMoveId = 3;
+        s.monsters.add(heart);
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(Integer.valueOf(300), heart.powers.get("Invincible"),
+                "新回合额度回到 maxAmt");
+    }
 }

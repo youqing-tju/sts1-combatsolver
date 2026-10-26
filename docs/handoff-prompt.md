@@ -63,7 +63,7 @@
 > `CorruptHeart`（Act 4 boss，§33.39）—— **Act 4 三只全齐**。新增基础设施：
 > `Extra.blockFromDamage`（格挡=实际伤害）、`Extra.drawPileCards`（一次多张不同状态牌进抽牌堆）、
 > `Extra.extraSelfBuff`（一招挂两个能力）、Beat of Death 出牌掉血钩子。
-> ⚠️ **CorruptHeart 的 `Invincible` 未建模**（需「每回合伤害上限」容器）。
+> ✅ **CorruptHeart 的 `Invincible` 已补**（每回合累计受伤上限 + `maxAmt` 反射捕获）。
 >
 > **本轮新增 22 只**：A 组召唤（`GremlinLeader`/`TorchHead`/`TheCollector`/`BronzeOrb`/`BronzeAutomaton`）、
 > B 组多阶段（`Champ`/`Hexaghost`）、C 组面具强盗（`BanditBear`/`BanditLeader`）、

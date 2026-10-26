@@ -2809,9 +2809,10 @@ HP 750（A9: 800）；`damage[0]` Echo 40（A4:45）、`damage[1]` Blood Shots *
 - **Beat of Death**（`onAfterUseCard`）：每打一张牌 `DamageAction(player, owner, amount, THORNS)`
   → THORNS 不是 HP_LOSS，**吃格挡**。落在 `Hooks.monsterOnCardUsed`。
 
-🔴 **没建模**：`InvinciblePower`（每回合最多掉 300｜A19:200，`atEndOfRound` 恢复）。
-它要一个「每回合伤害上限」容器 + 从真机私有字段 `maxAmt` 取上限（`powers` 表只存 ID→层数）。
-影响：**极端一回合爆发**会被高估；正常回合（铁甲战士单回合 <300）无差别。
+✅ **Invincible 已补**（同日）：`InvinciblePower.onAttackedToChangeDamage` 是**每回合累计上限**
+（逐次扣同一个 amount，扣完就归零），`atStartOfTurn` 重置成 `maxAmt`。
+落点：`DamageCalc.capByInvincible`（伤害落地前夹一次）+ `CombatFlow` ④.0（怪物回合开始重置）+
+`SimMonster.invincibleMax`（`maxAmt` 是私有字段，捕获时反射读一份，读不到退回当前值）。
 
 全量 **379 条**通过；累计 **63 只**（Act 4 全部三只齐了；机器表 63 项）。
 

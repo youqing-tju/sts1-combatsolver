@@ -246,6 +246,22 @@ public final class SimState {
                 } catch (Throwable ignored) {
                     // 拿不到就留空：机器会退回字节码里的默认档
                 }
+                // InvinciblePower.maxAmt 是私有字段（powers 表只装当前剩余量）→ 反射读一份上限
+                try {
+                    for (com.megacrit.cardcrawl.powers.AbstractPower power : m.powers) {
+                        if (power == null
+                                || !"Invincible".equals(power.ID)) {
+                            continue;
+                        }
+                        java.lang.reflect.Field maxAmt =
+                                power.getClass().getDeclaredField("maxAmt");
+                        maxAmt.setAccessible(true);
+                        monster.invincibleMax = maxAmt.getInt(power);
+                    }
+                } catch (Throwable ignored) {
+                    Integer current = monster.powers.get("Invincible");
+                    monster.invincibleMax = current == null ? 0 : current.intValue();
+                }
                 s.monsters.add(monster);
             }
         }

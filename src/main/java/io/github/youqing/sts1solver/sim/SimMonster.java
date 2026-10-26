@@ -65,6 +65,15 @@ public final class SimMonster {
      * <p>⚠️ 影子没有「这只怪是哪一档进阶造出来的」信息，只能用当前 {@code ascension} 推；
      * 低进阶局里这是准的，进阶局也准 —— 唯一不准的是「战斗中改进阶」，不存在。
      */
+    /**
+     * {@code InvinciblePower.maxAmt}（腐化之心：每回合最多掉这么多血）。
+     *
+     * <p>原版的 {@code maxAmt} 是**私有字段**，{@code powers} 表只装得下「当前剩余量」，
+     * 所以捕获时用反射单独读一份；读不到就退回当前值（第一回合两者相等）。
+     * 每回合怪物回合开始时 {@code atStartOfTurn} 会把 amount 重置成它。
+     */
+    public int invincibleMax;
+
     public int ascensionBaseThreshold(int ascension) {
         return ascension >= 19 ? 40 : (ascension >= 9 ? 35 : 30);
     }
@@ -85,6 +94,7 @@ public final class SimMonster {
         c.pendingMove = pendingMove;
         c.pendingMoveId = pendingMoveId;
         c.damageBase.addAll(damageBase);
+        c.invincibleMax = invincibleMax;
         return c;
     }
 
