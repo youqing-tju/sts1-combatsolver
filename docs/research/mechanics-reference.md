@@ -1427,7 +1427,9 @@ public boolean canUse() { return false; }                       // 不能主动�
 
 ### 25.5 还没做
 
-- 剩下 30+ 张药水（生成类/选择类/被动类各有各的形态）；
+- 剩下 11 张药水：`SmokeBomb`（逃跑结局）/ `DistilledChaos`（自动打顶）/ `EntropicBrew`（槽位）
+  三张缺容器；`Focus`/`PotionOfCapacity`/`EssenceOfDarkness`/`StancePotion`/`Ambrosia`/
+  `BottledMiracle`/`BlessingOfTheForge`/`CunningPotion` 是别的角色的池（铁甲战士拿不到）；
 - `BlockPotionInsertion`（把药水插进已解路线）、`PotionChoiceContinuation`（药水开出的选牌）；
 - 估值策略（见 §25.4）。
 
@@ -2914,3 +2916,86 @@ HP 456（A9: 480）；`reverbDmg` 7（A4: 8）、`headSlamDmg` 26（A4: 32）。
 `drawCount = handSize - amount`，抽完立刻移除。
 
 全量 **394 条**通过；**怪物镜像 66/66（Act 1–4 全齐，M3.3 完成）**。
+
+### 33.43 药水第三批：回合末结算类 + 蛇油 + 复制（2026-10-26）
+
+**ID 格式又混编**：这一批只有再生药水**带空格**（`"Regen Potion"`），
+其余五个都是类名照抄（`CultistPotion` / `SpeedPotion` / `SteroidPotion` /
+`SneckoOil` / `DuplicationPotion`）。
+
+🔴 **这一批最大的坑是「还债能力」的原版 ID**（按描述写会写出查无此名的死条目）：
+
+| 类 | `POWER_ID`（字节码构造器直读） | 我们早先写的（错） |
+|---|---|---|
+| `RegenPower` | **`Regeneration`** | `Regen` |
+| `LoseStrengthPower` | **`Flex`** | `Lose Strength` |
+| `LoseDexterityPower` | **`DexLoss`** | `Lose Dexterity` |
+| `DuplicationPower` | **`DuplicationPower`**（region `doubleTap`） | `Duplication` |
+
+「Lose Strength / Lose Dexterity」这两条同时出现在 `Hooks.DEBUFFS` 与
+`CombatFlow.SELF_DEBUFFS` 里 —— 因为 `capture()` 用 `pw.ID` 当 key，它们**永远匹配不上**，
+是纯死条目（已更正）。
+
+| 药水 | 效果（`use()` 字节码） |
+|---|---|
+| `CultistPotion` | `RitualPower(player, 1, true)` → 玩家 version 的仪式 |
+| `"Regen Potion"` | `RegenPower(player, 5)` |
+| `SpeedPotion` | `DexterityPower(+5)` + `LoseDexterityPower(5)` |
+| `SteroidPotion` | `StrengthPower(+5)` + `LoseStrengthPower(5)` |
+| `SneckoOil` | `DrawCardAction(5)` → `RandomizeHandCostAction` |
+| `DuplicationPotion` | `DuplicationPower(player, 1)` |
+
+**回合末的四条钩子**（`PowerHooks`，全部 `END_OF_TURN`）：
+
+- **`Ritual`（玩家）**：`atEndOfTurn` → Strength += amount。
+  🔴 怪物版是 `atEndOfRound`（`CombatFlow` ④.5，早就做了）—— 两条是**同一个能力的两个钩子**，
+  靠 `owner.isPlayer` 分开。别看到「怪物仪式做过了」就以为玩家版也有了。
+- **`Regeneration`**：`RegenAction` = 先 `heal(amount)`，再 `amount--`，减到 0 移除。
+  🔴 那个衰减带 `target.isPlayer` 条件（怪物不衰减），且 `heal` 会夹在 `maxHp`。
+- **`Flex` / `DexLoss`**：`atEndOfTurn` → Strength/Dexterity **-= amount**，然后 `RemoveSpecificPowerAction`。
+  （跨回合的「先借后还」= 一次 +5、一次 -5，中间那回合才吃得到收益。）
+
+**蛇油的重掷**（`RandomizeHandCostAction.update` 字节码）：
+
+```java
+for (card : hand) {
+    if (card.cost >= 0) {              // -1 = X 费，-2 = 打不出，都跳过
+        int r = cardRandomRng.random(3);   // 🔴 先抽再比：掷到相同值也照抽一次
+        if (card.cost != r) {
+            card.cost = r;                 // 本场费用
+            card.costForTurn = r;          // 本回合费用
+        }
+    }
+}
+```
+
+- `Random.random(3)` 是**两端都含**的 0..3（`RngStream` 注释里那条），所以新费用落在 0/1/2/3。
+- 掷到与原值相同时**不写** `costForTurn`（它保持 -1）—— 这个细节测试里钉住了。
+- 快照里没有 `CARD` 流就显式 `ActionRejected`，不假装重掷过。
+
+**复制药水**（`DuplicationPower.onUseCard` 字节码）：
+
+```
+!card.purgeOnUse && amount > 0
+  → card.makeSameInstanceOf() 进 limbo，副本 purgeOnUse = true
+  → CardQueueItem(copy, target, energyOnUse, true, true) 免费重放
+  → amount--；到 0 时 RemoveSpecificPowerAction
+```
+
+影子落在 `CardPlayer.play`：**效果与 `onUseCard` 各跑两次，能量只扣一次、牌堆只动一次**
+（副本 `purgeOnUse` 不进任何牌堆）。`playFromPile`（Havoc 那种自动打出的牌）不复制 ——
+原版那类牌本来就 `purgeOnUse`。
+
+**这一批没做的三张（都要新容器，不是抄一段）**：
+
+- `SmokeBomb`：非 Boss 战直接**逃跑**。战斗层没有「逃跑」这个结局（不是胜利也不是失败），
+  要一层新的出口语义才谈得上；
+- `DistilledChaosPotion`：`PlayTopCardAction × 3` —— 自动打抽牌堆顶三张，
+  要「随机目标 + 打不出时怎么办 + 与蛇眼式改费交互」三件事一起定；
+- `EntropicBrew`：只填满空药水槽（局外收益，战斗层无效果）。
+
+全量 **406 条**通过；药水镜像 **31 / 42 张**。余下 11 张 = **8 张别的角色专属池**
+（`Focus`/`PotionOfCapacity`/`EssenceOfDarkness` → 故障机器人，`Ambrosia`/`BottledMiracle`/
+`BlessingOfTheForge`/`StancePotion` → 观者，`CunningPotion` → 静默猎手，铁甲战士**拿不到**）
++ **3 张缺容器**（`SmokeBomb` / `DistilledChaos` / `EntropicBrew`）。
+换言之：铁甲战士能拿到的 34 张里已覆盖 31 张。

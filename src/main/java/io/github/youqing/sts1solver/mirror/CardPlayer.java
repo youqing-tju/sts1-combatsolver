@@ -111,6 +111,33 @@ public final class CardPlayer {
         // 同样要触发 onUseCard：自动打出的牌也会数进遗物/能力计数
         io.github.youqing.sts1solver.mirror.hooks.Hooks.onCardUsed(state, card, targetIndex);
 
+        // DuplicationPower.onUseCard（复制药水 / 双发）：这张牌**原样再结算一次**。
+        // 字节码直读：!card.purgeOnUse && amount > 0 → makeSameInstanceOf() 进 limbo，
+        // 副本 purgeOnUse = true（不进任何牌堆），CardQueueItem 免费重放；随后 amount--，到 0 移除。
+        // 所以：能量只付一次、牌堆只动一次，但效果与 onUseCard 各触发两次。
+        Integer duplication = state.playerPowers.get("DuplicationPower");
+        if (duplication != null && duplication.intValue() > 0) {
+            int left = duplication.intValue() - 1;
+            if (left == 0) {
+                state.playerPowers.remove("DuplicationPower");
+            } else {
+                state.playerPowers.put("DuplicationPower", Integer.valueOf(left));
+            }
+            for (Effect effect : mirror.effects) {
+                if (effect instanceof XEffect) {
+                    ((XEffect) effect).applyWithX(state, targetIndex, card, xValue);
+                } else if (effect instanceof MultiChoiceEffect) {
+                    ((MultiChoiceEffect) effect).applyWithChoices(state, targetIndex, card, choices);
+                } else if (effect instanceof ChoiceEffect) {
+                    ((ChoiceEffect) effect).applyWithChoice(state, targetIndex, card,
+                            choices == null || choices.length == 0 ? -1 : choices[0]);
+                } else {
+                    effect.applyTo(state, targetIndex, card);
+                }
+            }
+            io.github.youqing.sts1solver.mirror.hooks.Hooks.onCardUsed(state, card, targetIndex);
+        }
+
         if (mirror.exhaustsOnPlay) {
             Effects.exhaustCard(state, card);
         } else {

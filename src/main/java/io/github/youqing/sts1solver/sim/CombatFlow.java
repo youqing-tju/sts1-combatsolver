@@ -433,9 +433,15 @@ public final class CombatFlow {
         }
     }
 
-    /** {@code PowerType.DEBUFF} 的能力 ID 白名单（见 {@code applyExtra} 的说明）。 */
+    /**
+     * {@code PowerType.DEBUFF} 的能力 ID 白名单（见 {@code applyExtra} 的说明）。
+     *
+     * <p>⚠️ 「还债类」减益的原版 ID 是 {@code Flex}（{@code LoseStrengthPower}）与
+     * {@code DexLoss}（{@code LoseDexterityPower}）—— 早先按中文/英文描述写成
+     * 「Lose Strength / Lose Dexterity」，那是**查无此名**的死条目（2026-10-26 更正）。
+     */
     public static final String[] SELF_DEBUFFS = {
-            "Weakened", "Vulnerable", "Frail", "Shackled", "Lose Strength", "Lose Dexterity",
+            "Weakened", "Vulnerable", "Frail", "Shackled", "Flex", "DexLoss",
             "Strength Down", "Dexterity Down", "Slow", "Constricted", "Poison",
     };
 

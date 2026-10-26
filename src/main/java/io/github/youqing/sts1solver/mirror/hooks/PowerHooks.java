@@ -106,6 +106,51 @@ public final class PowerHooks {
             }
         });
 
+        // RitualPower.atEndOfTurn（邪教徒药水）→ ApplyPowerAction(owner, owner, StrengthPower(amount))
+        // 🔴 玩家版走 atEndOfTurn、怪物版走 atEndOfRound（后者在 CombatFlow ④.5），两条是
+        //    同一个能力的两个钩子，靠 owner.isPlayer 分开 —— 别以为「已经做过了」。
+        reg("Ritual", HookPhase.END_OF_TURN, new Handler() {
+            @Override
+            public void fire(SimState state, int amount, HookContext ctx) {
+                addPower(state, DamageCalc.STRENGTH, amount);
+            }
+        });
+
+        // RegenPower.atEndOfTurn（再生药水）→ RegenAction：先 heal(amount)，再 amount--，
+        // 减到 0 就整个移除。字节码里那个衰减带 `target.isPlayer` 条件（怪物不衰减）。
+        // 🔴 ID 是 "Regeneration"，不是 "Regen"。
+        reg("Regeneration", HookPhase.END_OF_TURN, new Handler() {
+            @Override
+            public void fire(SimState state, int amount, HookContext ctx) {
+                state.hp = Math.min(state.maxHp, state.hp + amount);
+                if (amount - 1 <= 0) {
+                    state.playerPowers.remove("Regeneration");
+                } else {
+                    state.playerPowers.put("Regeneration", Integer.valueOf(amount - 1));
+                }
+            }
+        });
+
+        // LoseStrengthPower.atEndOfTurn（兴奋剂药水 / 活动肌肉的还债）→ Strength -= amount，然后自删。
+        // 🔴 ID 是 "Flex"（LoseStrengthPower.POWER_ID），不是 "Lose Strength"。
+        reg("Flex", HookPhase.END_OF_TURN, new Handler() {
+            @Override
+            public void fire(SimState state, int amount, HookContext ctx) {
+                addPower(state, DamageCalc.STRENGTH, -amount);
+                state.playerPowers.remove("Flex");
+            }
+        });
+
+        // LoseDexterityPower.atEndOfTurn（速度药水）→ Dexterity -= amount，然后自删。
+        // 🔴 ID 是 "DexLoss"（LoseDexterityPower.POWER_ID），不是 "Lose Dexterity"。
+        reg("DexLoss", HookPhase.END_OF_TURN, new Handler() {
+            @Override
+            public void fire(SimState state, int amount, HookContext ctx) {
+                addPower(state, DamageCalc.DEXTERITY, -amount);
+                state.playerPowers.remove("DexLoss");
+            }
+        });
+
         // CombustPower.atEndOfTurn → LoseHPAction(owner, owner, hpLoss) + DamageAllEnemies(amount)
         reg("Combust", HookPhase.END_OF_TURN, new Handler() {
             @Override

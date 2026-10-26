@@ -28,6 +28,11 @@ import io.github.youqing.sts1solver.sim.SimState;
  *       见 {@code DeathSaveRelic}）</li>
  * </ul>
  *
+ * <p>第三批（{@link #CULTIST_POTION} 仪式 / {@link #REGEN_POTION} 再生 /
+ * {@link #SPEED_POTION} 敏捷 / {@link #STEROID_POTION} 力量 / {@link #SNECKO_OIL} 蛇油 /
+ * {@link #DUPLICATION_POTION} 复制）都靠**别的层**收尾：前三样在 {@code PowerHooks} 的
+ * 回合末钩子里结算，蛇油在 {@code randomizeHandCosts}，复制在 {@code CardPlayer.play}。
+ *
  * <p>剩下的是三类形态，各需要一套自己的机制，见类末 TODO：
  * 三选一（{@code Power/Attack/Skill/Colorless Potion}）、生成（{@code Distilled Chaos} /
  * {@code Duplication}）、特殊（{@code Gamblers Brew} / {@code Liquid Memories} / {@code Elixir}）。
@@ -65,6 +70,19 @@ public final class Potions {
     public static final String GHOST_IN_A_JAR = "GhostInAJar";
     public static final String SWIFT_POTION = "Swift Potion";
     public static final String WEAK_POTION = "Weak Potion";
+    /**
+     * 第三批（自带回合末结算 / 随机化费用）。
+     *
+     * <p>⚠️ 又是格式混编：只有再生药水带空格（{@code "Regen Potion"}），
+     * 其余五个都是类名照抄（{@code CultistPotion} / {@code SpeedPotion} /
+     * {@code SteroidPotion} / {@code SneckoOil} / {@code DuplicationPotion}）。
+     */
+    public static final String CULTIST_POTION = "CultistPotion";
+    public static final String REGEN_POTION = "Regen Potion";
+    public static final String SPEED_POTION = "SpeedPotion";
+    public static final String STEROID_POTION = "SteroidPotion";
+    public static final String SNECKO_OIL = "SneckoOil";
+    public static final String DUPLICATION_POTION = "DuplicationPotion";
     /** 三选一发现（走 {@code DiscoveryAction}）。ID **都无空格**。 */
     public static final String POWER_POTION = "PowerPotion";
     public static final String ATTACK_POTION = "AttackPotion";
@@ -142,6 +160,19 @@ public final class Potions {
     private static final int SWIFT_POTION_DRAW = 3;
     /** 弱化药水（{@code WeakenPotion} → {@code iconst_3}）：单体 3 层虚弱。 */
     private static final int WEAK_POTION_AMOUNT = 3;
+
+    /** 邪教徒药水（{@code CultistPotion.getPotency} → {@code iconst_1}）：1 层仪式。 */
+    private static final int CULTIST_POTION_AMOUNT = 1;
+    /** 再生药水（{@code RegenPotion.getPotency} → {@code iconst_5}）：5 层再生（每回合回血、每回合 -1）。 */
+    private static final int REGEN_POTION_AMOUNT = 5;
+    /** 迅捷/速度药水（{@code SpeedPotion.getPotency} → {@code iconst_5}）：+5 敏捷，回合末还回去。 */
+    private static final int SPEED_POTION_AMOUNT = 5;
+    /** 兴奋剂药水（{@code SteroidPotion.getPotency} → {@code iconst_5}）：+5 力量，回合末还回去。 */
+    private static final int STEROID_POTION_AMOUNT = 5;
+    /** 蛇油（{@code SneckoOil.getPotency} → {@code iconst_5}）：抽 5 张，然后手牌费用全部重掷。 */
+    private static final int SNECKO_OIL_DRAW = 5;
+    /** 复制药水（{@code DuplicationPotion.getPotency} → {@code iconst_1}）：下一张牌打两次。 */
+    private static final int DUPLICATION_POTION_AMOUNT = 1;
 
     /** 战斗中的默认药水槽上限（{@code PotionSlot}：铁甲战士 2 格）。 */
     public static final int DEFAULT_POTION_SLOTS = 2;
@@ -322,6 +353,51 @@ public final class Potions {
                     amount(target.powers.get("Weakened")) + WEAK_POTION_AMOUNT);
             return true;
         }
+        if (CULTIST_POTION.equals(potionId)) {
+            // ApplyPowerAction(player, player, RitualPower(player, 1, true), 1)
+            // 玩家版仪式在 atEndOfTurn 结算（怪物版才是 atEndOfRound）→ PowerHooks 的 "Ritual"
+            state.playerPowers.put("Ritual",
+                    amount(state.playerPowers.get("Ritual")) + CULTIST_POTION_AMOUNT);
+            return true;
+        }
+        if (REGEN_POTION.equals(potionId)) {
+            // ApplyPowerAction(player, player, RegenPower(player, 5), 5)
+            // 🔴 能力 ID 是 "Regeneration"，不是 "Regen"（POWER_ID 字节码直读）
+            state.playerPowers.put("Regeneration",
+                    amount(state.playerPowers.get("Regeneration")) + REGEN_POTION_AMOUNT);
+            return true;
+        }
+        if (SPEED_POTION.equals(potionId)) {
+            // DexterityPower(+5) + LoseDexterityPower(5)
+            // 🔴 要还回去的那个能力 ID 是 "DexLoss"（LoseDexterityPower.POWER_ID）
+            state.playerPowers.put(DamageCalc.DEXTERITY,
+                    amount(state.playerPowers.get(DamageCalc.DEXTERITY)) + SPEED_POTION_AMOUNT);
+            state.playerPowers.put("DexLoss",
+                    amount(state.playerPowers.get("DexLoss")) + SPEED_POTION_AMOUNT);
+            return true;
+        }
+        if (STEROID_POTION.equals(potionId)) {
+            // StrengthPower(+5) + LoseStrengthPower(5)
+            // 🔴 要还回去的那个能力 ID 是 "Flex"（LoseStrengthPower.POWER_ID），不是 "Lose Strength"
+            state.playerPowers.put(DamageCalc.STRENGTH,
+                    amount(state.playerPowers.get(DamageCalc.STRENGTH)) + STEROID_POTION_AMOUNT);
+            state.playerPowers.put("Flex",
+                    amount(state.playerPowers.get("Flex")) + STEROID_POTION_AMOUNT);
+            return true;
+        }
+        if (SNECKO_OIL.equals(potionId)) {
+            // DrawCardAction(player, 5) → RandomizeHandCostAction（顺序固定：先抽再重掷）
+            io.github.youqing.sts1solver.sim.CombatFlow.drawAfterPotion(state, SNECKO_OIL_DRAW);
+            randomizeHandCosts(state);
+            return true;
+        }
+        if (DUPLICATION_POTION.equals(potionId)) {
+            // ApplyPowerAction(player, player, DuplicationPower(player, 1), 1)
+            // 效果在 CardPlayer.play 里结算（下一张牌结算两次）
+            state.playerPowers.put("DuplicationPower",
+                    amount(state.playerPowers.get("DuplicationPower")) + DUPLICATION_POTION_AMOUNT);
+            return true;
+        }
         if (FIRE_POTION.equals(potionId)) {
             SimMonster target = monsterAt(state, targetIndex);
             if (target == null || target.hp <= 0) {
@@ -457,6 +533,44 @@ public final class Potions {
     private static void addPower(java.util.Map<String, Integer> powers, String id, int delta) {
         Integer cur = powers.get(id);
         powers.put(id, (cur == null ? 0 : cur) + delta);
+    }
+
+    /**
+     * 蛇油的 {@code RandomizeHandCostAction}：手牌每一张<b>能打的</b>牌都重掷一次费用。
+     *
+     * <p>字节码直读（{@code RandomizeHandCostAction.update}）：
+     * <pre>
+     * for (card : hand) {
+     *     if (card.cost &gt;= 0) {            // -1 = X 费、-2 = 打不出，都跳过
+     *         int r = cardRandomRng.random(3);   // 🔴 先抽再比，相等也照抽
+     *         if (card.cost != r) {
+     *             card.cost = r;                 // 本场费用
+     *             card.costForTurn = r;          // 本回合费用
+     *         }
+     *     }
+     * }
+     * </pre>
+     *
+     * <p>{@code Random.random(3)} 是<b>两端都含</b>的 0..3（见 {@code RngStream}），
+     * 所以新费用落在 0/1/2/3 四个值上 —— 和蛇眼遗物一致。
+     */
+    private static void randomizeHandCosts(SimState state) {
+        io.github.youqing.sts1solver.sim.RngStream rng =
+                state.rng.get(SimState.RngKind.CARD);
+        if (rng == null) {
+            // 快照里没有 cardRandomRng 就没法重掷费用；宁可显式拒绝，也不要假装重掷过
+            throw new ActionRejected("SneckoOil needs the CARD rng stream, snapshot has none");
+        }
+        for (int i = 0; i < state.hand.size(); i++) {
+            SimCard card = state.hand.get(i);
+            if (card.cost < 0) {
+                continue;
+            }
+            int rolled = rng.random(3);
+            if (rolled != card.cost) {
+                state.hand.set(i, card.withCost(rolled).withCostForTurn(rolled));
+            }
+        }
     }
 
     private static int amount(Integer value) {

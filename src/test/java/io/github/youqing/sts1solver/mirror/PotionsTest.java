@@ -593,4 +593,124 @@ class PotionsTest {
         assertEquals(Integer.valueOf(3), s.monsters.get(0).powers.get("Weakened"));
         assertFalse(Potions.use(s, Potions.WEAK_POTION, 5), "目标越界要拒绝");
     }
+    // ------------------------------------------------------------ 第三批（回合末结算 / 随机化费用）
+
+    /** 邪教徒药水：1 层仪式，回合末 +1 力量（玩家版走 atEndOfTurn，不是 atEndOfRound）。 */
+    @Test
+    void cultistPotionGrantsRitualThatPaysOutEachTurn() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.CULTIST_POTION, -1));
+        assertEquals(Integer.valueOf(1), s.playerPowers.get("Ritual"));
+
+        s.monsters.get(0).pendingMove = io.github.youqing.sts1solver.sim.MonsterMove.block(1, 0);
+        s.monsters.get(0).pendingMoveId = 1;
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(Integer.valueOf(1), s.playerPowers.get("Strength"), "回合末 +1 力量");
+    }
+
+    /** 再生药水：每回合回 5 血，然后自身 -1 层（Regeaction 的 isPlayer 衰减）。 */
+    @Test
+    void regenPotionHealsEveryTurnAndDecays() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.REGEN_POTION, -1));
+        assertEquals(Integer.valueOf(5), s.playerPowers.get("Regeneration"),
+                "ID 必须是 Regeneration（不是 Regen）");
+
+        s.monsters.get(0).pendingMove = io.github.youqing.sts1solver.sim.MonsterMove.block(1, 0);
+        s.monsters.get(0).pendingMoveId = 1;
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(35, s.hp, "回合末回 5");
+        assertEquals(Integer.valueOf(4), s.playerPowers.get("Regeneration"), "层数 -1");
+    }
+
+    /** 速度药水：+5 敏捷但回合末还回去（DexLoss）。 */
+    @Test
+    void speedPotionGivesDexterityBackAtEndOfTurn() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.SPEED_POTION, -1));
+        assertEquals(Integer.valueOf(5), s.playerPowers.get("Dexterity"));
+        assertEquals(Integer.valueOf(5), s.playerPowers.get("DexLoss"));
+
+        s.monsters.get(0).pendingMove = io.github.youqing.sts1solver.sim.MonsterMove.block(1, 0);
+        s.monsters.get(0).pendingMoveId = 1;
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(Integer.valueOf(0), s.playerPowers.get("Dexterity"), "敏捷被收回");
+        assertNull(s.playerPowers.get("DexLoss"), "还完债自己消失");
+    }
+
+    /** 兴奋剂药水：+5 力量但回合末还回去（Flex）。 */
+    @Test
+    void steroidPotionGivesStrengthBackAtEndOfTurn() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.STEROID_POTION, -1));
+        assertEquals(Integer.valueOf(5), s.playerPowers.get("Strength"));
+        assertEquals(Integer.valueOf(5), s.playerPowers.get("Flex"),
+                "ID 必须是 Flex（LoseStrengthPower.POWER_ID）");
+
+        s.monsters.get(0).pendingMove = io.github.youqing.sts1solver.sim.MonsterMove.block(1, 0);
+        s.monsters.get(0).pendingMoveId = 1;
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(Integer.valueOf(0), s.playerPowers.get("Strength"));
+        assertNull(s.playerPowers.get("Flex"));
+    }
+
+    /** 蛇油：抽 5 张，然后把手里每张**能打的**牌的费用重掷成 0..3（打不出/X 费不动）。 */
+    @Test
+    void sneckoOilDrawsFiveAndRerollsPlayableCosts() {
+        SimState s = fight();
+        s.rng.put(SimState.RngKind.CARD, io.github.youqing.sts1solver.sim.RngStream.from(12345L, 67890L, 0));
+        for (int i = 0; i < 5; i++) {
+            s.draw.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+        s.hand.add(new SimCard("Strike_R", false, 2, 6, "ATTACK"));
+        s.hand.add(new SimCard("Defend_R", false, 1, 0, "SKILL"));
+        s.hand.add(new SimCard("AscendersBane", false, -2, -1, "CURSE"));
+        s.hand.add(new SimCard("Whirlwind", false, -1, 5, "ATTACK"));
+
+        assertTrue(Potions.use(s, Potions.SNECKO_OIL, -1));
+
+        assertEquals(9, s.hand.size(), "手牌 4 张 + 蛇油抽 5 张");
+        for (SimCard c : s.hand) {
+            if ("AscendersBane".equals(c.id)) {
+                assertEquals(-2, c.cost, "打不出的牌费用不动");
+            } else if ("Whirlwind".equals(c.id)) {
+                assertEquals(-1, c.cost, "X 费不动");
+            } else {
+                assertTrue(c.cost >= 0 && c.cost <= 3,
+                        "重掷后的费用必须落在 0..3，实际 " + c.cost);
+                // 字节码：只有**掷出的值与原费用不同**时才同时写 cost 与 costForTurn；
+                // 掷到一样的就保持 costForTurn = -1（没有临时改动）。
+                assertTrue(c.costForTurn == -1 || c.costForTurn == c.cost,
+                        "costForTurn 要么等于新费用，要么还是 -1（掷到原值）");
+            }
+        }
+        assertEquals(7, s.rng.get(SimState.RngKind.CARD).counter(),
+                "只有 7 张能打的牌各抽一次（4 张原有 + 5 张新抽 - 1 打不出 - 1 X 费）");
+    }
+
+    /** 复制药水：下一张牌结算两次（能量只付一次，牌只进一次弃牌堆）。 */
+    @Test
+    void duplicationPotionReplaysTheNextCardOnce() {
+        SimState s = fight();
+        s.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+
+        assertTrue(Potions.use(s, Potions.DUPLICATION_POTION, -1));
+        assertEquals(Integer.valueOf(1), s.playerPowers.get("DuplicationPower"));
+
+        CardPlayer.play(s, 0, 0);
+
+        assertEquals(28, s.monsters.get(0).hp, "40 - 6 - 6 = 28（打了两次）");
+        assertEquals(2, s.energy, "能量只付一次");
+        assertNull(s.playerPowers.get("DuplicationPower"), "一层用完就没了");
+        assertEquals(1, s.discard.size(), "牌只进一次弃牌堆");
+
+        // 第二次出牌不再复制
+        s.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        CardPlayer.play(s, 0, 0);
+        assertEquals(22, s.monsters.get(0).hp, "只打一次：28 - 6");
+    }
 }
