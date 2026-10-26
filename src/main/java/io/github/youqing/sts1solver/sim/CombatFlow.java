@@ -265,6 +265,10 @@ public final class CombatFlow {
             }
         }
         applyExtra(state, m, move.extra, nextTurn);
+        // Exploder 的 ExplosivePower.duringTurn：先自杀再打 30，本回合结算完就下场
+        if (move.extra != null && move.extra.selfDestruct && m.hp > 0) {
+            m.hp = 0;
+        }
     }
 
     /**

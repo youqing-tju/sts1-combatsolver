@@ -329,6 +329,12 @@ public final class MonsterMove {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, card, count);
     }
 
+    /** 打一下然后自己死（Exploder 的爆炸：30 点，THORNS 类型 → 吃格挡）。 */
+    public static MonsterMove explode(int id, int damage) {
+        return new MonsterMove(id, damage, 1, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, null, 0, Extra.selfDestruct());
+    }
+
     /** 多段攻击 + 塞状态牌（Deca 的 Beam：2 段 + 2 张 Dazed）。 */
     public static MonsterMove multiAttackStatus(int id, int damage, int hits,
                                                 String card, int count) {
@@ -454,10 +460,17 @@ public final class MonsterMove {
          */
         public final String statusDrawCard;
         public final int statusDrawCount;
+        /**
+         * 结算完之后**自己死掉**（Exploder 的 {@code ExplosivePower.duringTurn}：
+         * 先 {@code SuicideAction} 再打 30 点 —— 顺序上「先死再炸」，但伤害照样落地，
+         * 所以影子里等价于「打完就死」）。
+         */
+        public final boolean selfDestruct;
 
         private Extra(Summon summon, String blockAllyType, int blockAllyTypeAmount,
                       int blockAllies, String playerDebuff3, int playerDebuff3Amount,
-                      boolean cleanseSelf, String statusDrawCard, int statusDrawCount) {
+                      boolean cleanseSelf, String statusDrawCard, int statusDrawCount,
+                      boolean selfDestruct) {
             this.summon = summon;
             this.blockAllyType = blockAllyType;
             this.blockAllyTypeAmount = Math.max(0, blockAllyTypeAmount);
@@ -467,37 +480,44 @@ public final class MonsterMove {
             this.cleanseSelf = cleanseSelf;
             this.statusDrawCard = statusDrawCard;
             this.statusDrawCount = Math.max(0, statusDrawCount);
+            this.selfDestruct = selfDestruct;
         }
 
         public static Extra summon(Summon summon) {
-            return new Extra(summon, null, 0, 0, null, 0, false, null, 0);
+            return new Extra(summon, null, 0, 0, null, 0, false, null, 0, false);
         }
 
         public static Extra blockTypedAlly(String type, int amount) {
-            return new Extra(null, type, amount, 0, null, 0, false, null, 0);
+            return new Extra(null, type, amount, 0, null, 0, false, null, 0, false);
         }
 
         public static Extra blockAllies(int amount) {
-            return new Extra(null, null, 0, amount, null, 0, false, null, 0);
+            return new Extra(null, null, 0, amount, null, 0, false, null, 0, false);
         }
 
         public static Extra thirdPlayerDebuff(String power, int amount) {
-            return new Extra(null, null, 0, 0, power, amount, false, null, 0);
+            return new Extra(null, null, 0, 0, power, amount, false, null, 0, false);
         }
 
         /** 只清自身减益（Champ 的 Anger 另外还给力量，那部分走主字段 selfBuff）。 */
         public static Extra cleanseSelfOnly() {
-            return new Extra(null, null, 0, 0, null, 0, true, null, 0);
+            return new Extra(null, null, 0, 0, null, 0, true, null, 0, false);
+        }
+
+        /** 结算完自己死掉（Exploder）。 */
+        public static Extra selfDestruct() {
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, true);
         }
 
         /** 往抽牌堆塞状态牌（Repulsor 的 Dazed）。 */
         public static Extra statusToDraw(String card, int count) {
-            return new Extra(null, null, 0, 0, null, 0, false, card, count);
+            return new Extra(null, null, 0, 0, null, 0, false, card, count, false);
         }
 
         public boolean isEmpty() {
             return summon == null && blockAllyType == null && blockAllies <= 0
-                    && playerDebuff3 == null && !cleanseSelf && statusDrawCard == null;
+                    && playerDebuff3 == null && !cleanseSelf && statusDrawCard == null
+                    && !selfDestruct;
         }
     }
 

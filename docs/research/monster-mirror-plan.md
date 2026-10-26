@@ -55,6 +55,7 @@
 | `OrbWalker` | 3 | 两招互斥（连打两次就换）；带 Burn 的那招 10\|11，另一招 15\|16。原版字段名反着存（`damage[0]` 叫 laserDmg 却给 Claw 用） |
 | `Maw` | 3 | 第 1 招必 Roar（Weak+Frail 3，A17 各 5）；之后 Nom（5 伤 × turnCount/2 段）/ Bellow（+力量）/ Slam（25\|30） |
 | `Transient` | 3 | 一招到底：30\|40 起、每回合 +10；**Fading 5\|6** 到点当场消散（CombatFlow 统一递减） |
+| `Exploder` | 3 | 爆炸**不在招式里**：`ExplosivePower.duringTurn` 在 amount==1 时自杀 + 打 30（THORNS 类型，吃格挡）。打两下 → 第三回合自爆 |
 | `Deca` | 3（boss） | 攻击↔辅助交替（`isAttacking` 初值 true）：攻击 2 段 10\|12 + 2 张 Dazed；辅助全队 16 格挡，A19 起再 +3 Plated Armor |
 | `Donu` | 3（boss） | 同一套交替：攻击 2 段 10\|12；辅助全体 +3 力量 |
 | `SpireGrowth` | 3 | 没缠绕就先挂 Constricted 10\|12（A17 起前置条件多一条）；之后快拍 16\|18 / 重砸 22\|25 交替，不连砸 |
@@ -367,7 +368,6 @@ setMove((byte)1, ATTACK, damage.get(2).base, 6, true);     // 硬设 Divider，�
 
 | 缺的机制 | 怪兽 |
 |---|---|
-| **死亡时爆炸 / 自毁** | `Exploder`（`ExplosivePower` 在字节码里只有 description，触发点待查） |
 | **半血复活 / 形态切换** | `Darkling`（`halfDead` + Reincarnate）、`AwakenedOne`、`TimeEater` |
 | **多段固定循环 + 队友联动** | `SpireShield` / `SpireSpear`、`GiantHead`、`Nemesis`、`WrithingMass`、`SnakeDagger` |
 
@@ -412,3 +412,25 @@ else                      new ConstrictedPower(player, this, constrictDmg);
 新增三个载荷组合（都在 `MonsterMove`）：
 `multiAttackStatus`（多段 + 塞牌）、`blockAll`（自己 + 队友一起加格挡）、
 `blockAllAndBuffAll`（全体格挡 + 全体能力）。
+
+### 补记：Exploder 的爆炸藏在 `ExplosivePower.duringTurn` 里
+
+上一轮我写「`ExplosivePower` 只有构造器和 description，触发点待查」——**错在只看了 `-c` 的前几行**。
+`javap -p`（不带 `-c`）列方法名就能看到它还重写了 **`duringTurn()`**：
+
+```java
+public void duringTurn() {
+    if (this.amount == 1 && !this.owner.isDying) {
+        addToBot(new VFXAction(...));
+        addToBot(new SuicideAction((AbstractMonster) this.owner));   // 先死
+        addToBot(new DamageAction(player, new DamageInfo(owner, 30, THORNS))); // 再炸，照样落地
+    }
+    this.amount--;                                                   // 每回合递减
+}
+```
+
+所以 `takeTurn` 的 2 号分支是空的（`goto`）——那一招只是**给玩家看的意图**；
+真正的爆炸发生在「它自己回合开始时」。爆发顺序是「先死再炸」，但伤害照样结算，
+影子里等价于「打完就死」→ 用 `Extra.selfDestruct` 表达（30 点是 THORNS 类型，**吃格挡**）。
+
+**教训**：查一个 power 有没有 hook，要先 `javap -p` 看方法名，而不是从 `-c` 的片段里推断。

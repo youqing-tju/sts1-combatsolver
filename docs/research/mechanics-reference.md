@@ -2692,3 +2692,17 @@ HP 都是 250（A9: 265）；开场 Artifact 2（A19: 3）由 `usePreBattleActio
 新增载荷组合：`multiAttackStatus` / `blockAll` / `blockAllAndBuffAll`。
 
 全量 **353 条**通过；累计 **54 只**。
+
+### 33.34 Exploder：爆炸在 power 的 duringTurn 里 2026-10-26
+
+`ExplosivePower(3)` 由 `usePreBattleAction` 挂上，`duringTurn()` 每回合递减，
+`amount == 1` 时：`SuicideAction(owner)` → `DamageAction(player, new DamageInfo(owner, 30, THORNS))`。
+`takeTurn` 的 2 号分支是空 `goto` —— 那一招只是意图显示。
+
+影子用 `Extra.selfDestruct`：打完（30 点，THORNS → 吃格挡）把自己 hp 置 0。
+节奏：打两下（9|11）→ 第三回合自爆。
+
+**方法论**：`javap -p`（不带 `-c`）先列方法名，再决定看哪段字节码。
+上一轮因为只 grep 了 `-c` 的片段，误判成「这个 power 没有任何 hook」。
+
+全量 **355 条**通过；累计 **55 只**。

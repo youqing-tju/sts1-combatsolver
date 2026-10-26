@@ -2435,4 +2435,32 @@ class MonsterMovesTest {
         assertEquals(16, deca.block, "迪卡自己 16 格挡");
         assertEquals(16, donu.block, "队友也多努同样 16 格挡");
     }
+
+    /** 自爆者：打两下，第三回合自爆 30 点并自己下场。 */
+    @Test
+    void exploderAttacksTwiceThenBlowsUp() {
+        assertEquals(1, decide("Exploder", history(), 50, 0, 0).id, "第一招是 9 伤");
+        assertEquals(9, decide("Exploder", history(), 50, 0, 0).damage, "A0：9");
+        assertEquals(11, decide("Exploder", history(), 50, 0, 2).damage, "A2 起 11");
+        assertEquals(1, decide("Exploder", history(1), 50, 0, 0).id, "第二下还是打");
+
+        MonsterMove boom = decide("Exploder", history(1, 1), 50, 0, 0);
+        assertEquals(2, boom.id, "第三招是自爆");
+        assertEquals(30, boom.damage, "固定 30（不吃进阶）");
+        assertTrue(boom.extra.selfDestruct, "炸完自己死");
+    }
+
+    /** 自爆落地：玩家掉 30，怪自己 hp 归零，之后不再出招。 */
+    @Test
+    void exploderDiesAfterExploding() {
+        SimMonster exploder = new SimMonster("Exploder", 30, 30, 0, NO_POWERS);
+        SimState s = field(exploder);
+        s.hp = 80;
+        MonsterMove boom = decideIn(s, "Exploder", exploder, history(1, 1), 50, 0);
+        exploder.pendingMove = boom;
+        exploder.pendingMoveId = boom.id;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(0, exploder.hp, "自爆后下场");
+        assertEquals(50, s.hp, "玩家吃 30 点");
+    }
 }

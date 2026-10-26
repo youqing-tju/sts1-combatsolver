@@ -221,6 +221,7 @@ public final class MonsterMoves {
         MACHINES.put("SpireGrowth", new SpireGrowthMachine());
         MACHINES.put("Deca", new DecaMachine());
         MACHINES.put("Donu", new DonuMachine());
+        MACHINES.put("Exploder", new ExploderMachine());
     }
 
     private MonsterMoves() {
@@ -2159,6 +2160,33 @@ public final class MonsterMoves {
         private static MonsterMove divider(Context c) {
             int hp = c.state == null ? 12 : c.state.hp;
             return MonsterMove.multiAttack(1, hp / 12 + 1, 6);
+        }
+    }
+
+    /**
+     * 自爆者（{@code Exploder}，第三章）。它的「爆炸」**不在 getMove/takeTurn 里**：
+     *
+     * <pre>
+     * usePreBattleAction → ApplyPowerAction(new ExplosivePower(this, 3))
+     * ExplosivePower.duringTurn():
+     *     if (amount == 1 &amp;&amp; !owner.isDying) {
+     *         addToBot(new SuicideAction(owner));
+     *         addToBot(new DamageAction(player, new DamageInfo(owner, 30, THORNS)));
+     *     }
+     *     amount--;                       // 每回合递减
+     * </pre>
+     *
+     * <p>所以它**打两下（turnCount 1、2）之后在第三回合自爆**，
+     * 而 {@code takeTurn} 的 2 号分支是空的（`goto`）—— 那一招只是给玩家看的意图。
+     * 爆炸 30 点是 **THORNS 类型**（吃格挡），打完自己下场。
+     */
+    static final class ExploderMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            if (c.history.size() >= 2) {
+                return MonsterMove.explode(2, 30);
+            }
+            return MonsterMove.attack(1, c.baseDamage(0, c.ascension >= 2 ? 11 : 9));
         }
     }
 
