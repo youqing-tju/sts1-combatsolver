@@ -315,7 +315,21 @@ public final class CombatFlow {
             state.playerPowers.put(extra.playerDebuff3,
                     (prior == null ? 0 : prior) + extra.playerDebuff3Amount);
         }
+        if (extra.cleanseSelf) {
+            // 原版 RemoveDebuffsAction：遍历 powers 移除 type == DEBUFF 的。
+            // 🔴 我们只存了 ID、没有 PowerType，所以这里用**名字白名单**。
+            //    漏掉一个减益的后果是「影子以为它还挂着 Weak」，方向是低估它的输出。
+            for (String debuff : SELF_DEBUFFS) {
+                owner.powers.remove(debuff);
+            }
+        }
     }
+
+    /** {@code PowerType.DEBUFF} 的能力 ID 白名单（见 {@code applyExtra} 的说明）。 */
+    private static final String[] SELF_DEBUFFS = {
+            "Weakened", "Vulnerable", "Frail", "Shackled", "Lose Strength", "Lose Dexterity",
+            "Strength Down", "Dexterity Down", "Slow", "Constricted", "Poison",
+    };
 
     /** 该召唤池里现在活着的数量（原版 identifySlot 等价：槽位被活怪占着的个数）。 */
     private static int countAliveInPool(SimState state, MonsterMove.Summon summon) {

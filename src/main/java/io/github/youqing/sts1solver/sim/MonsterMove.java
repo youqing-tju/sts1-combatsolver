@@ -324,14 +324,14 @@ public final class MonsterMove {
     public static MonsterMove summon(int id, Summon summon) {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
                 null, 0, null, 0, false, false, 0, null, 0,
-                new Extra(summon, null, 0, 0, null, 0));
+                Extra.summon(summon));
     }
 
     /** 给指定类型的队友加格挡（BronzeOrb 的 2 号招：给 BronzeAutomaton +12）。 */
     public static MonsterMove blockTypedAlly(int id, String type, int block) {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
                 null, 0, null, 0, false, false, 0, null, 0,
-                new Extra(null, type, block, 0, null, 0));
+                Extra.blockTypedAlly(type, block));
     }
 
     /**
@@ -391,7 +391,7 @@ public final class MonsterMove {
         }
     }
 
-    /** 招式附带的额外效果（召唤 / 给特定队友或全体队友加格挡 / 第三个玩家减益）。 */
+    /** 招式附带的额外效果（召唤 / 队友格挡 / 第三个玩家减益 / 清自身减益）。 */
     public static final class Extra {
         public final Summon summon;
         /** 给**指定类型**的队友加格挡；{@code null} = 没有。 */
@@ -405,20 +405,45 @@ public final class MonsterMove {
          */
         public final String playerDebuff3;
         public final int playerDebuff3Amount;
+        /** 清掉自己身上的所有减益（Champ 半血的 Anger，原版 {@code RemoveDebuffsAction}）。 */
+        public final boolean cleanseSelf;
 
-        public Extra(Summon summon, String blockAllyType, int blockAllyTypeAmount, int blockAllies,
-                     String playerDebuff3, int playerDebuff3Amount) {
+        private Extra(Summon summon, String blockAllyType, int blockAllyTypeAmount,
+                      int blockAllies, String playerDebuff3, int playerDebuff3Amount,
+                      boolean cleanseSelf) {
             this.summon = summon;
             this.blockAllyType = blockAllyType;
             this.blockAllyTypeAmount = Math.max(0, blockAllyTypeAmount);
             this.blockAllies = Math.max(0, blockAllies);
             this.playerDebuff3 = playerDebuff3;
             this.playerDebuff3Amount = Math.max(0, playerDebuff3Amount);
+            this.cleanseSelf = cleanseSelf;
+        }
+
+        public static Extra summon(Summon summon) {
+            return new Extra(summon, null, 0, 0, null, 0, false);
+        }
+
+        public static Extra blockTypedAlly(String type, int amount) {
+            return new Extra(null, type, amount, 0, null, 0, false);
+        }
+
+        public static Extra blockAllies(int amount) {
+            return new Extra(null, null, 0, amount, null, 0, false);
+        }
+
+        public static Extra thirdPlayerDebuff(String power, int amount) {
+            return new Extra(null, null, 0, 0, power, amount, false);
+        }
+
+        /** 只清自身减益（Champ 的 Anger 另外还给力量，那部分走主字段 selfBuff）。 */
+        public static Extra cleanseSelfOnly() {
+            return new Extra(null, null, 0, 0, null, 0, true);
         }
 
         public boolean isEmpty() {
             return summon == null && blockAllyType == null && blockAllies <= 0
-                    && playerDebuff3 == null;
+                    && playerDebuff3 == null && !cleanseSelf;
         }
     }
 

@@ -1948,4 +1948,91 @@ class MonsterMovesTest {
                 "STUN 那条路径不自增");
         assertEquals(1, MonsterMoves.replayNumTurns(history(4, 1, 5, 1, 5, 2, 3, 1)));
     }
+
+    // ============================ 第十八批：Champ（半血三阶段） ============================
+
+    /** 勇士：开场按 num 分档（姿态 / 自夸 / 扇脸 / 重斩）。 */
+    @Test
+    void champOpensWithStanceGloatSlapOrSlash() {
+        MonsterMove stance = decide("Champ", history(), 10, 0, 0);
+        assertEquals(2, stance.id, "num≤15 且姿态没用满 → Defensive Stance");
+        assertEquals(15, stance.block);
+        assertEquals("Metallicize", stance.selfBuff, "Forge = 金属化");
+        assertEquals(5, stance.selfBuffAmount);
+
+        MonsterMove gloat = decide("Champ", history(), 20, 0, 0);
+        assertEquals(5, gloat.id, "num∈(15,30] → Gloat");
+        assertEquals("Strength", gloat.selfBuff);
+        assertEquals(2, gloat.selfBuffAmount, "A4 以下 +2 力量");
+
+        MonsterMove slap = decide("Champ", history(), 40, 0, 0);
+        assertEquals(4, slap.id, "num∈(30,55] → Face Slap");
+        assertEquals(12, slap.damage, "A4 以下 slapDmg 12");
+        assertEquals("Weakened", slap.playerDebuff);
+        assertEquals("Vulnerable", slap.playerDebuff2);
+
+        MonsterMove slash = decide("Champ", history(), 60, 0, 0);
+        assertEquals(1, slash.id, "num>55 → Heavy Slash");
+        assertEquals(16, slash.damage, "A4 以下 slashDmg 16");
+    }
+
+    /** 勇士：姿态最多两次（forgeThreshold=2），A19 起才放宽 num 门槛到 30。 */
+    @Test
+    void champStopsForgingAfterTwoStances() {
+        assertEquals(4, decide("Champ", history(2), 10, 0, 0).id,
+                "上一招就是姿态（!lastMove(2) 拦住了）→ 不能连着打");
+        assertEquals(2, decide("Champ", history(2, 5), 10, 0, 0).id,
+                "上一次姿态之后隔了一招 → 还能再打（forgeTimes 才 1）");
+        // 注意 history 长度会推进 numTurns，第 4 次决策会被 Taunt 抢走，所以这里多用一招避开
+        assertEquals(5, decide("Champ", history(2, 5, 2, 4), 10, 0, 0).id,
+                "两次姿态用满（forgeThreshold=2）→ num 再小也不打姿态，改打 Gloat");
+        assertEquals(5, decide("Champ", history(), 20, 0, 0).id, "A19 以下 num>15 不打姿态 → Gloat");
+        assertEquals(2, decide("Champ", history(), 20, 0, 19).id, "A19 起门槛放宽到 30 → 仍可打姿态");
+    }
+
+    /** 勇士：第 4 次决策是 Taunt（玩家 Weak 2 + Vulnerable 2，不打人）。 */
+    @Test
+    void champTauntsOnTheFourthDecision() {
+        assertEquals(4, MonsterMoves.champNumTurns(history(1, 2, 5)), "第三次决策后是 4");
+        MonsterMove taunt = decide("Champ", history(1, 2, 5), 10, 0, 0);
+        assertEquals(6, taunt.id, "numTurns==4 → Taunt，优先于姿态");
+        assertEquals(0, taunt.damage, "Taunt 这回合不打人");
+        assertEquals("Weakened", taunt.playerDebuff);
+        assertEquals("Vulnerable", taunt.playerDebuff2);
+        assertEquals(1, MonsterMoves.champNumTurns(history(1, 2, 5, 6)), "Taunt 之后清零");
+    }
+
+    /** 勇士：掉到半血以下第一件事是 Anger（清自身减益 + 3 倍力量）。 */
+    @Test
+    void champEnragesBelowHalfHp() {
+        SimMonster champ = new SimMonster("Champ", 200, 420, 0, NO_POWERS);
+        SimState s = field(champ);
+        MonsterMove anger = decideIn(s, "Champ", champ, history(), 10, 0);
+        assertEquals(7, anger.id, "200 < 420/2 → Anger");
+        assertEquals("Strength", anger.selfBuff);
+        assertEquals(6, anger.selfBuffAmount, "A4 以下 strAmt 2 × 3");
+        assertEquals(12, decideIn(s, "Champ", champ, history(), 10, 19).selfBuffAmount,
+                "A19 起 strAmt 4 × 3");
+        assertTrue(anger.extra.cleanseSelf, "RemoveDebuffsAction");
+
+        champ.powers.put("Weakened", Integer.valueOf(2));
+        anger = decideIn(s, "Champ", champ, history(), 10, 0);
+        champ.pendingMove = anger;
+        champ.pendingMoveId = anger.id;
+        CombatFlow.endTurn(s, 3, 5);
+        assertNull(champ.powers.get("Weakened"), "Anger 会清掉自己身上的减益");
+    }
+
+    /** 勇士：半血之后优先处决（两段），但连续两招不能都是处决。 */
+    @Test
+    void champExecutesAfterEnrage() {
+        SimMonster champ = new SimMonster("Champ", 200, 420, 0, NO_POWERS);
+        SimState s = field(champ);
+        MonsterMove execute = decideIn(s, "Champ", champ, history(7), 10, 0);
+        assertEquals(3, execute.id, "半血且前两招都不是 3 → Execute");
+        assertEquals(2, execute.hits, "EXEC_COUNT = 2");
+        assertEquals(10, execute.damage);
+        assertFalse(decideIn(s, "Champ", champ, history(7, 3), 10, 0).id == 3,
+                "刚处决过就不能再处决");
+    }
 }

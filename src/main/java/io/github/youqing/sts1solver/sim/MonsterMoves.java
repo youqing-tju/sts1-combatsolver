@@ -209,6 +209,7 @@ public final class MonsterMoves {
         MACHINES.put("TheCollector", new TheCollectorMachine());
         MACHINES.put("BronzeOrb", new BronzeOrbMachine());
         MACHINES.put("BronzeAutomaton", new BronzeAutomatonMachine());
+        MACHINES.put("Champ", new ChampMachine());
     }
 
     private MonsterMoves() {
@@ -1703,7 +1704,7 @@ public final class MonsterMoves {
             int block = c.ascension >= 18 ? 10 : 6;
             return new MonsterMove(3, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
                     null, 0, null, 0, false, false, 0, "Strength", str,
-                    new MonsterMove.Extra(null, null, 0, block, null, 0));
+                    MonsterMove.Extra.blockAllies(block));
         }
 
         @Override
@@ -1827,7 +1828,7 @@ public final class MonsterMoves {
             // 一次上三样：Weak + Vulnerable + Frail，各 amt 层
             return new MonsterMove(4, 0, 0, 0, 0, null, 0, "Weakened", amt,
                     "Vulnerable", amt, null, 0, null, 0, null, 0, false, false, 0, null, 0,
-                    new MonsterMove.Extra(null, null, 0, 0, "Frail", amt));
+                    MonsterMove.Extra.thirdPlayerDebuff("Frail", amt));
         }
 
         private static MonsterMove defend(Context c) {
@@ -1958,5 +1959,127 @@ public final class MonsterMoves {
             numTurns++;                     // 1(FLAIL) 与 5 这两条路径会自增
         }
         return numTurns;
+    }
+
+    /**
+     * 勇士（Champ）—— 第二章 Boss。
+     *
+     * <pre>
+     * getMove（💡 第一句永远是 numTurns++）:
+     *   hp &lt; maxHp/2 且 !thresholdReached → 7(Anger) 且置 thresholdReached
+     *   !lastMove(3) 且 !lastMoveBefore(3) 且 thresholdReached → 3(Execute，2 段)
+     *   numTurns == 4 且 !thresholdReached → 6(Taunt)，并把 numTurns 清零
+     *   !lastMove(2) 且 forgeTimes &lt; forgeThreshold 且 num ≤ (A19 ? 30 : 15) → 2(Defensive Stance)
+     *   !lastMove(5) 且 !lastMove(2) 且 num ≤ 30 → 5(Gloat)
+     *   !lastMove(4) 且 num ≤ 55 → 4(Face Slap)
+     *   !lastMove(1) ? 1(Heavy Slash) : 4(Face Slap)
+     * takeTurn:
+     *   1 → 一段 damage[0]（slashDmg）
+     *   2 → 自己 +blockAmt 格挡、+forgeAmt 金属化
+     *   3 → **两段** damage[1]（EXEC_COUNT = 2）
+     *   4 → 一段 damage[2]（slapDmg）+ 玩家 Weak 2 + Vulnerable 2
+     *   5 → 自己 +strAmt 力量
+     *   6 → 玩家 Weak 2 + Vulnerable 2（这回合不打人）
+     *   7 → RemoveDebuffsAction(自己) + 移除 Shackled + 自己 +strAmt **×3** 力量
+     * 常数: HP 420 (A9: 440)、forgeThreshold 2；
+     *       A19+: slash18/exec10/slap14/str4/forge7/block20；
+     *       A9-18: 18/10/14/3/6/18；A4-8: 18/10/14/3/5/15；&lt;A4: 16/10/12/2/5/15
+     * </pre>
+     *
+     * <p>⚠️ {@code damage()} **没有**被重写（字节码里只有动画），所以「三阶段」全部在
+     * {@code getMove} 里：半血看 {@code currentHealth < maxHealth/2}，狂暴是 7 号招，
+     * 之后每次决策都优先判「能不能处决」。{@code thresholdReached} / {@code forgeTimes}
+     * / {@code numTurns} 三个字段全都只依赖历史，可以重放。
+     */
+    static final class ChampMachine implements Machine {
+        private static final int FORGE_THRESHOLD = 2;
+
+        @Override
+        public MonsterMove next(Context c) {
+            int numTurns = champNumTurns(c.history);
+            boolean threshold = c.history.contains(Integer.valueOf(7));
+            int forgeTimes = countOf(c.history, 2);
+            int str = strAmt(c.ascension);
+
+            if (c.monster != null && c.monster.hp * 2 < c.monster.maxHp && !threshold) {
+                return new MonsterMove(7, 0, 0, 0, 0, "Strength", str * 3,
+                        null, 0, null, 0, null, 0, null, 0, null, 0, false, false,
+                        0, null, 0, MonsterMove.Extra.cleanseSelfOnly());
+            }
+            if (!c.lastMove(3) && !c.lastMoveBefore(3) && threshold) {
+                return MonsterMove.multiAttack(3, c.baseDamage(1, 10), 2);
+            }
+            if (numTurns == 4 && !threshold) {
+                return taunt();
+            }
+            int stanceThreshold = c.ascension >= 19 ? 30 : 15;
+            if (!c.lastMove(2) && forgeTimes < FORGE_THRESHOLD && c.num <= stanceThreshold) {
+                return MonsterMove.buffBlock(2, "Metallicize", forgeAmt(c.ascension),
+                        blockAmt(c.ascension));
+            }
+            if (!c.lastMove(5) && !c.lastMove(2) && c.num <= 30) {
+                return MonsterMove.buff(5, "Strength", str);
+            }
+            if (!c.lastMove(4) && c.num <= 55) {
+                return faceSlap(c);
+            }
+            return c.lastMove(1) ? faceSlap(c) : MonsterMove.attack(1, c.baseDamage(0, slash(c.ascension)));
+        }
+
+        private static MonsterMove faceSlap(Context c) {
+            return MonsterMove.attackDoubleDebuff(4, c.baseDamage(2, slap(c.ascension)),
+                    "Weakened", 2, "Vulnerable", 2);
+        }
+
+        private static MonsterMove taunt() {
+            return MonsterMove.doubleDebuff(6, "Weakened", 2, "Vulnerable", 2);
+        }
+
+        private static int slash(int a) {
+            return a >= 4 ? 18 : 16;
+        }
+
+        private static int slap(int a) {
+            return a >= 4 ? 14 : 12;
+        }
+
+        private static int strAmt(int a) {
+            return a >= 19 ? 4 : (a >= 4 ? 3 : 2);
+        }
+
+        private static int forgeAmt(int a) {
+            return a >= 19 ? 7 : (a >= 9 ? 6 : 5);
+        }
+
+        private static int blockAmt(int a) {
+            return a >= 19 ? 20 : (a >= 9 ? 18 : 15);
+        }
+
+        private static int countOf(List<Integer> history, int id) {
+            int n = 0;
+            for (Integer v : history) {
+                if (v.intValue() == id) {
+                    n++;
+                }
+            }
+            return n;
+        }
+    }
+
+    /**
+     * 重放 {@code Champ.numTurns}：它在 {@code getMove} 的**第一句**无条件自增，
+     * 只有「numTurns==4 且还没半血」那条路径会把它清零。
+     *
+     * @return **下一次**决策时 {@code numTurns} 的值（已经算上开头那次自增）
+     */
+    static int champNumTurns(List<Integer> history) {
+        int numTurns = 0;
+        for (Integer id : history) {
+            numTurns++;                          // 决策开头无条件 +1
+            if (id.intValue() == 6) {            // Taunt 那条路径把它清零
+                numTurns = 0;
+            }
+        }
+        return numTurns + 1;                     // 下一次决策开头还要 +1
     }
 }

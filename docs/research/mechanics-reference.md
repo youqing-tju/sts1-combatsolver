@@ -2562,3 +2562,41 @@ Rally（GremlinLeader 2 号招）：
 - 召唤物的 `applyPowers()`：原版会给新怪补「基础力量」等，我们只挂 `Minion`。
 
 全量 **326 条**通过；累计 **42 只**。
+
+### 33.29 Champ（勇士）三阶段 2026-10-26
+
+**结论先行：所谓「多阶段 boss」不需要任何新钩子** —— `Champ` 没有 `damage()` / `die()` 重写，
+它在 `getMove` 里读三个普通字段。这三个字段影子都不存，全部由 `moveHistory` 重放。
+
+| 字段 | 重放规则（照抄原版副作用） |
+|---|---|
+| `numTurns` | 决策开头无条件 +1；**走 Taunt（6）那条路径时清零** |
+| `thresholdReached` | `history.contains(7)`（狂暴只发生一次） |
+| `forgeTimes` | `countOf(history, 2)`（姿态最多 2 次） |
+
+分支顺序（**不能换**，原版就是这个优先级）：
+
+```
+1. hp*2 < maxHp && !threshold     → 7 狂暴：自 +3×力量（A19: 4×3）+ 清自身所有减益
+2. !last(3) && !last2(3) && threshold → 3 连打两下重斩（baseDamage(1,10)）
+3. numTurns == 4 && !threshold    → 6 Taunt：只上 Weak 2 + Vulnerable 2，不打人
+4. !last(2) && forgeTimes < 2 && num <= (A19 ? 30 : 15) → 2 姿态：Metallicize 5/6/7 + 格挡 15/18/20
+5. !last(5) && !last(2) && num <= 30 → 5 Gloat：自 +力量 2/3/4
+6. !last(4) && num <= 55          → 4 Face Slap：12/14 伤 + Weak 2 + Vulnerable 2
+7. 否则 → last(1) ? Face Slap : 1 Heavy Slash 16/18
+```
+
+### 「清自身减益」用白名单
+
+原版是 `new RemoveDebuffsAction(this)`，按 `PowerType.DEBUFF` 逐个移除。影子只存能力 ID，
+所以 `Extra.cleanseSelf` 走一个白名单（`CombatFlow.SELF_DEBUFFS`：Weakened / Vulnerable / Frail /
+Shackled / Lose Strength / Lose Dexterity / Strength Down / Dexterity Down / Slow / Constricted / Poison）。
+用「按名字筛」的偏差方向是**漏清**（影子高估怪物被削弱的程度），偏保守，可以接受。
+
+### 测试坑（顺序表型怪物通用）
+
+给 Champ 写历史时**历史长度本身会推进 `numTurns`**，第 4 次决策会被 Taunt 抢走。
+`history(2,5,2,4)` + `num=10` 落到 Gloat(5) 而不是重斩(1) —— 因为姿态被 `forgeTimes` 挡住后，
+`num≤30` 命中的是第 5 条。**先算 `numTurns`，再挑 `num` 落档**，否则会误判成机器写错。
+
+全量 **331 条**通过；累计 **43 只**。

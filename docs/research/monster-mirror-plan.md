@@ -49,6 +49,7 @@
 | `TheCollector` | 2（boss） | 开场召 2 只火把头、第 4 回合大招（Weak+Vulnerable+Frail）、有火把头死掉才补 |
 | `BronzeOrb` | 2 | Stasis 只放一次；Flux 给 **BronzeAutomaton** 加 12 格挡；两下一循环 |
 | `BronzeAutomaton` | 2（boss） | 4→1→5→1→5→2→3 固定循环（`numTurns` 只能从历史重放）；BOOST 召 2 个铜球 |
+| `Champ` | 2（boss） | 三阶段：半血狂暴（自 +3×力量并清自身减益）、第 4 回合 Taunt（**不打人**）、半血后连打两下重斩；姿态最多两次、门槛 `num≤15`（A19: 30）。`numTurns/threshold/forgeTimes` 全部从 `moveHistory` 重放 |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 
@@ -145,7 +146,7 @@
 | 组 | 怪物 | 缺什么 |
 |---|---|---|
 | ~~**A. 召唤**~~ ✅ 已完成（2026-10-26） | ~~`GremlinLeader` / `TheCollector` / `BronzeAutomaton`~~ | 见下面「A 组落地记录」——小鬼血量其实是 `monsterHpRng`（seed 控制），补捕获后**精确** |
-| **B. 多阶段** | `Champ`（三阶段 + 狂暴）、`BronzeAutomaton`（半血 STUN + BOOST）、`TheCollector`（半血 BUFF）、`Hexaghost`（开场 6 个 orb + `burnUpgraded`） | 需要「血量阈值触发换招」的通用钩子（Champ/Automaton/Collector 都是 `damage()` 重写）；Hexaghost 还要先搞清 orb 是什么 |
+| ~~**B. 多阶段**~~ 🔶 进行中 | ~~`Champ`~~ ✅ / `Hexaghost` | `BronzeAutomaton`、`TheCollector` 已在 A 组顺带做完（它们的「换阶段」原来只是普通分支）。Champ 落地，详见下面「B 组落地记录」。剩 `Hexaghost` |
 | **C. 面具强盗事件** | `BanditBear`、`BanditLeader`（`BanditPointy` 已做） | Bear 的 `Bear Stun` / Leader 的「喊话 + 全体格挡」要看 takeTurn 的 SetMove 链 |
 | **D. 第三章**（beyond 包，18 只） | `Darkling`/`OrbWalker`/`Spiker`/`Repulsor`/`SpireGrowth`/`Transient`/`WrithingMass`/`Nemesis`/`GiantHead`/`TimeEater`/`AwakenedOne`/`Deca`/`Donu`/`SpireSpear`/`SpireShield`/`Maw`/`JawWorm`? | 未读；先按 A/B 两组的新基础设施铺完再批量做 |
 
@@ -197,3 +198,42 @@
   弃牌堆/抽牌堆里挑一张抽走。`SimCard` 目前不带稀有度，所以没建。
   偏差方向 = 影子**高估**玩家手牌一张（搜索略乐观）；招式节奏本身是对的（3 号招就是「这回合不输出」）。
 - 召唤物的能力初始化：原版 `applyPowers()` 会给「有力量的怪」补力量等；我们只挂 `Minion`。
+
+---
+
+## B 组落地记录（2026-10-26，Champ 已完成）
+
+### 「多阶段」其实不需要通用钩子
+
+计划里以为要给 `damage()` 重写做钩子。实际读字节码：**Champ 没有 `damage()` 重写**，
+它在 `getMove` 开头用 `this.currentHealth * 2 < this.maxHealth && !thresholdReached` 判半血，
+其余状态（`numTurns` / `thresholdReached` / `forgeTimes`）都是**普通字段**。
+所以「多阶段」= `getMove` 里多一个 if，不需要任何新基础设施。
+
+`BronzeAutomaton`（`numTurns` 固定循环）与 `TheCollector`（`turnsTaken` 计数）同理，
+都在 A 组顺手做完了 —— A 组之所以能一次收三只 boss，就是因为它们只是「带计数的顺序表」。
+
+### 三个字段全部从 `moveHistory` 重放
+
+影子不另存字段，一律由历史推：
+
+| 字段 | 重放规则 |
+|---|---|
+| `numTurns` | 每次决策开头 +1；**走 Taunt（6 号招）那条路径会把它清零** |
+| `thresholdReached` | `history.contains(7)` —— 狂暴只可能发生一次 |
+| `forgeTimes` | `countOf(history, 2)` —— 计数到 2 就不再打姿态 |
+
+`champNumTurns` 里的「Taunt 清零」是原版 `if (numTurns == 4) { numTurns = 0; ... }` 的直接投影，
+**不写这条就会在长战斗里把 Taunt 打成每 4 回合一次**。
+
+### 测试踩坑（顺序表类怪物的通病）
+
+给 Champ 写历史时，**历史长度本身会推进 `numTurns`**，于是「第 N 次决策」会被 Taunt 抢走。
+三次连续失败都是这个原因，不是机器写错：
+- `history(2)` 期望 2 得 4 —— `!lastMove(2)` 本就会挡住连打姿态；
+- `history(2,5,2)` 期望 1 得 6 —— 3 条历史使 `numTurns==4`，Taunt 优先；
+- `history(2,5,2,4)` + `num=10` 期望 1 得 5 —— 姿态被 `forgeTimes=2` 挡住后，
+  `num≤30` 落到的是 **Gloat**，不是重斩。
+
+结论：**给顺序表型怪物写断言，先算 `numTurns`，再挑 `num` 落在哪个分档**，
+否则测试会一直"期望值写错"而不是"机器写错"。
