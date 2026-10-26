@@ -2999,3 +2999,56 @@ for (card : hand) {
 `BlessingOfTheForge`/`StancePotion` → 观者，`CunningPotion` → 静默猎手，铁甲战士**拿不到**）
 + **3 张缺容器**（`SmokeBomb` / `DistilledChaos` / `EntropicBrew`）。
 换言之：铁甲战士能拿到的 34 张里已覆盖 31 张。
+
+### 33.44 遗物第二批：被动 / 回合钩子（2026-10-26）
+
+遗物 ID 与类名**经常不是同一串**，这一批就踩了两次：
+
+| 类 | 运行时 ID（构造器首参） | 备注 |
+|---|---|---|
+| `PaperFrog` | **`Paper Frog`** | 显示名是 "Paper Phrog"，三种拼法都不同 |
+| `HornCleat` | **`HornCleat`** | 无空格 |
+| `CaptainsWheel` | **`CaptainsWheel`** | 无空格、无撇号 |
+| `Orichalcum` / `Torii` | 同名 | — |
+| `MercuryHourglass` | **`Mercury Hourglass`** | 带空格 |
+
+| 遗物 | 钩子（字节码） | 影子落点 |
+|---|---|---|
+| 纸青蛙 | 没有自己的钩子方法，只有一个 `public static final float VULN_EFFECTIVENESS` 被伤害管线读 | `RelicHooks.vulnerableMultiplier` → `DamageCalc` 的**两处「玩家打敌人」**易伤站点 |
+| 鸟居 | `onAttacked(info, dmg)`：`info.owner != null` && type ∉ {HP_LOSS, THORNS} && `dmg > 1` && `dmg <= 5` → 1 | `CombatFlow.hitPlayer`，且只在 `attacker != null` 时 |
+| 水银沙漏 | `atTurnStart` → `DamageAllEnemiesAction(null, createDamageMatrix(3, true), THORNS, BLUNT_LIGHT)` | `RelicHooks.onPlayerTurnStart`；`createDamageMatrix(..., true)` = **纯伤** |
+| 号角夹板 | `atBattleStart` counter = 0；`atTurnStart`：`counter++`，`counter == 2` → `GainBlock(14)`、`counter = -1`、`grayscale = true` | `counterBlockRelic(..., 2, 14)` |
+| 舵轮 | 同上，阈值 3、格挡 18 | `counterBlockRelic(..., 3, 18)` |
+| 山铜 | `onPlayerEndTurn`：`currentBlock == 0`（或 `trigger`）→ `GainBlock(6)` | `RelicHooks.onPlayerEndTurn` |
+
+**三个容易写错的点**：
+
+1. **纸青蛙只放大「玩家打敌人」那条**。它的常量被 `AbstractCard` 那条链路读，
+   敌人打玩家的 `AbstractMonster` 链路不读 —— 所以玩家自己身上的易伤仍是 ×1.5。
+2. **`grayscale` 没有对应的快照字段**。号角夹板/舵轮触发过之后 `counter = -1` 且
+   **不再自增**（`if (!grayscale) counter++`）。影子用「`counter == -1` 就冻住」表达它 ——
+   如果不冻，第 5 回合会二次触发（`-1 → 0 → 1 → 2`），这是最容易漏的一步。
+3. **沙漏的结算点在「怪物格挡清空之后」**。怪物格挡在它自己回合开始就清了
+   （`MonsterGroup.applyPreTurnLogic`），沙漏在玩家回合开始 → 玩家回合开始时怪物身上
+   一定没格挡。顺序写反（沙漏挪到怪物回合之前）会让「刚架起格挡的怪」被少算伤害。
+
+⚠️ **山铜的先后未真机核对**：原版调用点在 `AbstractRoom` 里，与能力钩子（金属化 / 装甲）
+的先后没法从字节码直接读出。影子按「先算回合末能力、再算遗物」写 —— 影响面只有
+「同一回合既有金属化又没别的格挡」这一种情况，对拍出现山铜差异时先查这条。
+
+`Coverage.unmirroredRelics` 的白名单同步补上（含之前漏登记的计数类六件与蜥蜴尾巴）——
+它现在只报**真的还没镜像**的遗物。
+
+**这一批没做（各有各的坎）**：
+
+- `RedSkull`（半血 +3 力量）：根状态捕获时若已半血，力量里**已经含了那 3 点**，
+  影子再「补上」就重复计。要先有「这个 +3 是否已计」的标记才能做；
+- `TungstenRod`（掉血 -1）：它只作用于 `AbstractPlayer.damage()` 这条链路，
+  **不作用于 `loseHp`**（缠绕、自伤）。我们的 `hitPlayer` 同时承担两者，
+  接之前得先把「伤害」与「掉血」两条路分开；
+- `IceCream`（能量跨回合）、`Chemical X`（X +2）：数值好在
+  `EnergyManager` / 每个 X 动作里，各需一处改；
+- `RunicPyramid` / `SneckoEye`：一个要改弃牌规则、一个要每回合抽牌 +2 并随机费用
+  （费用随机那半已经随蛇油做好了）。
+
+全量 **415 条**通过；遗物镜像 **12 件**（计数类 6 + 被动/回合 6）。

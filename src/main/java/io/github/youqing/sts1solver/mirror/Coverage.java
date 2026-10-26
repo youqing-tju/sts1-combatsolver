@@ -36,7 +36,10 @@ public final class Coverage {
         return keys.size();
     }
 
-    /** 与逐卡核对无关的遗物（不产生战斗内触发）。其余遗物都算「未镜像」。 */
+    /**
+     * **不再算噪声**的遗物：要么战斗内没有触发，要么已经被 {@code RelicHooks} / 根状态覆盖。
+     * 其余遗物都算「未镜像」。
+     */
     private static final java.util.Set<String> INERT_RELICS =
             new java.util.HashSet<String>(java.util.Arrays.asList(
                     "Ectoplasm",          // 只影响金币
@@ -44,7 +47,15 @@ public final class Coverage {
                     "Anchor",             // 开局格挡，已被根状态捕获
                     "Bag of Marbles",     // 开局易伤，已被根状态捕获
                     "Vajra",              // 开局力量，已被根状态捕获
-                    "Bag of Preparation"  // 开局多抽两张，已被根状态捕获
+                    "Bag of Preparation", // 开局多抽两张，已被根状态捕获
+                    // 计数类（RelicHooks.onCardUsed 已镜像）
+                    "Nunchaku", "Ornamental Fan", "Shuriken", "Pen Nib",
+                    "Letter Opener", "InkBottle",
+                    // 第二批被动 / 回合钩子（RelicHooks，2026-10-26）
+                    "Paper Frog", "Mercury Hourglass", "HornCleat", "CaptainsWheel",
+                    "Orichalcum", "Torii",
+                    // 死亡豁免（DeathSaveRelic）
+                    "Lizard Tail"
             ));
 
     /**

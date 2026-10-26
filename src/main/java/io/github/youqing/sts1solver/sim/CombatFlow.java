@@ -57,6 +57,10 @@ public final class CombatFlow {
             hitPlayer(state, constricted.intValue());
         }
 
+        // ③.9 山铜（Orichalcum.onPlayerEndTurn）：**一点格挡都没有**时才 +6。
+        //      放在回合末能力之后 —— 金属化/装甲先给格挡的话它就不触发。
+        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onPlayerEndTurn(state);
+
         // ④ 敌方行动
         // 🔴 顺序很重要：**先让格挡吸收敌方伤害，再清空格挡**。
         // 反过来写（先清后打）会让格挡完全失效 —— 搜索于是永远不防御，
@@ -177,6 +181,9 @@ public final class CombatFlow {
         state.turn = nextTurn;
 
         // ⑦ 新回合的钩子 → 回能 → 抽牌 → 抽牌后的钩子
+        // ⑦.0 回合开始的遗物（原版 applyStartOfTurnRelics 在能力之前）：
+        //      水银沙漏 3 点全体纯伤 / 号角夹板（第 2 回合 +14）/ 舵轮（第 3 回合 +18）
+        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onPlayerTurnStart(state);
         Hooks.firePhase(state, HookPhase.START_OF_TURN);
         state.energy = energyPerTurn;
         // DrawReductionPower（TimeEater 的 Head Slam）：下回合**少抽** amount 张，用一次就消失。
@@ -594,6 +601,12 @@ public final class CombatFlow {
         // 在**最终伤害**上生效、扣格挡之前 —— 所以 1 点伤害仍会被格挡完全吸收
         int remaining = io.github.youqing.sts1solver.mirror.DamageCalc
                 .intangibleAdjusted(state.playerPowers, damage);
+        // 鸟居（Torii.onAttacked）：有攻击者的普通攻击、伤害 2..5 → 1。
+        // 字节码排除了 HP_LOSS / THORNS 类型和「无 owner」的伤害，所以只挂在攻击分支上。
+        if (attacker != null) {
+            remaining = io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                    .torii(state, remaining);
+        }
         if (state.block > 0) {
             int absorbed = Math.min(state.block, remaining);
             state.block -= absorbed;

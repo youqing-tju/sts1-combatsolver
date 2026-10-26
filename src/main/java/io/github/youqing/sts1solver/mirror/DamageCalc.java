@@ -41,7 +41,11 @@ public final class DamageCalc {
         }
         if (target != null && powers(target).containsKey(VULNERABLE)
                 && powers(target).get(VULNERABLE) > 0) {
-            dmg = (int) Math.floor(dmg * 1.5f);
+            // 纸青蛙把「玩家打敌人」的易伤倍率从 1.5 提到 1.75
+            // （敌人打玩家那条仍是 1.5 —— 见 monsterAttackDamage）
+            dmg = (int) Math.floor(dmg
+                    * io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                            .vulnerableMultiplier(state));
         }
         // SlowPower.atDamageReceive：玩家这回合每打一张牌，这只怪受到的伤害 +10%
         // （amount 在 onAfterUseCard 里 +1，atEndOfRound 清零；只有 NORMAL 类型吃这个）
@@ -575,7 +579,11 @@ public final class DamageCalc {
         }
         if (target != null && powers(target).containsKey(VULNERABLE)
                 && powers(target).get(VULNERABLE) > 0) {
-            dmg = (int) Math.floor(dmg * 1.5f);
+            // 纸青蛙把「玩家打敌人」的易伤倍率从 1.5 提到 1.75
+            // （敌人打玩家那条仍是 1.5 —— 见 monsterAttackDamage）
+            dmg = (int) Math.floor(dmg
+                    * io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                            .vulnerableMultiplier(state));
         }
         return Math.max(0, dmg);
     }
