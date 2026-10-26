@@ -512,3 +512,20 @@ Nemesis 本身：
 格挡在**下一段**才起作用（`onAttacked` 只是把 GainBlockAction 排进队列）。
 
 SnakeDagger 本身：1 号招 9 伤 + 塞 Wound；2 号招 25 伤后自爆（`LoseHPAction` 自己）。
+
+---
+
+## 剩余 7 只的精确卡点（2026-10-26 收尾时逐个查过）
+
+| 怪 | 卡在哪（已核实到字节码） | 需要什么 |
+|---|---|---|
+| `TimeEater` | **`TimeWarpPower.onAfterUseCard`：玩家打出第 12 张牌时 `callEndTurnEarlySequence()` —— 当场结束玩家回合** | 搜索层要能「中途打断玩家回合」，是新容器；不是怪物 AI 层能解决的 |
+| `AwakenedOne` | `die()` 里换一只（`form 2`）重新上场并保留血线 | 「换怪上场」容器 + 保留状态 |
+| `WrithingMass` | 被打时可能塞 `Parasite`（诅咒）进牌组 + 挨打会改下一招 | 牌组级污染 + 挨打回调改意图 |
+| `Reptomancer` | `daggersPerSpawn` 字段我还没核准（`iconst_1` 与 `bipush 8` 各对应谁） | 核准后直接用现成的 `Summon`（`SnakeDagger` 已镜像，HP 走 `monsterHpRng.random(20,25)`） |
+| `SpireShield` | `moveCount % 3` 分支 + 1 号招里 `if (玩家有 orb && randomBoolean())` 追加两个 -1 减益 | ⚠️ **铁甲战士没有 orb → 那条分支恒不触发**，可只做攻击/格挡/attack+block |
+| `SpireSpear` | 同上（`moveCount % 3` + Skewer 多段 + BUFF） | 同上，可直接做 |
+| `CorruptHeart` | Act 4 boss，四阶段 + `Invincible`（每回合最多掉 X 血） | `InvinciblePower` 是**受伤上限**，需要新钩子 |
+
+**结论**：Act 1/2 全齐、Act 3 除 `AwakenedOne`/`TimeEater`/`WrithingMass`/`Reptomancer` 外全齐。
+剩下这几只都不是「再抄一段」的量级，而是各缺一个容器 —— 先记着，等对应容器立项。
