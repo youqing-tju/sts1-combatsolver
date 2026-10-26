@@ -72,6 +72,9 @@ public final class Coverage {
                     "Incense Burner", "Velvet Choker", "Pocketwatch", "Necronomicon",
                     // 第七批（2026-10-26）：让打不出的牌能打
                     "Blue Candle", "Medical Kit",
+                    // 第八批（2026-10-26）：补满剩余战斗遗物
+                    "TheAbacus", "Brimstone", "StoneCalendar", "Mark of the Bloom",
+                    "Mummified Hand", "OrangePellets", "Art of War",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));

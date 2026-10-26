@@ -899,4 +899,146 @@ class RelicHooksTest {
 
         assertEquals(Integer.valueOf(1), s.relics.get(RelicHooks.NECRONOMICON), "技能不消耗");
     }
+    // ---------------------------------------------------------------- 第八批：补满剩余战斗遗物
+
+    /** 算盘：每洗一次牌 +6 格挡（裸数值，不吃敏捷）。 */
+    @Test
+    void abacusGivesSixBlockPerShuffle() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.ABACUS, Integer.valueOf(-1));
+        s.block = 0;
+
+        RelicHooks.onShuffle(s);
+        assertEquals(6, s.block);
+        RelicHooks.onShuffle(s);
+        assertEquals(12, s.block, "洗几次加几次");
+
+        // 没有遗物：不加
+        SimState s2 = fight();
+        s2.block = 0;
+        RelicHooks.onShuffle(s2);
+        assertEquals(0, s2.block);
+    }
+
+    /** 硫磺：回合开始自己 +2 力量、**全体敌人**各 +1 力量。 */
+    @Test
+    void brimstoneGrowsBothSides() {
+        SimState s = fight();
+        s.monsters.add(new SimMonster("JawWorm", 40, 40, 0,
+                Collections.<String, Integer>emptyMap()));
+        s.relics.put(RelicHooks.BRIMSTONE, Integer.valueOf(-1));
+
+        RelicHooks.onPlayerTurnStart(s);
+
+        assertEquals(Integer.valueOf(2), s.playerPowers.get(DamageCalc.STRENGTH), "玩家 +2");
+        assertEquals(Integer.valueOf(1), s.monsters.get(0).powers.get(DamageCalc.STRENGTH),
+                "第一只敌人 +1");
+        assertEquals(Integer.valueOf(1), s.monsters.get(1).powers.get(DamageCalc.STRENGTH),
+                "第二只也 +1");
+    }
+
+    /** 石历：第 7 个回合结束对全体 52 点纯伤，只爆一次。 */
+    @Test
+    void stoneCalendarNukesEverythingOnceOnTurnSeven() {
+        SimState s = fight();
+        s.monsters.get(0).hp = 200;
+        s.relics.put(RelicHooks.STONE_CALENDAR, Integer.valueOf(6));
+
+        RelicHooks.onPlayerTurnStart(s);
+        assertEquals(Integer.valueOf(7), s.relics.get(RelicHooks.STONE_CALENDAR), "计数到 7");
+
+        RelicHooks.onPlayerEndTurn(s);
+        assertEquals(148, s.monsters.get(0).hp, "200 - 52");
+        assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.STONE_CALENDAR),
+                "爆完归零，不再触发");
+
+        // 第 8 回合不再爆
+        RelicHooks.onPlayerTurnStart(s);
+        RelicHooks.onPlayerEndTurn(s);
+        assertEquals(148, s.monsters.get(0).hp, "不会再爆第二次");
+    }
+
+    /** 血花印记：所有治疗归零（药水/再生/回血卡都算）。 */
+    @Test
+    void markOfTheBloomNullifiesHealing() {
+        SimState s = fight();
+        s.hp = 40;
+        s.relics.put(RelicHooks.MARK_OF_THE_BLOOM, Integer.valueOf(-1));
+
+        assertEquals(0, RelicHooks.healAmount(s, 20), "healAmount 直接归零");
+
+        // 真路径：血瓶也回不了血
+        assertTrue(io.github.youqing.sts1solver.mirror.Potions.use(
+                s, io.github.youqing.sts1solver.mirror.Potions.BLOOD_POTION, -1));
+        assertEquals(40, s.hp, "血瓶被血花印记抹平");
+
+        // 魔法花也救不了
+        s.relics.put(RelicHooks.MAGIC_FLOWER, Integer.valueOf(-1));
+        assertEquals(0, RelicHooks.healAmount(s, 20));
+    }
+
+    /** 木乃伊手：打出能力牌 → 手牌里随机一张本回合 0 费。 */
+    @Test
+    void mummifiedHandZeroesOneRandomCardCost() {
+        SimState s = fight();
+        s.energy = 10;
+        s.relics.put(RelicHooks.MUMMIFIED_HAND, Integer.valueOf(-1));
+        s.rng.put(SimState.RngKind.CARD,
+                io.github.youqing.sts1solver.sim.RngStream.from(555L, 666L, 0));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 2, 6, "ATTACK"));
+
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Inflame", false, 1, 0, "POWER"));
+
+        assertEquals(0, s.hand.get(0).costForTurn, "本回合 0 费");
+        assertEquals(2, s.hand.get(0).cost, "永久费用不变");
+        assertEquals(1, s.rng.get(SimState.RngKind.CARD).counter(), "消耗一次 cardRandomRng");
+    }
+
+    /** 橙色药丸：同一回合打齐攻击/技能/能力 → 清掉自己身上所有减益。 */
+    @Test
+    void orangePelletsClearsDebuffsAfterAllThreeTypes() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.ORANGE_PELLETS, Integer.valueOf(0));
+        s.playerPowers.put("Weakened", Integer.valueOf(2));
+        s.playerPowers.put("Vulnerable", Integer.valueOf(2));
+        s.playerPowers.put("Confusion", Integer.valueOf(0));
+
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        assertEquals(Integer.valueOf(1), s.relics.get(RelicHooks.ORANGE_PELLETS), "还差技能/能力");
+        assertEquals(Integer.valueOf(2), s.playerPowers.get("Weakened"), "还没清");
+
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Defend_R", false, 1, 5, "SKILL"));
+        assertEquals(Integer.valueOf(2), s.playerPowers.get("Weakened"));
+
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Inflame", false, 1, 0, "POWER"));
+        assertEquals(null, s.playerPowers.get("Weakened"), "打齐三种 → 减益全清");
+        assertEquals(null, s.playerPowers.get("Vulnerable"));
+        assertEquals(null, s.playerPowers.get("Confusion"), "Confusion 也是减益");
+        assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.ORANGE_PELLETS), "标记清零");
+    }
+
+    /** 战争艺术：上回合没打攻击牌 → 本回合 +1 能量；打了就不给。 */
+    @Test
+    void artOfWarPaysEnergyOnlyAfterAnAttackFreeTurn() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.ART_OF_WAR, Integer.valueOf(1));
+        s.energy = 3;
+
+        RelicHooks.onPlayerTurnStart(s);
+        assertEquals(4, s.energy, "标记为真 → +1 能量");
+
+        // 打了攻击牌 → 标记清零
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.ART_OF_WAR));
+
+        RelicHooks.onPlayerTurnStart(s);
+        assertEquals(4, s.energy, "打了攻击 → 下回合不给");
+
+        // 只打技能牌 → 仍然给
+        s.relics.put(RelicHooks.ART_OF_WAR, Integer.valueOf(1));
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Defend_R", false, 1, 5, "SKILL"));
+        assertEquals(Integer.valueOf(1), s.relics.get(RelicHooks.ART_OF_WAR), "技能不清标记");
+        RelicHooks.onPlayerTurnStart(s);
+        assertEquals(5, s.energy, "没打攻击 → 再 +1");
+    }
 }

@@ -185,6 +185,11 @@ public final class SimState {
                         .equals(r.relicId)) {
                     s.relics.put(r.relicId, Integer.valueOf(1));
                 }
+                // 战争艺术的 gainEnergyNext 同理（atTurnStart 每回合都会把它置 true）
+                if (io.github.youqing.sts1solver.mirror.hooks.RelicHooks.ART_OF_WAR
+                        .equals(r.relicId)) {
+                    s.relics.put(r.relicId, Integer.valueOf(1));
+                }
                 // 蜥蜴尾巴本场是否已用：原版 AbstractPlayer.damage() 的判据是
                 // `hasRelic("Lizard Tail") && getRelic("Lizard Tail").counter == -1`
                 // （javap 核实，字节码 1059-1083），onTrigger() 末尾 setCounter(-2) 把它变成 -2。

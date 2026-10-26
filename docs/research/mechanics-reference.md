@@ -3345,3 +3345,41 @@ if (this.dontTriggerOnUseCard) { ...真正的内容... }
 对拍出现 2 点差异时先查这条。
 
 全量 **459 条**通过。
+
+### 33.54 遗物第八批：补满（算盘 / 硫磺 / 石历 / 血花印记 / 木乃伊手 / 橙色药丸 / 战争艺术）2026-10-26
+
+先把底数摸清了：jar 里共 **190** 个遗物类（含 `Test*` 与 `deprecated/*`），
+按「有没有战斗钩子方法」整体扫了一遍，见 `docs/research/relic-inventory.md`。
+
+| 类 | 运行时 ID | 钩子（字节码） | 影子落点 |
+|---|---|---|---|
+| `Abacus` | **`TheAbacus`**（不是 Abacus！） | `onShuffle` → `GainBlockAction(player, player, 6)` | `RelicHooks.abacus` |
+| `Brimstone` | `Brimstone` | `atTurnStart`：自己 `Strength+2`，**全体敌人** `Strength+1` | `brimstone` |
+| `StoneCalendar` | `StoneCalendar` | `atTurnStart` `counter++`；`onPlayerEndTurn`：`counter == 7` → 全体 52 **纯伤** + `grayscale` | `stoneCalendarEndTurn` |
+| `MarkOfTheBloom` | **`Mark of the Bloom`** | `onPlayerHeal` → **直接 `return 0`** | `healAmount` 开头 |
+| `MummifiedHand` | **`Mummified Hand`** | `onUseCard`：`type == POWER` → 手牌里 `cost > 0 \|\| costForTurn > 0` 的随机一张 `setCostForTurn(0)`（`cardRandomRng.random(0, size-1)`） | `mummifiedHand` |
+| `OrangePellets` | **`OrangePellets`**（无空格） | `onUseCard`：攻击/技能/能力三个标记都置位 → `RemoveDebuffsAction(player)` | `orangePellets` |
+| `ArtOfWar` | **`Art of War`** | `atPreBattle`/`atTurnStart` 的 `gainEnergyNext`；`onUseCard` 打攻击就清 | `artOfWarTurnStart` |
+
+**三个坑**：
+
+1. **`Abacus` 的运行时 ID 是 `TheAbacus`** —— 又一个「类名 ≠ ID」。
+2. **`MarkOfTheBloom` 是「治疗归零」而不是「治疗减半」**：`onPlayerHeal` 直接 `iconst_0; ireturn`。
+   所以魔法花的 ×1.5 也救不了，顺序必须是「先看血花印记、再看魔法花」。
+3. **橙色药丸的三个标记是私有布尔，快照里没有** —— 影子压成 `state.relics` 的位掩码
+   （1 攻击 / 2 技能 / 4 能力）。**代价**：本回合中途才第一次捕获时会退回「一张都没打过」，
+   最多多清一次减益。
+
+**这一批明确没做的（都写进 `relic-inventory.md`）**：
+
+- `Akabeko` / `Sling`：给的是 **Vigor**（下一次攻击 +8/+2 伤害）。Vigor 要在「真正结算伤害」时
+  消耗掉，而 `DamageCalc.attackDamage` 是**纯函数**（估值/意图展示都会调它），
+  现在放进去会被重复消耗 —— 需要先把「估值」与「实际结算」两条路分开。
+- `Boot`：需要知道「这一击的伤害类型」才能排除 THORNS/HP_LOSS，而怪物侧的
+  `DamageCalc.hit` 目前不区分类型。
+- `WarpedTongs`：`UpgradeRandomCardAction` —— 升级一张随机手牌，需要**卡牌升级表**
+  （升级后的费用/伤害），我们没有卡牌数据库。
+- `GamblingChip`（每回合让玩家选弃几张再抽）、`DeadBranch` / `NilrysCodex` / `Enchiridion`
+  （随机生成牌，需要牌池枚举）、`SacredBark`（药水效果 ×2）、`UnceasingTop`（空手牌抽 1）。
+
+全量 **466 条**通过；遗物镜像 **45 件**。

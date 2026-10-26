@@ -135,6 +135,29 @@ public final class RelicHooks {
     /** 医疗包（{@code MedicalKit}）：状态牌可打出，打出时消耗。 */
     public static final String MEDICAL_KIT = "Medical Kit";
 
+    // ---- 第八批：补满剩余战斗遗物（2026-10-26）----
+
+    /** 算盘（{@code Abacus}，ID 是 {@code TheAbacus}）：每洗一次牌 +6 格挡。 */
+    public static final String ABACUS = "TheAbacus";
+    /** 硫磺（{@code Brimstone}）：回合开始自己 +2 力量、全体敌人 +1 力量。 */
+    public static final String BRIMSTONE = "Brimstone";
+    /** 石历（{@code StoneCalendar}）：第 7 个回合结束对全体 52 点纯伤（一次性）。 */
+    public static final String STONE_CALENDAR = "StoneCalendar";
+    /** 血花印记（{@code MarkOfTheBloom}）：**所有治疗归零**。 */
+    public static final String MARK_OF_THE_BLOOM = "Mark of the Bloom";
+    /** 木乃伊手（{@code MummifiedHand}）：打出能力牌 → 手牌里随机一张本回合变 0 费。 */
+    public static final String MUMMIFIED_HAND = "Mummified Hand";
+    /** 橙色药丸（{@code OrangePellets}）：同一回合打齐攻击/技能/能力 → 清掉自己身上所有减益。 */
+    public static final String ORANGE_PELLETS = "OrangePellets";
+    /** 战争艺术（{@code ArtOfWar}）：上回合没打攻击牌 → 本回合 +1 能量。 */
+    public static final String ART_OF_WAR = "Art of War";
+
+    /** {@code Abacus.onShuffle}: {@code GainBlockAction(player, player, 6)}。 */
+    private static final int ABACUS_BLOCK = 6;
+    /** {@code StoneCalendar}: 第 7 回合结束 {@code DamageAllEnemiesAction(52, THORNS)}。 */
+    private static final int STONE_CALENDAR_TURN = 7;
+    private static final int STONE_CALENDAR_DAMAGE = 52;
+
     /** {@code IncenseBurner.atTurnStart}: {@code counter % 6 == 0} → 无实体 1。 */
     private static final int INCENSE_BURNER_TURNS = 6;
     /** {@code VelvetChoker.canPlay}: {@code counter >= 6} → 打不出。 */
@@ -294,6 +317,7 @@ public final class RelicHooks {
         if (state == null) {
             return;
         }
+        abacus(state);
         Integer counter = state.relics.get(SUNDIAL);
         if (counter == null) {
             return;
@@ -304,6 +328,13 @@ public final class RelicHooks {
             state.energy += SUNDIAL_ENERGY;
         } else {
             state.relics.put(SUNDIAL, Integer.valueOf(next));
+        }
+    }
+
+    /** 算盘（{@code Abacus.onShuffle}）：每洗一次牌 +6 格挡（裸数值，不吃敏捷）。 */
+    private static void abacus(SimState state) {
+        if (state.relics.containsKey(ABACUS)) {
+            state.block += ABACUS_BLOCK;
         }
     }
 
@@ -341,7 +372,14 @@ public final class RelicHooks {
      * 也就是「四舍五入」而不是截断 —— {@code heal(5)} → 8（不是 7）。
      */
     public static int healAmount(SimState state, int amount) {
-        if (state == null || amount <= 0 || !state.relics.containsKey(MAGIC_FLOWER)) {
+        if (state == null || amount <= 0) {
+            return amount;
+        }
+        // MarkOfTheBloom.onPlayerHeal → 直接 return 0（所有治疗归零，包括药水/再生/吸血）
+        if (state.relics.containsKey(MARK_OF_THE_BLOOM)) {
+            return 0;
+        }
+        if (!state.relics.containsKey(MAGIC_FLOWER)) {
             return amount;
         }
         return (int) Math.floor(amount * 1.5f + 0.5f);
@@ -356,6 +394,45 @@ public final class RelicHooks {
             return Math.max(0, block - CALIPERS_DECAY);
         }
         return 0;
+    }
+
+    /**
+     * 硫磺（{@code Brimstone.atTurnStart}）：自己 {@code Strength +2}，**全体敌人** {@code Strength +1}。
+     * 注意它给的也是「正面增益」，所以敌人力量会永久涨 —— 长战斗里是双刃剑。
+     */
+    private static void brimstone(SimState state) {
+        if (!state.relics.containsKey(BRIMSTONE)) {
+            return;
+        }
+        state.playerPowers.put(DamageCalc.STRENGTH,
+                intOf(state.playerPowers.get(DamageCalc.STRENGTH)) + 2);
+        for (SimMonster m : state.monsters) {
+            if (m.hp > 0) {
+                m.powers.put(DamageCalc.STRENGTH, intOf(m.powers.get(DamageCalc.STRENGTH)) + 1);
+            }
+        }
+    }
+
+    /**
+     * 石历的计数：`atTurnStart` 里 {@code counter++}（`atBattleStart` 置 0），
+     * 到 **7** 时在 `onPlayerEndTurn` 里爆一次 52 点纯伤。
+     */
+    private static void stoneCalendarTurnStart(SimState state) {
+        Integer counter = state.relics.get(STONE_CALENDAR);
+        if (counter != null) {
+            state.relics.put(STONE_CALENDAR, Integer.valueOf(counter.intValue() + 1));
+        }
+    }
+
+    /** 石历：第 7 回合结束时对全体 52 点**纯伤**（{@code createDamageMatrix(52, true)}，吃格挡）。 */
+    private static void stoneCalendarEndTurn(SimState state) {
+        Integer counter = state.relics.get(STONE_CALENDAR);
+        if (counter == null || counter.intValue() != STONE_CALENDAR_TURN) {
+            return;
+        }
+        // grayscale = true：原版给遗物置灰，防止重复触发。影子用「计数归 0（不再是 7）」表达。
+        state.relics.put(STONE_CALENDAR, Integer.valueOf(0));
+        PowerHooks.damageAll(state, STONE_CALENDAR_DAMAGE);
     }
 
     /** 喝一瓶药（{@code ToyOrnithopter.onUsePotion}）：回 5 血。 */
@@ -395,6 +472,13 @@ public final class RelicHooks {
         counterBlockRelic(state, CAPTAINS_WHEEL, 3, CAPTAINS_WHEEL_BLOCK);
         happyFlower(state);
         incenseBurner(state);
+        brimstone(state);
+        stoneCalendarTurnStart(state);
+        // OrangePellets.atTurnStart / ArtOfWar.atTurnStart
+        if (state.relics.containsKey(ORANGE_PELLETS)) {
+            state.relics.put(ORANGE_PELLETS, Integer.valueOf(0));
+        }
+        artOfWarTurnStart(state);
         // Necronomicon.atTurnStart → activated = true
         if (state.relics.containsKey(NECRONOMICON)) {
             state.relics.put(NECRONOMICON, Integer.valueOf(1));
@@ -491,7 +575,11 @@ public final class RelicHooks {
      * 这里按「先算能力、再算遗物」写（对拍时若出现山铜差异，先查这一条）。
      */
     public static void onPlayerEndTurn(SimState state) {
-        if (state == null || !state.relics.containsKey(ORICHALCUM)) {
+        if (state == null) {
+            return;
+        }
+        stoneCalendarEndTurn(state);
+        if (!state.relics.containsKey(ORICHALCUM)) {
             return;
         }
         if (state.block == 0) {
@@ -556,6 +644,12 @@ public final class RelicHooks {
         }
         if (card.isPower()) {
             birdFacedUrn(state);
+            mummifiedHand(state);
+        }
+        orangePellets(state, card);
+        // ArtOfWar.onUseCard：这一回合打了攻击牌 → 下回合不给能量
+        if (card.isAttack() && state.relics.containsKey(ART_OF_WAR)) {
+            state.relics.put(ART_OF_WAR, Integer.valueOf(0));
         }
     }
 
@@ -583,6 +677,86 @@ public final class RelicHooks {
         state.hp = Math.min(state.maxHp, state.hp
                 + healAmount(state, BIRD_FACED_URN_HEAL));
         syncRedSkull(state);
+    }
+
+    /**
+     * 木乃伊手（{@code MummifiedHand.onUseCard}）：打出**能力牌**时，
+     * 从手牌里随机挑一张「费用 &gt; 0」的牌，把它**本回合**费用设为 0。
+     *
+     * <p>原文的口径：候选是 {@code cost > 0 || costForTurn > 0 || freeToPlayOnce} 的牌，
+     * 然后 {@code cardRandomRng.random(0, size - 1)}（两端都含）。挑不到就什么都不做。
+     */
+    private static void mummifiedHand(SimState state) {
+        if (!state.relics.containsKey(MUMMIFIED_HAND)) {
+            return;
+        }
+        java.util.List<Integer> candidates = new java.util.ArrayList<Integer>();
+        for (int i = 0; i < state.hand.size(); i++) {
+            SimCard c = state.hand.get(i);
+            if (c.cost > 0 || c.costForTurn > 0) {
+                candidates.add(Integer.valueOf(i));
+            }
+        }
+        if (candidates.isEmpty()) {
+            return;
+        }
+        io.github.youqing.sts1solver.sim.RngStream rng =
+                state.rng.get(SimState.RngKind.CARD);
+        if (rng == null) {
+            throw new io.github.youqing.sts1solver.mirror.ActionRejected(
+                    "Mummified Hand needs the CARD rng stream, snapshot has none");
+        }
+        int pick = candidates.get(rng.random(0, candidates.size() - 1)).intValue();
+        state.hand.set(pick, state.hand.get(pick).withCostForTurn(0));
+    }
+
+    /**
+     * 橙色药丸（{@code OrangePellets.onUseCard}）：同一回合里攻击 / 技能 / 能力各打过至少一张
+     * → {@code RemoveDebuffsAction(player)}，三个标记清零。
+     *
+     * <p>原版是三个私有布尔，快照里没有 —— 影子把三个标记压成 {@code state.relics} 里的位掩码
+     * （1 = 攻击、2 = 技能、4 = 能力），到位就清 0。
+     * ⚠️ 代价：**本回合中途才第一次捕获**时会退回「一张都没打过」（最多多清一次减益）。
+     */
+    private static void orangePellets(SimState state, SimCard card) {
+        Integer mask = state.relics.get(ORANGE_PELLETS);
+        if (mask == null) {
+            return;
+        }
+        int next = mask.intValue();
+        if (card.isAttack()) {
+            next |= 1;
+        }
+        if (card.isSkill()) {
+            next |= 2;
+        }
+        if (card.isPower()) {
+            next |= 4;
+        }
+        if (next != 7) {
+            state.relics.put(ORANGE_PELLETS, Integer.valueOf(next));
+            return;
+        }
+        state.relics.put(ORANGE_PELLETS, Integer.valueOf(0));
+        for (String id : io.github.youqing.sts1solver.sim.CombatFlow.SELF_DEBUFFS) {
+            state.playerPowers.remove(id);
+        }
+        state.playerPowers.remove("Confusion");
+        // 负数力量/敏捷（Siphon Soul、缴械）也属于「减益」，但它们是挂在 Strength/Dexterity 上的
+        // 负值，不是独立条目 —— 原版 RemoveDebuffsAction 同样不会把它们变回 0。
+    }
+
+    /** 战争艺术（{@code ArtOfWar.atTurnStart}）：标记为真就 +1 能量，然后把标记留给下一回合。 */
+    private static void artOfWarTurnStart(SimState state) {
+        Integer flag = state.relics.get(ART_OF_WAR);
+        if (flag == null) {
+            return;
+        }
+        if (flag.intValue() > 0) {
+            state.energy += 1;
+        }
+        // gainEnergyNext = true：本回合不打攻击牌的话，下回合继续给
+        state.relics.put(ART_OF_WAR, Integer.valueOf(1));
     }
 
     /**
