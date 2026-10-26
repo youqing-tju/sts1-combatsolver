@@ -522,12 +522,12 @@ SnakeDagger 本身：1 号招 9 伤 + 塞 Wound；2 号招 25 伤后自爆（`Lo
 |---|---|---|
 | `TimeEater` | **`TimeWarpPower.onAfterUseCard`：玩家打出第 12 张牌时 `callEndTurnEarlySequence()` —— 当场结束玩家回合** | 搜索层要能「中途打断玩家回合」，是新容器；不是怪物 AI 层能解决的 |
 | `AwakenedOne` | `die()` 里换一只（`form 2`）重新上场并保留血线 | 「换怪上场」容器 + 保留状态 |
-| `WrithingMass` | 被打时可能塞 `Parasite`（诅咒）进牌组 + 挨打会改下一招 | 牌组级污染 + 挨打回调改意图 |
+| `WrithingMass` | ✅ **已做**（§33.40）：getMove 递归树照抄；植入=污染主牌组（战斗层空招）；挨打改招=**`ReactivePower`（ID `Compulsive`）的 onAttacked** → `DamageCalc.maybeRerollCompulsive` | 完成 |
 | `SpireShield` | ✅ **已做**（§33.38）：`moveCount % 3` 三支 + BASH 恒扣力量 + FORTIFY 全体 30 格挡 + SMASH 的 `block = output`（`Extra.blockFromDamage`） | 完成 |
 | `SpireSpear` | ✅ **已做**（§33.38）：SKEWER 恒 2 段 + A18 改塞抽牌堆；BURN STRIKE 段数走 `skewerCount`；PREPARE 全体 +2 力量 | 完成 |
 | `CorruptHeart` | ✅ **已做**（§33.39）：四招循环 + 3 减益 + 5 张状态牌进抽牌堆 + Buff 双能力 + Beat of Death。**Invincible 未建模**（需「每回合伤害上限」容器） | 完成（除 Invincible） |
 
-**结论**：Act 1/2 全齐、**Act 4 全齐**（盾 / 矛 / 心脏），Act 3 除 `AwakenedOne`/`TimeEater`/`WrithingMass` 外全齐。
+**结论**：Act 1/2 全齐、**Act 4 全齐**（盾 / 矛 / 心脏），Act 3 除 `AwakenedOne`/`TimeEater` 外全齐。
 剩下这几只都不是「再抄一段」的量级，而是各缺一个容器 —— 先记着，等对应容器立项。
 
 ### Reptomancer：`daggersPerSpawn` 是 A18 档

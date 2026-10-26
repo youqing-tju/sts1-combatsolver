@@ -2814,3 +2814,34 @@ HP 750（A9: 800）；`damage[0]` Echo 40（A4:45）、`damage[1]` Blood Shots *
 影响：**极端一回合爆发**会被高估；正常回合（铁甲战士单回合 <300）无差别。
 
 全量 **379 条**通过；累计 **63 只**（Act 4 全部三只齐了；机器表 63 项）。
+
+### 33.40 WrithingMass（缠绕蔓，第三章）2026-10-26
+
+HP 160（A7: 175）。`damage[0]` 重击 32（A2:38）、`damage[1]` 三连击每段 7（A2:9）、
+`damage[2]` 打+挡 15（A2:16）、`damage[3]` 打+减益 10（A2:12）；`normalDebuffAmt` 两档都是 2。
+
+**getMove 是一棵递归树**（分支里会再调 `getMove(aiRng.random(...))`），所以机器也写成递归，
+随机数按原版区间逐个抽：
+
+| 条件 | 结果 |
+|---|---|
+| firstMove（history 空） | num<33 三连击(1)｜num<66 打+挡(2)｜否则 打+Weak2+Vuln2(3) |
+| num<10 | !lastMove(0) ? 重击(0) : `getMove(random(10,99))` |
+| num<20 | !usedMegaDebuff && !lastMove(4) ? 植入(4) : (`randomBoolean(0.1)` ? 重击 : `getMove(random(20,99))`) |
+| num<40 | !lastMove(3) ? 打+减益(3) : (`randomBoolean(0.4)` ? `getMove(random(19))` : `getMove(random(40,99))`) |
+| num<70 | !lastMove(1) ? 三连击(1) : (`randomBoolean(0.3)` ? 打+挡(2) : `getMove(random(39))`) |
+| 否则 | !lastMove(2) ? 打+挡(2) : `getMove(random(69))` |
+
+- **打+挡的格挡 = `damage[2].base`**（字节码 `GainBlockAction(this, this, damage.get(2).base)`），
+  和攻击伤害同源，不是单独一个常量。
+- **4 号招「植入」= `AddCardToDeckAction(new Parasite())`** —— 污染的是**主牌组**
+  （局外/长线代价），战斗层这一回合什么都不发生（`usedMegaDebuff` 在 **takeTurn** 里置 true，
+  不在 getMove，所以从历史里数 4）。
+- **「挨打改招」不在 `damage()` 重写里**（那里只有动画）：是
+  `ReactivePower`（**ID = `Compulsive`**）的 `onAttacked` ——
+  `damage > 0 && damage < currentHealth`（没打死）→ `addToBot(new RollMoveAction(owner))`，
+  每挨一段就重掷一次。我们落在 `DamageCalc.hit` 的 `maybeRerollCompulsive`：
+  `pendingMove = MonsterMoves.next(...)`，恰好消耗一次 `aiRng.random(99)`（+ 递归随机）。
+  ⚠️ `hit()` 没有 `DamageInfo.type`，THORNS/HP_LOSS 那两类也会重掷 —— 只多消耗随机，不改数值。
+
+全量 **383 条**通过；累计 **64 只**（剩 `AwakenedOne` / `TimeEater`）。

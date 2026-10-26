@@ -230,6 +230,7 @@ public final class MonsterMoves {
         MACHINES.put("SpireShield", new SpireShieldMachine());
         MACHINES.put("SpireSpear", new SpireSpearMachine());
         MACHINES.put("CorruptHeart", new CorruptHeartMachine());
+        MACHINES.put("WrithingMass", new WrithingMassMachine());
     }
 
     private MonsterMoves() {
@@ -2958,6 +2959,105 @@ public final class MonsterMoves {
                 default:
                     return MonsterMove.buffTwo(4, "Strength", gain, "Strength", 50);
             }
+        }
+    }
+
+    /**
+     * 缠绕蔓（{@code WrithingMass}，第三章）。HP 160（A7: 175）。
+     *
+     * <p>它的 {@code getMove} 是一棵**递归树**（分支里会再调 {@code getMove(aiRng.random(...))}），
+     * 所以这里也写成递归，随机数按原版区间逐个抽（口径见 {@link Context#rollAiRange}）。
+     *
+     * <pre>
+     * firstMove（history 空）：
+     *     num &lt; 33 → 1 三连击（3 × damage[1]）
+     *     num &lt; 66 → 2 打+挡（damage[2] + 格挡 = damage[2].base）
+     *     否则      → 3 打+虚弱 2+易伤 2（normalDebuffAmt，两档进阶都是 2）
+     * 之后：
+     *     num &lt; 10 → !lastMove(0) ? 0 重击（damage[0]）: getMove(random(10,99))
+     *     num &lt; 20 → !usedMegaDebuff &amp;&amp; !lastMove(4) ? 4 植入 : (randomBoolean(0.1) ? 0 重击
+     *                                                              : getMove(random(20,99)))
+     *     num &lt; 40 → !lastMove(3) ? 3 打+减益 : (randomBoolean(0.4) ? getMove(random(19))
+     *                                                              : getMove(random(40,99)))
+     *     num &lt; 70 → !lastMove(1) ? 1 三连击 : (randomBoolean(0.3) ? 2 打+挡
+     *                                                              : getMove(random(39)))
+     *     否则      → !lastMove(2) ? 2 打+挡 : getMove(random(69))
+     * </pre>
+     *
+     * <p>{@code usedMegaDebuff} 在 **takeTurn** 里置 true（不在 getMove），所以从历史里数 4 的个数。
+     *
+     * <p>4 号招「植入」原版是 {@code AddCardToDeckAction(new Parasite())} —— 污染的是**主牌组**
+     * （局外/长线代价），战斗层这一回合什么都不发生。所以这里建的是空招（{@code none(4)}）。
+     *
+     * <p>「挨打改招」不在这里：那是 {@code ReactivePower}（ID {@code Compulsive}）的
+     * {@code onAttacked}，落在 {@code DamageCalc.hit} 里（每挨一下就重掷一次）。
+     */
+    static final class WrithingMassMachine implements Machine {
+        /** 递归深度上限（原版没写，纯防脏数据把栈打穿；正常最多 4 层）。 */
+        private static final int MAX_DEPTH = 16;
+
+        @Override
+        public MonsterMove next(Context c) {
+            return decide(c, c.num, c.history.isEmpty(), 0);
+        }
+
+        private static MonsterMove decide(Context c, int num, boolean firstMove, int depth) {
+            int bigHit = c.baseDamage(0, c.ascension >= 2 ? 38 : 32);
+            int multiPer = c.baseDamage(1, c.ascension >= 2 ? 9 : 7);
+            int attackBlock = c.baseDamage(2, c.ascension >= 2 ? 16 : 15);
+            int attackDebuff = c.baseDamage(3, c.ascension >= 2 ? 12 : 10);
+            if (firstMove) {
+                if (num < 33) {
+                    return MonsterMove.multiAttack(1, multiPer, 3);
+                }
+                if (num < 66) {
+                    return MonsterMove.attackBlock(2, attackBlock, attackBlock);
+                }
+                return MonsterMove.attackDoubleDebuff(3, attackDebuff,
+                        "Weakened", 2, "Vulnerable", 2);
+            }
+            if (depth >= MAX_DEPTH) {
+                return MonsterMove.attack(0, bigHit);     // 兜底：脏数据下不递归到底
+            }
+            if (num < 10) {
+                if (!c.lastMove(0)) {
+                    return MonsterMove.attack(0, bigHit);
+                }
+                return decide(c, c.rollAiRange(10, 99), false, depth + 1);
+            }
+            if (num < 20) {
+                boolean megaUsed = c.history.contains(Integer.valueOf(4));
+                if (!megaUsed && !c.lastMove(4)) {
+                    return MonsterMove.none(4);
+                }
+                if (c.randomBoolean(0.1f)) {
+                    return MonsterMove.attack(0, bigHit);
+                }
+                return decide(c, c.rollAiRange(20, 99), false, depth + 1);
+            }
+            if (num < 40) {
+                if (!c.lastMove(3)) {
+                    return MonsterMove.attackDoubleDebuff(3, attackDebuff,
+                            "Weakened", 2, "Vulnerable", 2);
+                }
+                if (c.randomBoolean(0.4f)) {
+                    return decide(c, c.rollAiRange(0, 19), false, depth + 1);
+                }
+                return decide(c, c.rollAiRange(40, 99), false, depth + 1);
+            }
+            if (num < 70) {
+                if (!c.lastMove(1)) {
+                    return MonsterMove.multiAttack(1, multiPer, 3);
+                }
+                if (c.randomBoolean(0.3f)) {
+                    return MonsterMove.attackBlock(2, attackBlock, attackBlock);
+                }
+                return decide(c, c.rollAiRange(0, 39), false, depth + 1);
+            }
+            if (!c.lastMove(2)) {
+                return MonsterMove.attackBlock(2, attackBlock, attackBlock);
+            }
+            return decide(c, c.rollAiRange(0, 69), false, depth + 1);
         }
     }
 }

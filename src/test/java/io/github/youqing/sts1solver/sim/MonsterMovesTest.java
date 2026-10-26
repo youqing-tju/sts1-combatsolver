@@ -3018,4 +3018,110 @@ class MonsterMovesTest {
         assertEquals(49, s.hp, "THORNS 伤害吃格挡，血不掉");
         assertEquals(2, s.block, "格挡被扣掉 1 点");
     }
+
+    // ============================ 第三十一批：WrithingMass（缠绕蔓，第三章）============================
+
+    /** 第一招按 num 三分支：三连击 / 打+挡 / 打+双减益。 */
+    @Test
+    void writhingMassFirstMoveSplitsOnNum() {
+        MonsterMove multi = decide("WrithingMass", history(), 10, 0, 0);
+        assertEquals(1, multi.id);
+        assertEquals(3, multi.hits, "三连击恒 3 段");
+        assertEquals(7, multi.damage, "A0：7");
+        assertEquals(9, decide("WrithingMass", history(), 10, 0, 2).damage, "A2 起 9");
+
+        MonsterMove block = decide("WrithingMass", history(), 50, 0, 0);
+        assertEquals(2, block.id);
+        assertEquals(15, block.damage, "A0：15");
+        assertEquals(15, block.block, "格挡 = damage[2].base（字节码就是同一个数）");
+        assertEquals(16, decide("WrithingMass", history(), 50, 0, 2).block, "A2 起 16");
+
+        MonsterMove debuff = decide("WrithingMass", history(), 80, 0, 0);
+        assertEquals(3, debuff.id);
+        assertEquals(10, debuff.damage, "A0：10");
+        assertEquals("Weakened", debuff.playerDebuff);
+        assertEquals(2, debuff.playerDebuffAmount, "normalDebuffAmt = 2");
+        assertEquals("Vulnerable", debuff.playerDebuff2);
+        assertEquals(2, debuff.playerDebuff2Amount);
+    }
+
+    /** 之后按 num 分档，且每档都带「刚打过就不再来一次」的守卫。 */
+    @Test
+    void writhingMassNonFirstBranches() {
+        // num < 10：上一招不是 0 → 重击
+        assertEquals(0, decide("WrithingMass", history(1), 5, 0, 0).id);
+        assertEquals(32, decide("WrithingMass", history(1), 5, 0, 0).damage, "A0：32");
+        assertEquals(38, decide("WrithingMass", history(1), 5, 0, 2).damage, "A2 起 38");
+
+        // num < 20：还没植入过 → 4 号招（Parasite 进主牌组，战斗层什么都不发生）
+        MonsterMove implant = decide("WrithingMass", history(1), 15, 0, 0);
+        assertEquals(4, implant.id);
+        assertFalse(implant.attacks(), "植入这回合不打人");
+        assertNull(implant.statusCard, "不是塞状态牌，是污染主牌组");
+
+        // 植入过之后这一支不再给 4
+        MonsterMove after = decide("WrithingMass", history(1, 4), 15, 0, 0);
+        assertTrue(after.id == 0 || after.id == 1 || after.id == 2 || after.id == 3,
+                "usedMegaDebuff → 换别的招，实际 " + after.id);
+
+        // num < 40：上一招不是 3 → 3 号招
+        MonsterMove debuff = decide("WrithingMass", history(1), 30, 0, 0);
+        assertEquals(3, debuff.id);
+        assertEquals(2, debuff.playerDebuffAmount, "两档进阶都是 2 层");
+
+        // num < 70：上一招不是 1 → 三连击
+        MonsterMove multi = decide("WrithingMass", history(0), 50, 0, 0);
+        assertEquals(1, multi.id);
+        assertEquals(3, multi.hits);
+
+        // num >= 70：上一招不是 2 → 打+挡
+        MonsterMove block = decide("WrithingMass", history(1), 90, 0, 0);
+        assertEquals(2, block.id);
+        assertEquals(block.damage, block.block, "格挡和伤害同值");
+    }
+
+    /** 递归分支：抽到的 num 落在「刚打过」那一档时会重掷，结果必须是合法招。 */
+    @Test
+    void writhingMassRecursesInsteadOfRepeatingItself() {
+        // num<10 且上一招就是 0 → 必须递归到别的档
+        MonsterMove move = decide("WrithingMass", history(0), 5, 0, 0);
+        assertTrue(move.id == 0 || move.id == 1 || move.id == 2 || move.id == 3 || move.id == 4,
+                "递归之后仍是合法招，实际 " + move.id);
+        assertTrue(MonsterMoves.mirroredTypes().contains("WrithingMass"),
+                "WrithingMass 已登记（否则真机静默退回 IntentLearning）");
+    }
+
+    /**
+     * 强迫症（{@code Compulsive} = ReactivePower）：挨一下没死就**立刻重掷下一招**。
+     * 没有这个能力的怪挨打后 pendingMove 不能被换掉。
+     */
+    @Test
+    void compulsiveRerollsTheNextMoveWhenHit() {
+        SimMonster mass = new SimMonster("WrithingMass", 160, 160, 0,
+                new java.util.HashMap<String, Integer>());
+        mass.powers.put("Compulsive", Integer.valueOf(1));
+        SimState s = field(mass);
+        s.rng.put(SimState.RngKind.AI, RngStream.from(7L, 13L, 0));
+
+        MonsterMove before = MonsterMove.attack(0, 32);
+        mass.pendingMove = before;
+        mass.pendingMoveId = 0;
+
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, mass, 10);
+
+        assertEquals(150, mass.hp);
+        assertTrue(mass.pendingMove != before, "挨打后 pendingMove 必须被重掷（换了一个对象）");
+        assertTrue(mass.pendingMove.id >= 0 && mass.pendingMove.id <= 4,
+                "重掷结果必须是 0..4，实际 " + mass.pendingMove.id);
+
+        // 没有 Compulsive 的怪：同一个位置不许被换掉
+        SimMonster plain = new SimMonster("LouseNormal", 20, 20, 0,
+                new java.util.HashMap<String, Integer>());
+        SimState s2 = field(plain);
+        s2.rng.put(SimState.RngKind.AI, RngStream.from(7L, 13L, 0));
+        MonsterMove keep = MonsterMove.attack(1, 6);
+        plain.pendingMove = keep;
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s2, plain, 3);
+        assertTrue(plain.pendingMove == keep, "没有 Compulsive 的怪不该被重掷");
+    }
 }

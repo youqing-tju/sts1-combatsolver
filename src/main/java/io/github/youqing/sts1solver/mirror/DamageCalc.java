@@ -123,6 +123,36 @@ public final class DamageCalc {
         }
         applyThorns(state, target);
         applyMalleable(target);
+        maybeRerollCompulsive(state, target, damage);
+    }
+
+    /**
+     * 强迫症（{@code ReactivePower}，ID {@code "Compulsive"}，缠绕蔓的「挨打改招」）。
+     *
+     * <p>字节码 {@code onAttacked(info, damage)}：
+     * {@code info.owner != null && type != HP_LOSS && type != THORNS && damage > 0
+     * && damage < owner.currentHealth} → {@code addToBot(new RollMoveAction(owner))}。
+     * 也就是「挨了一下、但这下没打死它」就**立刻重掷下一招**（消耗一次 {@code aiRng.random(99)}，
+     * 加上 getMove 内部的递归随机）。多段攻击每一段都会各触发一次。
+     *
+     * <p>⚠️ 我们拿不到 {@code DamageInfo.type}：{@code hit()} 只接伤害数值。
+     * 现存的调用点都是玩家攻击（普通类型），所以按普通类型处理；THORNS/HP_LOSS 那两类
+     * （例如玩家荆棘反伤）会被多算一次重掷，方向是「多消耗一点随机」，不影响数值结算。
+     */
+    private static void maybeRerollCompulsive(SimState state, SimMonster target, int damage) {
+        if (damage <= 0 || target.hp <= 0 || state == null) {
+            return;
+        }
+        if (!target.powers.containsKey("Compulsive")
+                || !io.github.youqing.sts1solver.sim.MonsterMoves.supported(target.type)) {
+            return;
+        }
+        int slot = state.monsters.indexOf(target);
+        io.github.youqing.sts1solver.sim.MonsterMove next =
+                io.github.youqing.sts1solver.sim.MonsterMoves
+                        .next(state, target, state.turn, slot < 0 ? 0 : slot);
+        target.pendingMove = next;
+        target.pendingMoveId = next.id;
     }
 
     /**
