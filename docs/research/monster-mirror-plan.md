@@ -443,7 +443,8 @@ public void duringTurn() {
 
 ## 收口状态（2026-10-26 11:00 前后）
 
-**已镜像 59 / 68**（`jar` 里 68 个 `monsters/*` 类，其中 `HexaghostBody` / `HexaghostOrb` 是纯视觉对象，不算）。
+**已镜像 59 / 68**（`jar` 里 68 个 `monsters/*` 类，其中 `HexaghostBody` / `HexaghostOrb` 是纯视觉对象，不算；
+真·怪物 66 只，已做 59）。
 Act 1 全齐、Act 2 全齐、Act 3 已做 16 只、Act 4 未开。
 
 剩余 13 只**全部卡在同一个模式**：它们的核心机制在**玩家侧**（或需要跨回合计数器），
