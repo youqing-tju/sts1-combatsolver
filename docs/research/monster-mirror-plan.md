@@ -44,6 +44,11 @@
 | `Mugger` | 2 | 抹两次 → 掷硬币 → 烟雾弹 → 逃跑（与 Looter 同构） |
 | `Taskmaster` | 2 | 永远那一鞭：7 伤 + 2 张 Wound（A18: 3 张 + 自身 +1 力量） |
 | `BanditPointy` | 2 | 永远两段 5（A2: 6） |
+| `GremlinLeader` | 2（精英） | Rally = 「现造一只随机小鬼」填 3 个槽（不是预置）；喊话给全队力量、队友才加格挡；`getMove` 会**递归**再抽 aiRng |
+| `TorchHead` | 2 | TheCollector 的召唤物：永远 7 点，HP 走 `monsterHpRng` |
+| `TheCollector` | 2（boss） | 开场召 2 只火把头、第 4 回合大招（Weak+Vulnerable+Frail）、有火把头死掉才补 |
+| `BronzeOrb` | 2 | Stasis 只放一次；Flux 给 **BronzeAutomaton** 加 12 格挡；两下一循环 |
+| `BronzeAutomaton` | 2（boss） | 4→1→5→1→5→2→3 固定循环（`numTurns` 只能从历史重放）；BOOST 召 2 个铜球 |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
 
@@ -139,7 +144,7 @@
 
 | 组 | 怪物 | 缺什么 |
 |---|---|---|
-| **A. 召唤**（可直接复用分裂管线，但要固定血量而非父体血量） | `GremlinLeader`（Rally 召 2 只随机小鬼）、`TheCollector`（召 TorchHead）、`BronzeAutomaton`（召 2 个 BronzeOrb） | `MonsterMove` 加「按类型+固定血量召唤」载荷；小鬼血量是构造器里 `MathUtils.random` 抽的（**不受 run seed 控制**），只能取区间中值并记录近似 |
+| ~~**A. 召唤**~~ ✅ 已完成（2026-10-26） | ~~`GremlinLeader` / `TheCollector` / `BronzeAutomaton`~~ | 见下面「A 组落地记录」——小鬼血量其实是 `monsterHpRng`（seed 控制），补捕获后**精确** |
 | **B. 多阶段** | `Champ`（三阶段 + 狂暴）、`BronzeAutomaton`（半血 STUN + BOOST）、`TheCollector`（半血 BUFF）、`Hexaghost`（开场 6 个 orb + `burnUpgraded`） | 需要「血量阈值触发换招」的通用钩子（Champ/Automaton/Collector 都是 `damage()` 重写）；Hexaghost 还要先搞清 orb 是什么 |
 | **C. 面具强盗事件** | `BanditBear`、`BanditLeader`（`BanditPointy` 已做） | Bear 的 `Bear Stun` / Leader 的「喊话 + 全体格挡」要看 takeTurn 的 SetMove 链 |
 | **D. 第三章**（beyond 包，18 只） | `Darkling`/`OrbWalker`/`Spiker`/`Repulsor`/`SpireGrowth`/`Transient`/`WrithingMass`/`Nemesis`/`GiantHead`/`TimeEater`/`AwakenedOne`/`Deca`/`Donu`/`SpireSpear`/`SpireShield`/`Maw`/`JawWorm`? | 未读；先按 A/B 两组的新基础设施铺完再批量做 |
@@ -150,3 +155,45 @@
 
 **下一步建议**：先做 A 组的召唤载荷（一次解锁 GremlinLeader + Collector + Automaton 三只 boss/精英），
 再做 B 组的「血量阈值换招」钩子（同样一次解锁多只）。
+
+---
+
+## A 组落地记录（2026-10-26，已完成）
+
+### 三处认知被字节码推翻
+
+1. **「GremlinLeader 构造器预置 3 只小鬼」是错的**。`usePreBattleAction` 只是把**开场就站着**的
+   两只登记进 `gremlins[0]`/`gremlins[1]`（`monsters.get(0)` / `get(1)`），`gremlins[2] = null`。
+   真正召唤时 `SummonGremlinAction.identifySlot` 找**第一个 null 或 isDying 的槽**，
+   `getRandomGremlin` 再现造一只。所以语义是「3 个槽 + 每次现造」，不是「预置队列」。
+2. **池子是 8 项且带重复**：`Warrior×2 / Thief×2 / Fat×2 / Tsundere×1 / Wizard×1`，
+   `aiRng.random(0,7)` 抽 —— 抽到战士是 1/4，不是 1/5。
+3. **小鬼血量不是 `MathUtils.random`，是 `monsterHpRng`**（`setHp(min,max)` 内部就是它）。
+   所以只要捕获这条流，召唤出来的血是**精确值**，之前担心的「只能取中值」不成立。
+   → 已在 `SimState.RngKind` 补 `MONSTER_HP`（`AbstractDungeon.monsterHpRng`）。
+
+### 随机消耗次序（照抄才不错位）
+
+- GremlinLeader 的 Rally 在 `takeTurn` 里连排**两个** `SummonGremlinAction`：
+  两个**构造器**在入队时就把「类型 + 血」抽掉（类型 `aiRng.random(0,7)`、血 `monsterHpRng.random`），
+  `update()` 之后才对每只调 `init()`（`aiRng.random(99)`）。
+  所以次序是 **类型1/血1 → 类型2/血2 → 招1 → 招2**，不是「一只一只走完」。
+- 所有召唤（`SpawnMonsterAction` / `SummonGremlinAction`）都会 `monster.init()`，各消耗一次 aiRng。
+- GremlinLeader 的 `getMove` 在「只剩 1 只小鬼」档会**递归调自己**，并且再抽的是
+  `aiRng.random(50,99)` / `aiRng.random(0,80)`（**区间不同**，`nextInt` 消耗的内部位也可能不同）。
+  `random(0,80)` 的结果可能又 `< 50`，于是**会递归多次** —— 用循环照抄，不做深度截断。
+
+### 载荷
+
+`MonsterMove.Extra`（新）：`summon`（`Summon{pool[Spawn{type,hpMin,hpMax}], count, cap, minion}`）
++ `blockAllyType`（给指定类型的队友加格挡）+ `blockAllies`（给其他队友加格挡）+ `playerDebuff3`（第三个减益）。
+把新机制收进 `Extra` 是为了让「权威构造器」的参数定死，不再每加一个机制就多一层重载。
+
+`cap` 统一表达三种原版写法：`identifySlot` 的 3 槽、`enemySlots` 的 2 槽、`SpawnMonsterAction` 的 2 只。
+
+### 未建模（明确记录）
+
+- **BronzeOrb 的 Stasis 偷牌**：`ApplyStasisAction` 按 RARE→UNCOMMON→COMMON→任意 在玩家
+  弃牌堆/抽牌堆里挑一张抽走。`SimCard` 目前不带稀有度，所以没建。
+  偏差方向 = 影子**高估**玩家手牌一张（搜索略乐观）；招式节奏本身是对的（3 号招就是「这回合不输出」）。
+- 召唤物的能力初始化：原版 `applyPowers()` 会给「有力量的怪」补力量等；我们只挂 `Minion`。

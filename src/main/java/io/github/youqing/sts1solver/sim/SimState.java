@@ -34,7 +34,7 @@ public final class SimState {
 
     /** The RNG streams that matter for combat. */
     public enum RngKind {
-        CARD, MONSTER, AI, SHUFFLE, MISC
+        CARD, MONSTER, MONSTER_HP, AI, SHUFFLE, MISC
     }
 
     public int act;
@@ -243,6 +243,10 @@ public final class SimState {
 
         s.rng.put(RngKind.CARD, rngOf(AbstractDungeon.cardRandomRng));
         s.rng.put(RngKind.MONSTER, rngOf(AbstractDungeon.monsterRng));
+        // 怪物血量流：`AbstractMonster.setHp(min,max)` 就是
+        // `monsterHpRng.random(min,max)`（字节码直读），**召唤出来的怪**（小鬼 / TorchHead /
+        // BronzeOrb）全靠它抽血。不捕获的话只能取区间中值，等于把「同 seed 可复现」丢掉。
+        s.rng.put(RngKind.MONSTER_HP, rngOf(AbstractDungeon.monsterHpRng));
         s.rng.put(RngKind.AI, rngOf(AbstractDungeon.aiRng));
         s.rng.put(RngKind.SHUFFLE, rngOf(AbstractDungeon.shuffleRng));
         s.rng.put(RngKind.MISC, rngOf(AbstractDungeon.miscRng));

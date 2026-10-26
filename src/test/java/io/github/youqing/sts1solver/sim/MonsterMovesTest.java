@@ -1671,4 +1671,281 @@ class MonsterMovesTest {
         assertEquals(6, decide("BanditPointy", history(), 50, 0, 2).damage, "A2 起 6");
         assertEquals(1, decide("BanditPointy", history(1, 1, 1), 50, 0, 0).id, "永远同一招");
     }
+
+    // ============================ 第十七批：召唤（GremlinLeader / TheCollector / BronzeAutomaton） ============================
+
+    /** 造一个只有指定怪在场的状态。 */
+    private static SimState field(SimMonster... monsters) {
+        SimState state = new SimState();
+        for (SimMonster m : monsters) {
+            state.monsters.add(m);
+        }
+        return state;
+    }
+
+    /** 小鬼头目：没有小鬼时按 num 在「召唤」与「三连刺」之间选。 */
+    @Test
+    void gremlinLeaderRalliesWhenNoGremlinsAreAlive() {
+        SimMonster leader = new SimMonster("GremlinLeader", 148, 148, 0, NO_POWERS);
+        SimState solo = field(leader);
+
+        MonsterMove rally = decideIn(solo, "GremlinLeader", leader, history(), 10, 0);
+        assertEquals(2, rally.id, "num<75 且上一招不是 2 → Rally");
+        assertNotNull(rally.extra);
+        assertNotNull(rally.extra.summon, "Rally 是召唤");
+        assertEquals(3, rally.extra.summon.cap, "gremlins[] 只有 3 个槽");
+        assertEquals(8, rally.extra.summon.pool.length, "池子 8 项（带重复）");
+        assertTrue(rally.extra.summon.minion, "小鬼要挂 Minion");
+
+        assertEquals(4, decideIn(solo, "GremlinLeader", leader, history(2), 10, 0).id,
+                "上一招已经是 Rally → 三连刺");
+        MonsterMove stab = decideIn(solo, "GremlinLeader", leader, history(2), 10, 0);
+        assertEquals(3, stab.hits, "STAB_AMT = 3 段");
+        assertEquals(6, stab.damage, "STAB_DMG = 6，不随进阶变");
+
+        assertEquals(4, decideIn(solo, "GremlinLeader", leader, history(), 75, 0).id,
+                "num≥75 且上一招不是 4 → 三连刺");
+        assertEquals(2, decideIn(solo, "GremlinLeader", leader, history(4), 90, 0).id,
+                "num≥75 但上一招是 4 → Rally");
+    }
+
+    /** 小鬼头目：场上有 2 只小鬼时只在「喊话（3）」与「三连刺（4）」之间循环。 */
+    @Test
+    void gremlinLeaderAlternatesShoutAndStabWithTwoGremlins() {
+        SimMonster leader = new SimMonster("GremlinLeader", 148, 148, 0, NO_POWERS);
+        SimState trio = field(leader,
+                new SimMonster("GremlinWarrior", 24, 24, 0, NO_POWERS),
+                new SimMonster("GremlinFat", 17, 17, 0, NO_POWERS));
+
+        MonsterMove shout = decideIn(trio, "GremlinLeader", leader, history(), 10, 0);
+        assertEquals(3, shout.id, "num<66 且上一招不是 3 → 喊话");
+        assertEquals("Strength", shout.buffAlliesPower, "全队（含自己）+力量");
+        assertEquals(3, shout.buffAlliesAmount);
+        assertEquals(6, shout.extra.blockAllies, "只有**别人**加格挡");
+
+        assertEquals(4, decideIn(trio, "GremlinLeader", leader, history(3), 10, 0).id,
+                "上一招是喊话 → 三连刺");
+        assertEquals(4, decideIn(trio, "GremlinLeader", leader, history(), 66, 0).id,
+                "num≥66 且上一招不是 4 → 三连刺");
+        assertEquals(3, decideIn(trio, "GremlinLeader", leader, history(4), 66, 0).id,
+                "num≥66 但上一招是 4 → 喊话");
+        assertEquals(5, decideIn(trio, "GremlinLeader", leader, history(), 10, 18).buffAlliesAmount,
+                "A18 起 +5 力量");
+        assertEquals(10, decideIn(trio, "GremlinLeader", leader, history(), 10, 18)
+                .extra.blockAllies, "A18 起队友 +10 格挡");
+    }
+
+    /**
+     * 小鬼头目：「只剩 1 只小鬼」档里 num&lt;50 且上一招是 Rally 时，
+     * 原版会 {@code getMove(aiRng.random(50,99))} **再抽一次** aiRng。
+     */
+    @Test
+    void gremlinLeaderRecursesAndBurnsASecondAiRoll() {
+        SimMonster leader = new SimMonster("GremlinLeader", 148, 148, 0, NO_POWERS);
+        SimState duo = field(leader, new SimMonster("GremlinWarrior", 24, 24, 0, NO_POWERS));
+        duo.rng.put(SimState.RngKind.AI, RngStream.from(mix(5), mix(6), 0));
+
+        leader.moveHistory.addAll(history(2));
+        int before = duo.rng.get(SimState.RngKind.AI).counter();
+        MonsterMove move = MonsterMoves.machineFor("GremlinLeader").next(
+                new MonsterMoves.Context(duo, leader, leader.moveHistory, 1, 0, 10, 0));
+        int after = duo.rng.get(SimState.RngKind.AI).counter();
+        assertTrue(after > before, "递归里又抽了一次 aiRng（消耗 " + (after - before) + " 次）");
+        assertTrue(move.id == 4 || move.id == 3, "递归后的分支只可能出 3/4：" + move);
+    }
+
+    /**
+     * Rally 的落点：只剩 1 只小鬼时一次补齐到 3 只（两个槽各填一只），
+     * 而且新来的两只都挂 {@code Minion}、血量取自 {@code monsterHpRng}。
+     */
+    @Test
+    void gremlinLeaderRallyFillsTheTwoFreeSlots() {
+        SimState s = new SimState();
+        s.rng.put(SimState.RngKind.AI, RngStream.from(mix(1), mix(2), 0));
+        s.rng.put(SimState.RngKind.MONSTER_HP, RngStream.from(mix(3), mix(4), 0));
+        SimMonster leader = new SimMonster("GremlinLeader", 148, 148, 0, NO_POWERS);
+        s.monsters.add(leader);
+        s.monsters.add(new SimMonster("GremlinWarrior", 24, 24, 0, NO_POWERS));
+
+        MonsterMove rally = decideIn(s, "GremlinLeader", leader, history(), 10, 0);
+        assertEquals(2, rally.id, "只剩 1 只小鬼 + num<50 → Rally");
+        leader.pendingMove = rally;
+        leader.pendingMoveId = rally.id;
+        CombatFlow.endTurn(s, 3, 5);
+
+        int gremlins = 0;
+        int minions = 0;
+        for (SimMonster m : s.monsters) {
+            if (m.hp > 0 && m != leader) {
+                gremlins++;
+                if (m.powers.containsKey("Minion")) {
+                    minions++;
+                }
+            }
+        }
+        assertEquals(3, gremlins, "1 只 + 召唤 2 只 = 3 只（gremlins[] 的三个槽）");
+        assertEquals(2, minions, "新召的两只带 Minion（开场那只没在影子层补挂）");
+    }
+
+    /** 一只小鬼都没有时 Rally 只造 2 只（原版只排了两次 SummonGremlinAction）。 */
+    @Test
+    void gremlinLeaderRallySpawnsTwoWhenAlone() {
+        SimState s = new SimState();
+        s.rng.put(SimState.RngKind.AI, RngStream.from(mix(9), mix(10), 0));
+        s.rng.put(SimState.RngKind.MONSTER_HP, RngStream.from(mix(11), mix(12), 0));
+        SimMonster leader = new SimMonster("GremlinLeader", 148, 148, 0, NO_POWERS);
+        s.monsters.add(leader);
+
+        MonsterMove rally = decideIn(s, "GremlinLeader", leader, history(), 10, 0);
+        assertEquals(2, rally.id);
+        leader.pendingMove = rally;
+        leader.pendingMoveId = rally.id;
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(3, s.monsters.size(), "首领 + 2 只小鬼");
+    }
+
+    /** 收藏家：开场召唤、之后按 num / 大招 / 补召唤的次序走。 */
+    @Test
+    void collectorOpensWithTorchHeadsThenRotates() {
+        MonsterMove opening = decide("TheCollector", history(), 50, 0, 0);
+        assertEquals(1, opening.id, "开场招固定是 1");
+        assertNotNull(opening.extra.summon);
+        assertEquals("TorchHead", opening.extra.summon.pool[0].type);
+        assertEquals(2, opening.extra.summon.count, "一次造两只");
+        assertEquals(38, opening.extra.summon.pool[0].hpMin);
+        assertEquals(40, opening.extra.summon.pool[0].hpMax);
+
+        assertEquals(2, decide("TheCollector", history(1), 50, 0, 0).id,
+                "turnsTaken=1、num≤70 → 一段 rake");
+        assertEquals(18, decide("TheCollector", history(1), 50, 0, 0).damage, "rakeDmg 18");
+        assertEquals(21, decide("TheCollector", history(1), 50, 0, 4).damage, "A4 起 21");
+
+        MonsterMove ult = decide("TheCollector", history(1, 2, 3), 50, 0, 0);
+        assertEquals(4, ult.id, "turnsTaken≥3 且大招没用过 → Mega Debuff");
+        assertEquals("Weakened", ult.playerDebuff);
+        assertEquals(3, ult.playerDebuffAmount);
+        assertEquals("Vulnerable", ult.playerDebuff2);
+        assertEquals("Frail", ult.extra.playerDebuff3, "第三个减益（载荷里额外带一个）");
+
+        assertEquals(2, decide("TheCollector", history(1, 2, 3, 4), 50, 0, 0).id,
+                "大招只用一次，之后照常");
+    }
+
+    /** 收藏家 3 号招：自己加格挡 + 全队力量；A19 起格挡再 +5。 */
+    @Test
+    void collectorBuffGivesBlockAndTeamStrength() {
+        // num>70 才会跳到「3 / 2」那条尾巴（num≤70 时优先 rake）
+        MonsterMove buff = decide("TheCollector", history(1, 2), 80, 0, 0);
+        assertEquals(3, buff.id);
+        assertEquals(15, buff.block);
+        assertEquals("Strength", buff.buffAlliesPower);
+        assertEquals(3, buff.buffAlliesAmount);
+        MonsterMove hard = decide("TheCollector", history(1, 2), 80, 0, 19);
+        assertEquals(18 + 5, hard.block, "A19 起格挡 18+5");
+        assertEquals(5, hard.buffAlliesAmount);
+    }
+
+    /** 收藏家 5 号招：有火把头死掉、num≤25、上一招不是 5 时才补。 */
+    @Test
+    void collectorResummonsOnlyWhenATorchHeadDied() {
+        SimState s = field(new SimMonster("TheCollector", 282, 282, 0, NO_POWERS),
+                new SimMonster("TorchHead", 0, 40, 0, NO_POWERS),
+                new SimMonster("TorchHead", 40, 40, 0, NO_POWERS));
+        SimMonster collector = s.monsters.get(0);
+        MonsterMove resummon = decideIn(s, "TheCollector", collector, history(1, 2), 10, 0);
+        assertEquals(5, resummon.id, "有死掉的火把头 → 补召唤");
+        assertEquals(2, resummon.extra.summon.count);
+        assertEquals(2, resummon.extra.summon.cap, "enemySlots 只有两个槽");
+
+        SimState none = field(new SimMonster("TheCollector", 282, 282, 0, NO_POWERS),
+                new SimMonster("TorchHead", 40, 40, 0, NO_POWERS),
+                new SimMonster("TorchHead", 40, 40, 0, NO_POWERS));
+        assertEquals(2, decideIn(none, "TheCollector", none.monsters.get(0),
+                history(1, 2), 10, 0).id, "没死就不补，正常出招");
+    }
+
+    /** 火把头：永远一下 7 点。 */
+    @Test
+    void torchHeadAlwaysTackles() {
+        MonsterMove hit = decide("TorchHead", history(), 0, 0, 0);
+        assertEquals(1, hit.id);
+        assertEquals(7, hit.damage);
+        assertEquals(1, hit.hits);
+        assertEquals(1, decide("TorchHead", history(1, 1, 1), 0, 0, 20).id, "永远同一招");
+    }
+
+    /** 铜球：Stasis 只放一次；给主人加格挡；否则两下一循环。 */
+    @Test
+    void bronzeOrbStasisOnceThenFluxOrBeam() {
+        assertEquals(3, decide("BronzeOrb", history(), 25, 0, 0).id, "num≥25 且没用过 Stasis");
+        assertEquals(1, decide("BronzeOrb", history(), 24, 0, 0).id, "num<24 不放大招");
+        assertEquals(1, decide("BronzeOrb", history(3), 25, 0, 0).id,
+                "Stasis 用过就不再放（这个标志在 getMove 里就置位）");
+        assertEquals(1, decide("BronzeOrb", history(3), 25, 0, 0).id);
+        assertEquals(2, decide("BronzeOrb", history(3), 80, 0, 0).id, "num≥70 → 给主人格挡");
+        MonsterMove flux = decide("BronzeOrb", history(3), 80, 0, 0);
+        assertEquals("BronzeAutomaton", flux.extra.blockAllyType);
+        assertEquals(12, flux.extra.blockAllyTypeAmount);
+        assertEquals(1, decide("BronzeOrb", history(3, 2, 2), 80, 0, 0).id,
+                "连续两招 2 之后不能再来 2");
+    }
+
+    /** 铜球 2 号招的落点：格挡加在 BronzeAutomaton 身上，不是自己。 */
+    @Test
+    void bronzeOrbFluxShieldsItsMaster() {
+        SimState s = new SimState();
+        s.rng.put(SimState.RngKind.AI, RngStream.from(mix(7), mix(8), 0));
+        SimMonster automaton = new SimMonster("BronzeAutomaton", 300, 300, 0, NO_POWERS);
+        SimMonster orb = new SimMonster("BronzeOrb", 58, 58, 0, NO_POWERS);
+        s.monsters.add(automaton);
+        s.monsters.add(orb);
+        MonsterMove flux = MonsterMove.blockTypedAlly(2, "BronzeAutomaton", 12);
+        orb.pendingMove = flux;
+        orb.pendingMoveId = 2;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(12, automaton.block, "格挡给主人");
+        assertEquals(0, orb.block, "自己不加");
+    }
+
+    /** 铜制自动机：4/1/5/1/5/2/3 的固定循环（getMove 完全不看 num）。 */
+    @Test
+    void bronzeAutomatonFollowsItsFixedLoop() {
+        java.util.List<Integer> h = new ArrayList<Integer>();
+        StringBuilder seq = new StringBuilder();
+        for (int i = 0; i < 8; i++) {
+            MonsterMove move = decide("BronzeAutomaton", h, 50, 0, 0);
+            seq.append(move.id);
+            h.add(Integer.valueOf(move.id));
+        }
+        assertEquals("41515231", seq.toString(),
+                "BOOST → FLAIL → 强化 → FLAIL → 强化 → BEAM → STUN → FLAIL");
+
+        MonsterMove boost = decide("BronzeAutomaton", history(), 50, 0, 0);
+        assertNotNull(boost.extra.summon, "4 号招是召唤两只铜球");
+        assertEquals("BronzeOrb", boost.extra.summon.pool[0].type);
+        assertEquals(2, boost.extra.summon.count);
+
+        MonsterMove stun = decide("BronzeAutomaton", history(4, 1, 5, 1, 5, 2), 50, 0, 0);
+        assertEquals(3, stun.id, "A20 以下打完 BEAM 是 STUN");
+        assertEquals(0, stun.damage, "STUN 这回合不打人");
+        assertEquals(5, decide("BronzeAutomaton", history(4, 1, 5, 1, 5, 2), 50, 0, 19).id,
+                "A19 起改成强化（格挡 + 力量）");
+    }
+
+    /** numTurns 的重放：它只依赖历史，必须与逐条模拟一致。 */
+    @Test
+    void bronzeAutomatonNumTurnsReplayMatchesHistory() {
+        assertEquals(0, MonsterMoves.replayNumTurns(history()));
+        assertEquals(0, MonsterMoves.replayNumTurns(history(4)), "首招不加");
+        assertEquals(1, MonsterMoves.replayNumTurns(history(4, 1)), "FLAIL 之后 +1");
+        assertEquals(2, MonsterMoves.replayNumTurns(history(4, 1, 5)));
+        assertEquals(3, MonsterMoves.replayNumTurns(history(4, 1, 5, 1)));
+        assertEquals(4, MonsterMoves.replayNumTurns(history(4, 1, 5, 1, 5)),
+                "到 4 时下一次决策就是 BEAM");
+        assertEquals(0, MonsterMoves.replayNumTurns(history(4, 1, 5, 1, 5, 2)), "BEAM 后清零");
+        assertEquals(0, MonsterMoves.replayNumTurns(history(4, 1, 5, 1, 5, 2, 3)),
+                "STUN 那条路径不自增");
+        assertEquals(1, MonsterMoves.replayNumTurns(history(4, 1, 5, 1, 5, 2, 3, 1)));
+    }
 }

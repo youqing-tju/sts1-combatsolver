@@ -245,6 +245,121 @@ public final class CombatFlow {
                 state.discard.add(new SimCard(move.statusCard, false, -2, -1, "STATUS"));
             }
         }
+        applyExtra(state, m, move.extra, nextTurn);
+    }
+
+    /**
+     * 结算 {@link MonsterMove.Extra}：召唤 / 给特定类型队友加格挡 / 给其他队友加格挡。
+     *
+     * <p>🔴 召唤的**随机消耗次序**要照抄原版，否则 aiRng 会错位：
+     * 原版是「先把 N 只怪造出来（每只：aiRng 选类型 → monsterHpRng 抽血），
+     * 再让每只 {@code init()}（aiRng 各抽一次 0..99）」。
+     * 以 GremlinLeader 的 Rally 为例，takeTurn 里连排两个 {@code SummonGremlinAction}：
+     * 两个**构造器**在入队时就把类型和血抽掉了，{@code update()} 之后才 init。
+     * 所以顺序是 类型1/血1、类型2/血2、招1、招2 —— 不是「一只一只走完」。
+     */
+    private static void applyExtra(SimState state, SimMonster owner, MonsterMove.Extra extra,
+                                   int nextTurn) {
+        if (extra == null || extra.isEmpty()) {
+            return;
+        }
+        if (extra.summon != null) {
+            MonsterMove.Summon s = extra.summon;
+            java.util.List<SimMonster> fresh = new java.util.ArrayList<SimMonster>();
+            int alive = countAliveInPool(state, s);
+            for (int i = 0; i < s.count && alive < s.cap; i++) {
+                MonsterMove.Spawn spawn = pickSpawn(state, s);
+                if (spawn == null) {
+                    break;
+                }
+                int hp = rollSpawnHp(state, spawn);
+                SimMonster child = new SimMonster(spawn.type, hp, hp, 0,
+                        java.util.Collections.<String, Integer>emptyMap());
+                if (s.minion) {
+                    // SummonGremlinAction.update 末尾的 ApplyPowerAction(MinionPower)
+                    child.powers.put("Minion", Integer.valueOf(1));
+                }
+                state.monsters.add(child);
+                fresh.add(child);
+                alive++;
+            }
+            // 造完之后才 init（原版 SpawnMonsterAction.update → monster.init()）
+            for (SimMonster child : fresh) {
+                if (MonsterMoves.supported(child.type)) {
+                    int slot = state.monsters.indexOf(child);
+                    MonsterMove first = MonsterMoves.next(state, child, nextTurn, slot);
+                    child.pendingMove = first;
+                    child.pendingMoveId = first.id;
+                }
+            }
+        }
+        if (extra.blockAllyType != null && extra.blockAllyTypeAmount > 0) {
+            // GainBlockAction(owner=那个怪, source=this, amt)：BronzeOrb 给 BronzeAutomaton 加格挡
+            for (SimMonster ally : state.monsters) {
+                if (ally.hp > 0 && extra.blockAllyType.equals(ally.type)) {
+                    ally.block += extra.blockAllyTypeAmount;
+                }
+            }
+        }
+        if (extra.blockAllies > 0) {
+            // GremlinLeader 的喊话：自己只加力量，**别人**才加格挡
+            for (SimMonster ally : state.monsters) {
+                if (ally != owner && ally.hp > 0) {
+                    ally.block += extra.blockAllies;
+                }
+            }
+        }
+        if (extra.playerDebuff3 != null && extra.playerDebuff3Amount > 0) {
+            // TheCollector 的大招一次上三样（Weak + Vulnerable + Frail）
+            Integer prior = state.playerPowers.get(extra.playerDebuff3);
+            state.playerPowers.put(extra.playerDebuff3,
+                    (prior == null ? 0 : prior) + extra.playerDebuff3Amount);
+        }
+    }
+
+    /** 该召唤池里现在活着的数量（原版 identifySlot 等价：槽位被活怪占着的个数）。 */
+    private static int countAliveInPool(SimState state, MonsterMove.Summon summon) {
+        int alive = 0;
+        for (SimMonster m : state.monsters) {
+            if (m.hp <= 0) {
+                continue;
+            }
+            for (MonsterMove.Spawn spawn : summon.pool) {
+                if (spawn.type.equals(m.type)) {
+                    alive++;
+                    break;
+                }
+            }
+        }
+        return alive;
+    }
+
+    /** 从召唤池里抽一项：池只有一项就不消耗随机，多项就照原版 {@code aiRng.random(0,size-1)}。 */
+    private static MonsterMove.Spawn pickSpawn(SimState state, MonsterMove.Summon summon) {
+        if (summon.pool.length == 0) {
+            return null;
+        }
+        if (summon.pool.length == 1) {
+            return summon.pool[0];
+        }
+        RngStream ai = state.rng.get(SimState.RngKind.AI);
+        int pick = ai == null ? 0 : ai.random(summon.pool.length - 1);
+        return summon.pool[pick];
+    }
+
+    /** 召唤物血量：{@code setHp(min,max)} → {@code monsterHpRng.random(min,max)}。 */
+    private static int rollSpawnHp(SimState state, MonsterMove.Spawn spawn) {
+        int min = spawn.hpMin;
+        int max = spawn.hpMax;
+        if (max < min) {
+            max = min;
+        }
+        RngStream hp = state.rng.get(SimState.RngKind.MONSTER_HP);
+        if (hp == null) {
+            // 没捕获到血量流（老快照）→ 取区间中值，宁可近似也不抛
+            return (min + max) / 2;
+        }
+        return hp.random(min, max);
     }
 
     /**

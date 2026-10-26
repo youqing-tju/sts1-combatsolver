@@ -102,6 +102,61 @@ public final class MonsterMoves {
             int size = history.size();
             return size >= 2 && history.get(size - 2).intValue() == id;
         }
+
+        /**
+         * 再抽一次 {@code AbstractDungeon.aiRng.random(min, max)}。
+         *
+         * <p>只有少数怪的 {@code getMove} 会**递归调用自己**（GremlinLeader 就是：
+         * 某些分支里 {@code getMove(aiRng.random(50,99))} / {@code getMove(aiRng.random(0,80))}），
+         * 这时原版会再消耗一次 aiRng。严格照抄的话这里也必须再抽，且**区间要对**——
+         * {@code random(50,99)} 是 {@code nextInt(50)}、{@code random(99)} 是 {@code nextInt(100)}，
+         * 两者消耗的内部随机位可能不同，混用会让后续序列错位。
+         */
+        public int rollAiRange(int min, int max) {
+            RngStream ai = state == null ? null : state.rng.get(SimState.RngKind.AI);
+            return ai == null ? min : ai.random(min, max);
+        }
+
+        /** 场上除自己以外还活着的怪数（原版 {@code GremlinLeader.numAliveGremlins} 口径）。 */
+        public int aliveOthers() {
+            if (state == null) {
+                return 0;
+            }
+            int alive = 0;
+            for (SimMonster other : state.monsters) {
+                if (other != monster && other.hp > 0) {
+                    alive++;
+                }
+            }
+            return alive;
+        }
+
+        /** 场上活着的指定类型怪数。 */
+        public int aliveOf(String type) {
+            if (state == null) {
+                return 0;
+            }
+            int alive = 0;
+            for (SimMonster other : state.monsters) {
+                if (other.hp > 0 && type.equals(other.type)) {
+                    alive++;
+                }
+            }
+            return alive;
+        }
+
+        /** 场上有没有该类型的**已死**自体（TheCollector 的 isMinionDead）。 */
+        public boolean hasDeadOf(String type) {
+            if (state == null) {
+                return false;
+            }
+            for (SimMonster other : state.monsters) {
+                if (other.hp <= 0 && type.equals(other.type)) {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 
     /** 一次出招的机器。 */
@@ -149,6 +204,11 @@ public final class MonsterMoves {
         MACHINES.put("LouseNormal", new LouseMachine("LouseNormal", true));
         MACHINES.put("LouseDefensive", new LouseMachine("LouseDefensive", false));
         MACHINES.put("GremlinWizard", new GremlinWizardMachine());
+        MACHINES.put("GremlinLeader", new GremlinLeaderMachine());
+        MACHINES.put("TorchHead", new TorchHeadMachine());
+        MACHINES.put("TheCollector", new TheCollectorMachine());
+        MACHINES.put("BronzeOrb", new BronzeOrbMachine());
+        MACHINES.put("BronzeAutomaton", new BronzeAutomatonMachine());
     }
 
     private MonsterMoves() {
@@ -1572,5 +1632,331 @@ public final class MonsterMoves {
         public MonsterMove next(Context c) {
             return MonsterMove.multiAttack(1, c.baseDamage(0, c.ascension >= 2 ? 6 : 5), 2);
         }
+    }
+
+    /**
+     * 小鬼头目（GremlinLeader）—— 第二章精英。
+     *
+     * <pre>
+     * getMove:
+     *   numAliveGremlins() == 0:
+     *       num &lt; 75 ? (lastMove(2) ? 4(STAB×3) : 2(RALLY)) : (lastMove(4) ? 2(RALLY) : 4(STAB×3))
+     *   numAliveGremlins() &lt; 2:
+     *       num &lt; 50 ? (lastMove(2) ? getMove(aiRng.random(50,99)) : 2(RALLY))
+     *     : num &lt; 80 ? (lastMove(3) ? 4 : 3(DEFEND_BUFF))
+     *     :            (lastMove(4) ? getMove(aiRng.random(0,80)) : 4)
+     *   否则（≥2 只小鬼）:
+     *       num &lt; 66 ? (lastMove(3) ? 4 : 3) : (lastMove(4) ? 3 : 4)
+     * takeTurn:
+     *   2 → ChangeState(CALL) + 两次 SummonGremlinAction（各填一个空槽）
+     *   3 → 全体活怪 +strAmt 力量；**除自己外**的活怪再 +blockAmt 格挡
+     *   4 → 3 段 STAB_DMG
+     * 常数: STAB_DMG 6 / STAB_AMT 3（**不随进阶变**）、strAmt 3 (A3: 4, A18: 5)、
+     *       blockAmt 6 (A18: 10)、HP 140-148 (A8: 145-155)
+     * </pre>
+     *
+     * <p>🔴 召唤是「每次现造一只随机小鬼」而不是「预置 3 只」：
+     * {@code usePreBattleAction} 只是把开场就站着的两只登记进 {@code gremlins[0..1]}、
+     * 第 3 槽留 null；{@code SummonGremlinAction} 的 {@code identifySlot} 找一个 null/isDying 槽，
+     * {@code getRandomGremlin} 再 {@code aiRng.random(0,7)} 从 8 项池里抽类型现造一只。
+     *
+     * <p>⚠️ 池子 8 项是**带重复**的：Warrior×2 / Thief×2 / Fat×2 / Tsundere×1 / Wizard×1，
+     * 所以抽到战士的概率是 1/4，不是 1/5。
+     */
+    static final class GremlinLeaderMachine implements Machine {
+
+        /** {@code getRandomGremlin} 的 8 项池（重复项不能合并，它决定概率）。 */
+        private static MonsterMove.Spawn[] pool(int ascension) {
+            int wMin = ascension >= 7 ? 21 : 20;
+            int wMax = ascension >= 7 ? 25 : 24;
+            int tMin = ascension >= 7 ? 11 : 10;
+            int tMax = ascension >= 7 ? 15 : 14;
+            int fMin = ascension >= 7 ? 14 : 13;
+            int fMax = ascension >= 7 ? 18 : 17;
+            int sMin = ascension >= 7 ? 13 : 12;
+            int sMax = ascension >= 7 ? 17 : 15;
+            int zMin = ascension >= 7 ? 22 : 21;
+            int zMax = ascension >= 7 ? 26 : 25;
+            return new MonsterMove.Spawn[]{
+                    new MonsterMove.Spawn("GremlinWarrior", wMin, wMax),
+                    new MonsterMove.Spawn("GremlinWarrior", wMin, wMax),
+                    new MonsterMove.Spawn("GremlinThief", tMin, tMax),
+                    new MonsterMove.Spawn("GremlinThief", tMin, tMax),
+                    new MonsterMove.Spawn("GremlinFat", fMin, fMax),
+                    new MonsterMove.Spawn("GremlinFat", fMin, fMax),
+                    new MonsterMove.Spawn("GremlinTsundere", sMin, sMax),
+                    new MonsterMove.Spawn("GremlinWizard", zMin, zMax),
+            };
+        }
+
+        private static MonsterMove rally(Context c) {
+            // 两个 SummonGremlinAction：各自找空槽，槽位上限 3
+            return MonsterMove.summon(2, new MonsterMove.Summon(pool(c.ascension), 2, 3, true));
+        }
+
+        private static MonsterMove stab(Context c) {
+            return MonsterMove.multiAttack(4, 6, 3);
+        }
+
+        private static MonsterMove defend(Context c) {
+            int str = c.ascension >= 18 ? 5 : (c.ascension >= 3 ? 4 : 3);
+            int block = c.ascension >= 18 ? 10 : 6;
+            return new MonsterMove(3, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                    null, 0, null, 0, false, false, 0, "Strength", str,
+                    new MonsterMove.Extra(null, null, 0, block, null, 0));
+        }
+
+        @Override
+        public MonsterMove next(Context c) {
+            int alive = c.aliveOthers();
+            if (alive == 0) {
+                if (c.num < 75) {
+                    return c.lastMove(2) ? stab(c) : rally(c);
+                }
+                return c.lastMove(4) ? rally(c) : stab(c);
+            }
+            if (alive < 2) {
+                return lowAlive(c, c.num);
+            }
+            if (c.num < 66) {
+                return c.lastMove(3) ? stab(c) : defend(c);
+            }
+            return c.lastMove(4) ? defend(c) : stab(c);
+        }
+
+        /**
+         * 「只剩 1 只小鬼」档 —— 原版在这里会**递归调自己**并再抽一次 aiRng：
+         * <ul>
+         *   <li>{@code num < 50} 且 {@code lastMove(2)} → {@code getMove(aiRng.random(50,99))}；</li>
+         *   <li>{@code num >= 80} 且 {@code lastMove(4)} → {@code getMove(aiRng.random(0,80))}。</li>
+         * </ul>
+         *
+         * <p>⚠️ 后者的新 num 落在 0..79，**可能又 < 50**，于是再递归一次 —— 也就是说
+         * 「递归一次就结束」是错的，原版是「抽到不进这两个分支为止」。这里用循环照抄，
+         * 不做深度截断（截断会改变 aiRng 的消耗次数，进而让整条序列错位）。
+         */
+        private MonsterMove lowAlive(Context c, int num) {
+            int current = num;
+            while (true) {
+                if (current < 50) {
+                    if (!c.lastMove(2)) {
+                        return rally(c);
+                    }
+                    current = c.rollAiRange(50, 99);
+                    continue;
+                }
+                if (current < 80) {
+                    return c.lastMove(3) ? stab(c) : defend(c);
+                }
+                if (!c.lastMove(4)) {
+                    return stab(c);
+                }
+                current = c.rollAiRange(0, 80);
+            }
+        }
+    }
+
+    /**
+     * 火把头（TorchHead）—— TheCollector 召唤的小怪。
+     *
+     * <pre>
+     * getMove: 永远 1(TACKLE)
+     * takeTurn: 1 → 一段 damage[0]（7）+ SetMoveAction(1)（等价于永远同一招）
+     * 常数:     伤害 7（不随进阶）、HP 38-40（A9: 40-45，走 monsterHpRng）
+     * </pre>
+     */
+    static final class TorchHeadMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            return MonsterMove.attack(1, c.baseDamage(0, 7));
+        }
+    }
+
+    /**
+     * 收藏家（TheCollector）—— 第二章 Boss。
+     *
+     * <pre>
+     * getMove:
+     *   initialSpawn        → 1（开场招：召唤）
+     *   turnsTaken ≥ 3 且 !ultUsed → 4（大招）
+     *   num ≤ 25 且 isMinionDead() 且 !lastMove(5) → 5（补一只火把头）
+     *   num ≤ 70 且 !lastTwoMoves(2) → 2（一段 rakeDmg）
+     *   !lastMove(3) ? 3（格挡 + 全队力量） : 2
+     * takeTurn:
+     *   1 → 造 2 只 TorchHead（槽 1、2）并置 initialSpawn=false
+     *   2 → 一段 damage[0]
+     *   3 → 自己 +blockAmt（A19: +5）格挡；所有活怪 +strAmt 力量
+     *   4 → 玩家 Weak / Vulnerable / Frail 各 megaDebuffAmt；置 ultUsed=true
+     *   5 → 遍历 enemySlots，**每个死槽**补一只 TorchHead
+     *   末尾 turnsTaken++
+     * 常数: HP 282 (A9: 300)、blockAmt 15 (A9: 18)、rakeDmg 18 (A4: 21, A19: 21)、
+     *       strAmt 3 (A4: 4, A19: 5)、megaDebuffAmt 3 (A4: 3, A19: 5)
+     * </pre>
+     *
+     * <p>{@code initialSpawn} 等价于「history 为空」；{@code turnsTaken} 等价于
+     * {@code history.size()}（每回合末尾各 +1 一次）；{@code ultUsed} 等价于
+     * 「history 里出现过 4」。
+     */
+    static final class TheCollectorMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int rake = c.baseDamage(0, c.ascension >= 4 ? 21 : 18);
+            if (c.history.isEmpty()) {
+                return MonsterMove.summon(1,
+                        MonsterMove.Summon.of("TorchHead", c.ascension >= 9 ? 40 : 38,
+                                c.ascension >= 9 ? 45 : 40, 2, false));
+            }
+            int turnsTaken = c.history.size();
+            boolean ultUsed = c.history.contains(Integer.valueOf(4));
+            if (turnsTaken >= 3 && !ultUsed) {
+                return megaDebuff(c);
+            }
+            if (c.num <= 25 && c.hasDeadOf("TorchHead") && !c.lastMove(5)) {
+                return MonsterMove.summon(5,
+                        MonsterMove.Summon.of("TorchHead", c.ascension >= 9 ? 40 : 38,
+                                c.ascension >= 9 ? 45 : 40, 2, false));
+            }
+            if (c.num <= 70 && !c.lastTwoMoves(2)) {
+                return MonsterMove.attack(2, rake);
+            }
+            return c.lastMove(3) ? MonsterMove.attack(2, rake) : defend(c);
+        }
+
+        private static MonsterMove megaDebuff(Context c) {
+            int amt = c.ascension >= 19 ? 5 : 3;
+            // 一次上三样：Weak + Vulnerable + Frail，各 amt 层
+            return new MonsterMove(4, 0, 0, 0, 0, null, 0, "Weakened", amt,
+                    "Vulnerable", amt, null, 0, null, 0, null, 0, false, false, 0, null, 0,
+                    new MonsterMove.Extra(null, null, 0, 0, "Frail", amt));
+        }
+
+        private static MonsterMove defend(Context c) {
+            int block = c.ascension >= 9 ? 18 : 15;
+            if (c.ascension >= 19) {
+                block += 5;
+            }
+            int str = c.ascension >= 19 ? 5 : (c.ascension >= 4 ? 4 : 3);
+            return MonsterMove.blockAndBuffAll(3, block, "Strength", str);
+        }
+    }
+
+    /**
+     * 铜球（BronzeOrb）—— BronzeAutomaton 召唤的球。
+     *
+     * <pre>
+     * getMove:
+     *   !usedStasis && num ≥ 25 → 3(STASIS) 且置 usedStasis（**在 getMove 里就置位**）
+     *   num ≥ 70 且 !lastTwoMoves(2) → 2(FLUX，给主人加格挡)
+     *   !lastTwoMoves(1) → 1(BEAM，一段 8)
+     *   否则 → 2
+     * takeTurn:
+     *   1 → 一段 damage[0]（8）
+     *   2 → 给 BronzeAutomaton +12 格挡（不是给自己）
+     *   3 → ApplyStasisAction：从玩家弃牌堆/抽牌堆按 RARE→UNCOMMON→COMMON→任意 的顺序
+     *       抽走一张牌挂在球上（**这一块没建模**，见下面说明）
+     * 常数:     HP 52-58（A9: 54-60，走 monsterHpRng）、伤害 8
+     * </pre>
+     *
+     * <p>⚠️ Stasis 的「偷一张牌」没有建模：它要按稀有度排序在玩家的两个牌堆里挑，
+     * 而 {@code SimCard} 目前不带稀有度。偏差方向是**影子高估玩家手牌一张**
+     * （搜索会略微乐观），招式节奏本身是对的（3 号招就是「这回合不输出」）。
+     */
+    static final class BronzeOrbMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            boolean usedStasis = c.history.contains(Integer.valueOf(3));
+            if (!usedStasis && c.num >= 25) {
+                return MonsterMove.none(3);
+            }
+            if (c.num >= 70 && !c.lastTwoMoves(2)) {
+                return MonsterMove.blockTypedAlly(2, "BronzeAutomaton", 12);
+            }
+            if (!c.lastTwoMoves(1)) {
+                return MonsterMove.attack(1, c.baseDamage(0, 8));
+            }
+            return MonsterMove.blockTypedAlly(2, "BronzeAutomaton", 12);
+        }
+    }
+
+    /**
+     * 铜制自动机（BronzeAutomaton）—— 第二章 Boss。
+     *
+     * <pre>
+     * getMove:
+     *   firstTurn       → 4(BOOST) 且 firstTurn=false
+     *   numTurns == 4   → 2(BEAM)，并置 numTurns=0
+     *   lastMove(2)     → A19 ? 5 : 3(STUN)
+     *   lastMove(3) || lastMove(5) || lastMove(4) → 1(FLAIL，两段)
+     *   否则            → 5
+     *   末尾（只在最后两条路径）numTurns++
+     * takeTurn:
+     *   1 → 两段 damage[0]（flailDmg）
+     *   2 → 一段 damage[1]（beamDmg）
+     *   3 → 只有一句 STUNNED 文字，什么也不做
+     *   4 → 造 2 只 BronzeOrb
+     *   5 → 自己 +blockAmt 格挡、自己 +strAmt 力量
+     * 常数: HP 300 (A9: 320)、blockAmt 9 (A9: 12)、flailDmg 7 (A4: 8)、
+     *       beamDmg 45 (A4: 50)、strAmt 3 (A4: 4)
+     * </pre>
+     *
+     * <p>{@code firstTurn} 等价于「history 为空」；{@code numTurns} 是个只在特定分支自增的
+     * 计数器，但它**只依赖历史**，所以可以从 history 逐条重放出来（见 {@link #replayNumTurns}）。
+     */
+    static final class BronzeAutomatonMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int flail = c.baseDamage(0, c.ascension >= 4 ? 8 : 7);
+            int beam = c.baseDamage(1, c.ascension >= 4 ? 50 : 45);
+            if (c.history.isEmpty()) {
+                return MonsterMove.summon(4,
+                        MonsterMove.Summon.of("BronzeOrb", c.ascension >= 9 ? 54 : 52,
+                                c.ascension >= 9 ? 60 : 58, 2, false));
+            }
+            int numTurns = replayNumTurns(c.history);
+            if (numTurns == 4) {
+                return MonsterMove.attack(2, beam);
+            }
+            if (c.lastMove(2)) {
+                return c.ascension >= 19 ? defend(c) : MonsterMove.none(3);
+            }
+            if (c.lastMove(3) || c.lastMove(5) || c.lastMove(4)) {
+                return MonsterMove.multiAttack(1, flail, 2);
+            }
+            return defend(c);
+        }
+
+        private static MonsterMove defend(Context c) {
+            int block = c.ascension >= 9 ? 12 : 9;
+            int str = c.ascension >= 4 ? 4 : 3;
+            return MonsterMove.buffBlock(5, "Strength", str, block);
+        }
+    }
+
+    /**
+     * 重放 {@code BronzeAutomaton.numTurns}：它只在「走到 getMove 末尾」的那两条路径自增，
+     * 早期 return 的路径（firstTurn / numTurns==4 / lastMove(2)）不增。
+     *
+     * @param history 已经打过的招（按时间顺序）
+     * @return 当前（下一次 getMove 之前）的 numTurns
+     */
+    static int replayNumTurns(List<Integer> history) {
+        int numTurns = 0;
+        boolean first = true;
+        for (int i = 0; i < history.size(); i++) {
+            if (first) {
+                first = false;              // 第 1 次决策：4(BOOST)，numTurns 不变
+                continue;
+            }
+            if (numTurns == 4) {
+                numTurns = 0;               // 第 N 次决策：2(BEAM)，重置
+                continue;
+            }
+            int prev = i >= 1 ? history.get(i - 1).intValue() : -1;
+            if (prev == 2) {
+                continue;                   // 打完 BEAM 之后的 STUN/防御，numTurns 不变
+            }
+            numTurns++;                     // 1(FLAIL) 与 5 这两条路径会自增
+        }
+        return numTurns;
     }
 }

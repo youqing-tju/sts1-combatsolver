@@ -2487,3 +2487,78 @@ if (newCost != card.cost) { card.cost = newCost; card.costForTurn = card.cost; }
 `getMove` 恒为 1（两段攻击），每段 5（A2: 6），HP 30（A7: 34）。没有额外机制 —— 加它是为了覆盖率。
 
 全量 **313 条**通过；累计 **37 只**。
+
+### 33.28 召唤基础设施 + 5 只（GremlinLeader / TorchHead / TheCollector / BronzeOrb / BronzeAutomaton）2026-10-26
+
+这一批的**重点不是五只怪，是「召唤」这个机制**——三只 boss/精英共用它。
+
+#### 原版三种写法，一个抽象
+
+| 原版 | 写法 | 落成什么 |
+|---|---|---|
+| `SummonGremlinAction(gremlins)` | `identifySlot` 找第一个 `null` 或 `isDying` 的槽（共 3 个），`getRandomGremlin` 现造一只 | 3 槽 + 随机类型 |
+| TheCollector 的 `enemySlots` | 1 号招 `HashMap.put(1/2, new TorchHead)`，5 号招遍历把 `isDying` 的槽逐个换新 | 2 槽 + 固定类型 |
+| `SpawnMonsterAction(new BronzeOrb(...), true)` | 直接造两只 | 2 只 + 固定类型 |
+
+统一成 `MonsterMove.Summon{pool, count, cap, minion}`：
+**尝试 `count` 次，该池活着的不超过 `cap` 只**。`identifySlot` 的「空槽」=「活怪数 < cap」。
+
+#### 🔴 三处认知被字节码推翻
+
+1. **不是「预置 3 只小鬼」**。`GremlinLeader.usePreBattleAction` 只做两件事：
+   把开场就在的两只登记进 `gremlins[0..1]`（`monsters.get(0)`/`get(1)`），`gremlins[2]=null`；
+   给这两只挂 `MinionPower`。**构造器里没有任何随机**。
+2. **池子 8 项带重复**：`Warrior / Warrior / Thief / Thief / Fat / Fat / Tsundere / Wizard`，
+   `aiRng.random(0,7)` 抽 → 战士 1/4。
+3. **召唤物血量走 `monsterHpRng` 而不是 `MathUtils.random`**：
+   `AbstractMonster.setHp(int,int)` 的实现就是
+   `currentHealth = AbstractDungeon.monsterHpRng.random(min, max)`（字节码直读）。
+   → `SimState.RngKind` 补了 `MONSTER_HP`（原先只捕获 5 条流）。
+   **这条补上之后，召唤出来的血是精确值，不再是近似中值。**
+
+#### 随机消耗次序（错一格就整条序列错位）
+
+```
+Rally（GremlinLeader 2 号招）：
+  takeTurn 里 addToBottom 两次 SummonGremlinAction
+    → 构造 #1：aiRng.random(0,7) 选类型 + monsterHpRng.random 抽血
+    → 构造 #2：aiRng.random(0,7) 选类型 + monsterHpRng.random 抽血
+    → update #1：monster.init() → aiRng.random(99)
+    → update #2：monster.init() → aiRng.random(99)
+```
+也就是 **类型1/血1 → 类型2/血2 → 招1 → 招2**，不是「一只一只走完」。
+所以 `CombatFlow.applyExtra` 先造完所有只、再逐个 `MonsterMoves.next`。
+
+#### GremlinLeader 的 `getMove` 会递归（且区间不同）
+
+「只剩 1 只小鬼」档里有两处 `getMove(...)` 自我调用：
+- `num < 50 && lastMove(2)` → `getMove(aiRng.random(50, 99))`
+- `num >= 80 && lastMove(4)` → `getMove(aiRng.random(0, 80))`
+
+⚠️ `random(0,80)` 的结果**可能又 < 50**，于是再递归 —— 「最多两层」是错的。
+且 `random(50,99)` 是 `nextInt(50)`、`random(99)` 是 `nextInt(100)`，
+**内部消耗的随机位可能不同**，混用会让后续错位。
+实现：`Context.rollAiRange(min,max)` + 循环（不做深度截断）。
+
+#### 五只怪
+
+| 怪 | 决策 | 招式 |
+|---|---|---|
+| `GremlinLeader` | 三档：无小鬼（num<75 优先 Rally）/ 1 只（num<50 优先 Rally）/ ≥2 只（num<66 优先喊话） | Rally 召唤；喊话全队 +str、**队友** +block；三连刺 6×3（不随进阶） |
+| `TorchHead` | 恒 1 | 7 伤 |
+| `TheCollector` | `initialSpawn`→1；`turnsTaken≥3 && !ultUsed`→4；`num≤25 && 有火把头死 && !lastMove(5)`→5；`num≤70 && !lastTwoMoves(2)`→2；否则 3/2 | 召 2 只；rake 18（A4: 21）；格挡 15(+5@A19) + 全队力量；Weak/Vulnerable/Frail 各 3（A19: 5） |
+| `BronzeOrb` | `!usedStasis && num≥25`→3（**在 getMove 里就置位**）；`num≥70 && !lastTwoMoves(2)`→2；否则 1/2 交替 | 8 伤；给 **BronzeAutomaton** +12 格挡；Stasis |
+| `BronzeAutomaton` | `firstTurn`→4；`numTurns==4`→2 并清零；`lastMove(2)`→A19?5:3；`lastMove(3\|5\|4)`→1；否则 5 | 两段 7（A4: 8）；BEAM 45（A4: 50）；STUN 空过；BOOST 召 2 个球；5 = 格挡 9（A9: 12）+ 力量 3（A4: 4） |
+
+**`numTurns` 只能从历史重放**：它只在「走到 getMove 末尾」的两条路径自增，
+早期 return（firstTurn / numTurns==4 / lastMove(2)）不增。见 `MonsterMoves.replayNumTurns`。
+固定循环：`4 → 1 → 5 → 1 → 5 → 2 → 3 → 1 → …`（测试锁死前 8 步）。
+
+#### 未建（明确记录，不静默）
+
+- **BronzeOrb 的 Stasis 偷牌**：`ApplyStasisAction` 按 RARE→UNCOMMON→COMMON→任意
+  在玩家弃牌堆/抽牌堆挑一张抽走。`SimCard` 不带稀有度，没建。
+  方向 = 影子**高估**手牌一张（略乐观）；节奏本身对（3 号招就是空过）。
+- 召唤物的 `applyPowers()`：原版会给新怪补「基础力量」等，我们只挂 `Minion`。
+
+全量 **326 条**通过；累计 **42 只**。

@@ -69,6 +69,15 @@ public final class MonsterMove {
     public final String buffAlliesPower;
     public final int buffAlliesAmount;
 
+    /**
+     * 扩展载荷（召唤 / 给指定类型的队友加格挡）。
+     *
+     * <p>为什么不直接往构造器上继续加参数：这个类已经有 17 个字段、7 层重载，
+     * 每加一个机制就多一层会让「哪一版构造器是权威」变得没法读。新机制收进
+     * {@link Extra} 后，构造器参数就定死在这里了。
+     */
+    public final Extra extra;
+
     public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
                        String selfBuff, int selfBuffAmount,
                        String playerDebuff, int playerDebuffAmount,
@@ -144,6 +153,22 @@ public final class MonsterMove {
                        String splitInto, int splitCount,
                        String splitInto2, int splitCount2, boolean escape, boolean vampire,
                        int healAllies, String buffAlliesPower, int buffAlliesAmount) {
+        this(id, damage, hits, block, blockRandomAlly, selfBuff, selfBuffAmount,
+                playerDebuff, playerDebuffAmount, playerDebuff2, playerDebuff2Amount,
+                statusCard, statusCount, splitInto, splitCount, splitInto2, splitCount2,
+                escape, vampire, healAllies, buffAlliesPower, buffAlliesAmount, null);
+    }
+
+    /** 权威构造器：所有字段都在这儿落地，其它重载一律转发到这里。 */
+    public MonsterMove(int id, int damage, int hits, int block, int blockRandomAlly,
+                       String selfBuff, int selfBuffAmount,
+                       String playerDebuff, int playerDebuffAmount,
+                       String playerDebuff2, int playerDebuff2Amount,
+                       String statusCard, int statusCount,
+                       String splitInto, int splitCount,
+                       String splitInto2, int splitCount2, boolean escape, boolean vampire,
+                       int healAllies, String buffAlliesPower, int buffAlliesAmount,
+                       Extra extra) {
         this.id = id;
         this.damage = Math.max(0, damage);
         this.hits = Math.max(0, hits);
@@ -166,6 +191,7 @@ public final class MonsterMove {
         this.healAllies = Math.max(0, healAllies);
         this.buffAlliesPower = buffAlliesPower;
         this.buffAlliesAmount = Math.max(0, buffAlliesAmount);
+        this.extra = extra;
     }
 
     public boolean attacks() {
@@ -288,6 +314,114 @@ public final class MonsterMove {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, card, count);
     }
 
+    /** 自己加格挡 + 给所有活着的怪（含自己）挂能力（TheCollector 的 Buff：格挡 + 全队力量）。 */
+    public static MonsterMove blockAndBuffAll(int id, int block, String power, int amount) {
+        return new MonsterMove(id, 0, 0, block, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, power, amount);
+    }
+
+    /** 召唤（GremlinLeader 的 Rally / TheCollector 的 Spawn / BronzeAutomaton 的 BOOST）。 */
+    public static MonsterMove summon(int id, Summon summon) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, null, 0,
+                new Extra(summon, null, 0, 0, null, 0));
+    }
+
+    /** 给指定类型的队友加格挡（BronzeOrb 的 2 号招：给 BronzeAutomaton +12）。 */
+    public static MonsterMove blockTypedAlly(int id, String type, int block) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, null, 0,
+                new Extra(null, type, block, 0, null, 0));
+    }
+
+    /**
+     * 召唤池里的一项：类型 + 血量区间。
+     *
+     * <p>血量区间照抄构造器里的 {@code setHp(min,max)} —— 它内部是
+     * {@code AbstractDungeon.monsterHpRng.random(min,max)}，所以只要
+     * {@link SimState.RngKind#MONSTER_HP} 捕获到了，召唤出来的血是**精确值**而不是中值。
+     */
+    public static final class Spawn {
+        public final String type;
+        public final int hpMin;
+        public final int hpMax;
+
+        public Spawn(String type, int hpMin, int hpMax) {
+            this.type = type;
+            this.hpMin = hpMin;
+            this.hpMax = hpMax;
+        }
+
+        @Override
+        public String toString() {
+            return type + "(" + hpMin + "-" + hpMax + ")";
+        }
+    }
+
+    /**
+     * 召唤载荷。
+     *
+     * <p>原版三种召唤写法各异，但落到「能观察到的行为」是同一件事：
+     * 找一个**空槽**（新建的或已被打死的），造一只新怪放进去，最多填到某个上限。
+     * <ul>
+     *   <li>GremlinLeader 的 {@code SummonGremlinAction}：{@code identifySlot} 找 null/isDying 槽，
+     *       新怪由 {@code getRandomGremlin} 从 8 项池里 {@code aiRng.random(0,7)} 抽；</li>
+     *   <li>TheCollector 的 1/5 号招：{@code enemySlots} 两个槽，1 号招造两只，5 号招把死掉的逐个补；</li>
+     *   <li>BronzeAutomaton 的 4 号招：直接 {@code SpawnMonsterAction} 两只 BronzeOrb。</li>
+     * </ul>
+     * 所以统一成「尝试 {@link #count} 次、该池活着的不超过 {@link #cap} 只」。
+     */
+    public static final class Summon {
+        public final Spawn[] pool;
+        public final int count;
+        public final int cap;
+        /** 召唤物是否挂 {@code MinionPower}（小鬼有，TorchHead/BronzeOrb 没有）。 */
+        public final boolean minion;
+
+        public Summon(Spawn[] pool, int count, int cap, boolean minion) {
+            this.pool = pool == null ? new Spawn[0] : pool;
+            this.count = Math.max(0, count);
+            this.cap = cap <= 0 ? this.count : cap;
+            this.minion = minion;
+        }
+
+        /** 固定类型召唤。 */
+        public static Summon of(String type, int hpMin, int hpMax, int count, boolean minion) {
+            return new Summon(new Spawn[]{new Spawn(type, hpMin, hpMax)}, count, count, minion);
+        }
+    }
+
+    /** 招式附带的额外效果（召唤 / 给特定队友或全体队友加格挡 / 第三个玩家减益）。 */
+    public static final class Extra {
+        public final Summon summon;
+        /** 给**指定类型**的队友加格挡；{@code null} = 没有。 */
+        public final String blockAllyType;
+        public final int blockAllyTypeAmount;
+        /** 给自己**以外**所有活着的怪加格挡（GremlinLeader 的喊话）；0 = 没有。 */
+        public final int blockAllies;
+        /**
+         * 第三个玩家减益。{@link MonsterMove} 主字段只有两个减益槽（Lagavulin 的
+         * Siphon Soul 用满），而 TheCollector 的大招一次上 **Weak + Vulnerable + Frail** 三样。
+         */
+        public final String playerDebuff3;
+        public final int playerDebuff3Amount;
+
+        public Extra(Summon summon, String blockAllyType, int blockAllyTypeAmount, int blockAllies,
+                     String playerDebuff3, int playerDebuff3Amount) {
+            this.summon = summon;
+            this.blockAllyType = blockAllyType;
+            this.blockAllyTypeAmount = Math.max(0, blockAllyTypeAmount);
+            this.blockAllies = Math.max(0, blockAllies);
+            this.playerDebuff3 = playerDebuff3;
+            this.playerDebuff3Amount = Math.max(0, playerDebuff3Amount);
+        }
+
+        public boolean isEmpty() {
+            return summon == null && blockAllyType == null && blockAllies <= 0
+                    && playerDebuff3 == null;
+        }
+    }
+
     @Override
     public String toString() {
         return "MonsterMove#" + id + "{dmg=" + damage + "x" + hits + ", block=" + block
@@ -298,6 +432,13 @@ public final class MonsterMove {
                 + (statusCard == null ? "" : ", discard+=" + statusCard + "x" + statusCount)
                 + (splitInto == null ? "" : ", split=" + splitInto + "x" + splitCount)
                 + (splitInto2 == null ? "" : " + " + splitInto2 + "x" + splitCount2)
+                + (extra == null || extra.summon == null ? ""
+                        : ", summon=" + java.util.Arrays.toString(extra.summon.pool)
+                                + "x" + extra.summon.count + "/cap" + extra.summon.cap)
+                + (extra == null || extra.blockAllyType == null ? ""
+                        : ", allyBlock[" + extra.blockAllyType + "]=" + extra.blockAllyTypeAmount)
+                + (extra == null || extra.blockAllies <= 0 ? ""
+                        : ", alliesBlock=" + extra.blockAllies)
                 + (escape ? ", ESCAPE" : "") + "}";
     }
 }
