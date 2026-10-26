@@ -368,8 +368,10 @@ setMove((byte)1, ATTACK, damage.get(2).base, 6, true);     // 硬设 Divider，�
 
 | 缺的机制 | 怪兽 |
 |---|---|
-| **半血复活 / 形态切换** | `Darkling`（`halfDead` + Reincarnate）、`AwakenedOne`、`TimeEater` |
-| **多段固定循环 + 队友联动** | `SpireShield` / `SpireSpear`、`GiantHead`、`Nemesis`、`WrithingMass`、`SnakeDagger` |
+| **半血复活 / 形态切换** | `Darkling`（`halfDead` + Reincarnate）、`AwakenedOne`（两阶段）、`TimeEater`（计数重排） |
+| **Malleable**（每次挨打加点格挡，一回合有次数上限） | `SnakeDagger`、`Dagger`（Reptomancer 的召唤物） |
+| **Slow**（玩家每出一张牌，怪物受伤 +10%） | `GiantHead`（核心机制） |
+| **多段固定循环 + 队友联动** | `SpireShield` / `SpireSpear`、`Nemesis`、`WrithingMass`、`Reptomancer`、`CorruptHeart` |
 
 ⚠️ 这 14 只**不是「抄不动」而是「抄了会假」**：缺的那条机制不建，影子会把它们的威胁算错
 （例如 SpireGrowth 的 Constrict 每回合 10 点、Spiker 的荆棘 4–10 点）。
@@ -434,3 +436,23 @@ public void duringTurn() {
 影子里等价于「打完就死」→ 用 `Extra.selfDestruct` 表达（30 点是 THORNS 类型，**吃格挡**）。
 
 **教训**：查一个 power 有没有 hook，要先 `javap -p` 看方法名，而不是从 `-c` 的片段里推断。
+
+---
+
+## 收口状态（2026-10-26 11:00 前后）
+
+**已镜像 55 / 68**（`jar` 里 68 个 `monsters/*` 类，其中 `HexaghostBody` / `HexaghostOrb` 是纯视觉对象，不算）。
+Act 1 全齐、Act 2 全齐、Act 3 已做 12 只、Act 4 未开。
+
+剩余 13 只**全部卡在同一个模式**：它们的核心机制在**玩家侧**（或需要跨回合计数器），
+影子现在还没有那个「容器」：
+
+| 缺的机制 | 影响谁 | 估工 |
+|---|---|---|
+| Malleable（挨打加格挡，有每回合上限 + 上限会涨） | `SnakeDagger`、`Dagger` | 小（`DamageCalc.hit` 里加一层，需要每回合重置） |
+| Slow（玩家每张牌 → 怪物受伤 +10%） | `GiantHead` | 小（`DamageCalc` 的受伤公式乘一下，计数放 playerPowers） |
+| 半血复活 / 两阶段 | `Darkling`、`AwakenedOne`、`TimeEater` | 中（要能「换一只怪上场」+ 保留血线） |
+| 死亡连锁 / 召唤物死亡触发 | `Reptomancer`、`Nemesis`、`WrithingMass`、`CorruptHeart` | 中到大 |
+
+**下一步最省力的顺序**：先补 Malleable（解锁 2 只），再补 Slow（解锁 `GiantHead`），
+然后才是「半血复活」这类需要新容器的大件。每一步都要先 `javap -p` 列方法名再读 `-c`。
