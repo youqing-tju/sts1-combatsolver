@@ -3096,3 +3096,46 @@ this.target.damage(new DamageInfo(this.source, this.amount, DamageInfo.DamageTyp
 `RupturePower.wasHPLost` 现在吃**实际掉血**：被钨棒抹成 0 时不触发力量（原版同口径）。
 
 全量 **424 条**通过；遗物镜像 **15 件**。
+
+### 33.46 遗物第三批：受伤触发 + 手牌保留（2026-10-26）
+
+前一批把「伤害类型」拆开之后，这一批四件遗物都挂在**同一个点**上：
+原版 `AbstractPlayer.damage()` 里 `if (damage > 0)` 之后的
+「`wasHPLost`（遗物）/ `onBloodied`（遗物）」那两段。
+
+ID 全部按构造器首参核实（又是一堆空格差异）：
+
+| 类 | 运行时 ID |
+|---|---|
+| `RunicCube` | **`Runic Cube`** |
+| `CentennialPuzzle` | **`Centennial Puzzle`** |
+| `SelfFormingClay` | **`Self Forming Clay`** |
+| `RedSkull` | **`Red Skull`** |
+| `RunicPyramid` | **`Runic Pyramid`** |
+
+| 遗物 | 钩子（字节码） | 影子落点 |
+|---|---|---|
+| 符文立方 | `wasHPLost(n>0)` → `DrawCardAction(player, 1)` | `RelicHooks.onPlayerHpLost` |
+| 百夫长谜题 | `wasHPLost(n>0)` && `!usedThisCombat` → 抽 3 张，`usedThisCombat = true`、`grayscale = true` | 同上（标记存 `relics` 的值） |
+| 自形成黏土 | `wasHPLost(n>0)` → `ApplyPowerAction(player, player, NextTurnBlockPower(player, 3, name))` | 同上 + `PowerHooks` 的 `Next Turn Block` |
+| 红骷髅 | `atBattleStart` / `onBloodied` → `Strength +3`；`onNotBloodied` → `Strength -3`（私有 `isActive` 防重复） | `RelicHooks.syncRedSkull` |
+| 符文金字塔 | 没有自己的钩子，是 `DiscardAtEndOfTurnAction` 里 `hasRelic("Runic Pyramid")` 直接 `return` | `CombatFlow.endTurn` ② 跳过弃手牌 |
+
+**四个坑**：
+
+1. **`GainBlockAction` 不吃敏捷**。字节码 `update()` 只有 `target.addBlock(amount)` ——
+   敏捷是在**卡牌**的 `applyPowers()` 里加的，遗物/能力给的格挡是裸数值。
+   （顺带确认山铜 / 号角夹板 / 舵轮之前写对了。）
+2. **`NextTurnBlockPower` 是「一次性」**：`atStartOfTurn` 里 `GainBlockAction(amount)` 之后
+   `RemoveSpecificPowerAction` **整条移除**，不是每回合减 1。多次叠加是全款一次结清。
+3. **红骷髅没有快照字段**：`isActive` 是私有布尔。影子把它存在 `state.relics` 的值里，
+   并在 `SimState.capture` 时**按当时血线初始化** —— 不初始化的话，
+   「开局就已经半血」的局面会把 `atBattleStart` 已经加进 `Strength` 里的 +3 再加一遍。
+4. **百夫长谜题的 `usedThisCombat` 是 `private static boolean`**，同样没有快照字段。
+   影子借 `relics` 的值当标记（`> 0` = 已用）；代价是「战斗中途中第一次 capture」时会
+   退回「没用过」，最多多抽 3 张一次。
+
+`Runic Pyramid` 还顺手把 `HAND_LIMIT`（10）这条老规矩暴露出来：手牌留在手上的话，
+下一回合抽牌会被上限卡住 —— 这与原版一致（`draw` 里 `if (hand.size() >= 10) break`）。
+
+全量 **429 条**通过；遗物镜像 **20 件**。

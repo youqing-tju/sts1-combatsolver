@@ -263,6 +263,7 @@ public final class Effects {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 state.hp = Math.min(state.maxHp, state.hp + amount);
+                io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
             }
 
             @Override
@@ -394,6 +395,7 @@ public final class Effects {
                     }
                 }
                 state.hp = Math.min(state.maxHp, state.hp + total);
+                io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
             }
 
             @Override

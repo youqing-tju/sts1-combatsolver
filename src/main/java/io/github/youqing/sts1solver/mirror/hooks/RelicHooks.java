@@ -52,6 +52,28 @@ public final class RelicHooks {
     /** 钨棒（{@code TungstenRod}）：每次掉血（含 HP_LOSS）减 1。 */
     public static final String TUNGSTEN_ROD = "TungstenRod";
 
+    // ---- 第三批：受伤触发 / 手牌保留（2026-10-26）----
+
+    /** 符文立方（{@code Runic Cube}）：每次掉血抽 1 张。 */
+    public static final String RUNIC_CUBE = "Runic Cube";
+    /** 百夫长谜题（{@code Centennial Puzzle}）：每场战斗**第一次**掉血抽 3 张。 */
+    public static final String CENTENNIAL_PUZZLE = "Centennial Puzzle";
+    /** 自形成黏土（{@code Self Forming Clay}）：每次掉血给**下回合** 3 点格挡。 */
+    public static final String SELF_FORMING_CLAY = "Self Forming Clay";
+    /** 红骷髅（{@code Red Skull}）：血量掉到一半及以下时 +3 力量，回到一半以上时收回。 */
+    public static final String RED_SKULL = "Red Skull";
+    /** 符文金字塔（{@code Runic Pyramid}）：回合结束**不弃手牌**。 */
+    public static final String RUNIC_PYRAMID = "Runic Pyramid";
+    /** {@code NextTurnBlockPower} 的运行时 ID（自形成黏土用）。 */
+    public static final String NEXT_TURN_BLOCK = "Next Turn Block";
+
+    /** {@code CentennialPuzzle.wasHPLost}: {@code DrawCardAction(player, 3)}。 */
+    private static final int CENTENNIAL_DRAW = 3;
+    /** {@code SelfFormingClay.wasHPLost}: {@code NextTurnBlockPower(player, 3, name)}。 */
+    private static final int SELF_FORMING_CLAY_BLOCK = 3;
+    /** {@code RedSkull}: {@code StrengthPower(player, 3)} / {@code (player, -3)}。 */
+    private static final int RED_SKULL_STRENGTH = 3;
+
     /** {@code MercuryHourglass}: {@code createDamageMatrix(3, true)}。 */
     private static final int MERCURY_DAMAGE = 3;
     /** {@code HornCleat}: {@code GainBlockAction(player, player, 14)}，触发回合 2。 */
@@ -100,6 +122,76 @@ public final class RelicHooks {
             return amount;
         }
         return amount > 0 ? amount - 1 : amount;
+    }
+
+    /**
+     * 受伤类遗物：原版 {@code AbstractPlayer.damage()} 里 {@code if (damage > 0)} 之后
+     * 统一遍历 {@code AbstractRelic.wasHPLost(int)} 的那一段。
+     *
+     * <pre>
+     * Runic Cube          → DrawCardAction(player, 1)
+     * Centennial Puzzle   → 每场第一次：DrawCardAction(player, 3) + usedThisCombat = true
+     * Self Forming Clay   → ApplyPowerAction(player, player, NextTurnBlockPower(player, 3))
+     * </pre>
+     *
+     * <p>🔴 {@code CentennialPuzzle} 的「用过没有」是 {@code private static boolean usedThisCombat}，
+     * 快照里没有这个字段 —— 影子借 {@code state.relics} 里那条记录当标记（{@code > 0} = 已用）。
+     * 代价：如果在**本场战斗中途**才第一次 capture，标记会退回「没用过」；
+     * 实际影响只有「多抽 3 张」这一次，且只发生在一场战斗的中途接入时。
+     *
+     * @param amount 实际掉的血（格挡与钨棒之后）；{@code <= 0} 时原版整段不执行
+     */
+    public static void onPlayerHpLost(SimState state, int amount) {
+        if (state == null || amount <= 0) {
+            return;
+        }
+        if (state.relics.containsKey(RUNIC_CUBE)) {
+            io.github.youqing.sts1solver.sim.CombatFlow.drawCards(state, 1);
+        }
+        Integer puzzleUsed = state.relics.get(CENTENNIAL_PUZZLE);
+        if (puzzleUsed != null && puzzleUsed.intValue() <= 0) {
+            state.relics.put(CENTENNIAL_PUZZLE, Integer.valueOf(1));
+            io.github.youqing.sts1solver.sim.CombatFlow.drawCards(state, CENTENNIAL_DRAW);
+        }
+        if (state.relics.containsKey(SELF_FORMING_CLAY)) {
+            state.playerPowers.put(NEXT_TURN_BLOCK,
+                    intOf(state.playerPowers.get(NEXT_TURN_BLOCK)) + SELF_FORMING_CLAY_BLOCK);
+        }
+    }
+
+    /**
+     * 红骷髅（{@code RedSkull.onBloodied / onNotBloodied}）：跨过「半血」这条线时
+     * {@code Strength ±3}。
+     *
+     * <p>原版用私有 {@code isActive} 布尔记住「+3 加过了没有」，快照里没有 ——
+     * 影子把它存在 {@code state.relics} 的值里（{@code > 0} = 已生效），
+     * 并在 **capture 时按当时的血线初始化**（下面那段 {@code SimState.capture}）：
+     * 否则「开局就已经半血」的局面会把 {@code atBattleStart} 已经加过的 +3 再加一遍。
+     *
+     * <p>调用点：{@link io.github.youqing.sts1solver.sim.CombatFlow#hitPlayer}（掉血后）、
+     * 所有回血落点、以及每个玩家回合开始（兜底）。
+     */
+    public static void syncRedSkull(SimState state) {
+        if (state == null) {
+            return;
+        }
+        Integer flag = state.relics.get(RED_SKULL);
+        if (flag == null) {
+            return;
+        }
+        boolean shouldBeActive = state.hp > 0 && state.hp * 2 <= state.maxHp;
+        boolean active = flag.intValue() > 0;
+        if (shouldBeActive == active) {
+            return;
+        }
+        state.relics.put(RED_SKULL, Integer.valueOf(shouldBeActive ? 1 : 0));
+        int delta = shouldBeActive ? RED_SKULL_STRENGTH : -RED_SKULL_STRENGTH;
+        state.playerPowers.put(DamageCalc.STRENGTH,
+                intOf(state.playerPowers.get(DamageCalc.STRENGTH)) + delta);
+    }
+
+    private static int intOf(Integer value) {
+        return value == null ? 0 : value.intValue();
     }
 
     /**

@@ -171,6 +171,13 @@ public final class SimState {
         if (p.relics != null) {
             for (AbstractRelic r : p.relics) {
                 s.relics.put(r.relicId, r.counter);
+                // 红骷髅的「+3 力量加过了没有」是私有 isActive 布尔，快照拿不到 ——
+                // 按当时的血线初始化（半血及以下 = atBattleStart 已经把 +3 加进力量里了）。
+                if (io.github.youqing.sts1solver.mirror.hooks.RelicHooks.RED_SKULL
+                        .equals(r.relicId)) {
+                    s.relics.put(r.relicId, Integer.valueOf(
+                            p.currentHealth * 2 <= p.maxHealth ? 1 : 0));
+                }
                 // 蜥蜴尾巴本场是否已用：原版 AbstractPlayer.damage() 的判据是
                 // `hasRelic("Lizard Tail") && getRelic("Lizard Tail").counter == -1`
                 // （javap 核实，字节码 1059-1083），onTrigger() 末尾 setCounter(-2) 把它变成 -2。

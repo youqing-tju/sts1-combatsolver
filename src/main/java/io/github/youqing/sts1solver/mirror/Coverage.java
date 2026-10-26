@@ -57,7 +57,10 @@ public final class Coverage {
                     // 能量侧（2026-10-26）
                     "Ice Cream", "Chemical X",
                     // 受伤侧（2026-10-26）
-                    "TungstenRod",
+                    "TungstenRod", "Runic Cube", "Centennial Puzzle", "Self Forming Clay",
+                    "Red Skull",
+                    // 手牌保留（2026-10-26）
+                    "Runic Pyramid",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));

@@ -37,9 +37,13 @@ public final class CombatFlow {
         // ① 弃手牌之前：金属化
         Hooks.firePhase(state, HookPhase.END_OF_TURN_PRE_CARDS);
 
-        // ② 手牌进弃牌堆
-        state.discard.addAll(state.hand);
-        state.hand.clear();
+        // ② 手牌进弃牌堆（符文金字塔除外：DiscardAtEndOfTurnAction 里
+        //    `if (hasRelic("Runic Pyramid") || hasPower("Equilibrium")) return;` 整段跳过）
+        if (!state.relics.containsKey(io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                .RUNIC_PYRAMID)) {
+            state.discard.addAll(state.hand);
+            state.hand.clear();
+        }
 
         // ②.5 「本回合 0 费」到期（原版 costForTurn 在回合结束恢复成 cost）
         clearCostForTurn(state.hand);
@@ -184,6 +188,8 @@ public final class CombatFlow {
         // ⑦.0 回合开始的遗物（原版 applyStartOfTurnRelics 在能力之前）：
         //      水银沙漏 3 点全体纯伤 / 号角夹板（第 2 回合 +14）/ 舵轮（第 3 回合 +18）
         io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onPlayerTurnStart(state);
+        // 红骷髅兜底：上一回合中途回血跨过半血线的情况（各回血点已尽量就地同步）
+        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
         Hooks.firePhase(state, HookPhase.START_OF_TURN);
         // 冰淇淋（Ice Cream）：EnergyManager.recharge() 里 `if (hasRelic) EnergyPanel.addEnergy(energy)`
         // —— 也就是**把本回合剩下的能量加回去**，而不是重置成 energyPerTurn。
@@ -665,6 +671,9 @@ public final class CombatFlow {
         state.hp = Math.max(0, state.hp - remaining);
         // 原版 updateCardsOnDamage()（浴血奋战的减费）+ damagedThisCombat++
         state.hpLossCount++;
+        // 原版 wasHPLost（符文立方 / 百夫长谜题 / 自形成黏土）与 onBloodied（红骷髅）
+        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onPlayerHpLost(state, remaining);
+        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
         // 致死时先问一次性救命遗物（蜥蜴尾巴）：会改变后续所有路线的可行性
         io.github.youqing.sts1solver.mirror.DeathSaveRelic.applyIfLethal(state);
         // 烈焰屏障：受击反弹（只有普通攻击触发）
@@ -686,6 +695,11 @@ public final class CombatFlow {
      * 包括「抽牌堆空了洗回弃牌堆」。
      */
     public static void drawAfterPotion(SimState state, int count) {
+        drawCards(state, count);
+    }
+
+    /** 公开抽牌：遗物（符文立方 / 百夫长谜题）与药水共用同一套语义。 */
+    public static void drawCards(SimState state, int count) {
         draw(state, count);
     }
 

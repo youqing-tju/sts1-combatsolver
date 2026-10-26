@@ -123,11 +123,25 @@ public final class PowerHooks {
             @Override
             public void fire(SimState state, int amount, HookContext ctx) {
                 state.hp = Math.min(state.maxHp, state.hp + amount);
+                RelicHooks.syncRedSkull(state);
                 if (amount - 1 <= 0) {
                     state.playerPowers.remove("Regeneration");
                 } else {
                     state.playerPowers.put("Regeneration", Integer.valueOf(amount - 1));
                 }
+            }
+        });
+
+        // NextTurnBlockPower.atStartOfTurn（自形成黏土）：GainBlockAction(amount) →
+        // **整条移除**（不是每回合减 1）。原版 GainBlockAction 走 AbstractCreature.addBlock，
+        // 只加不乘敏捷（字节码 update() 里就是 addBlock(amount)），所以这里是裸数值。
+        reg(RelicHooks.NEXT_TURN_BLOCK, HookPhase.START_OF_TURN, new Handler() {
+            @Override
+            public void fire(SimState state, int amount, HookContext ctx) {
+                if (amount > 0) {
+                    state.block += amount;
+                }
+                state.playerPowers.remove(RelicHooks.NEXT_TURN_BLOCK);
             }
         });
 

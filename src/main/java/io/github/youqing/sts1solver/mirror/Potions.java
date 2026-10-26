@@ -447,6 +447,7 @@ public final class Potions {
             // (int)(maxHp * (20/100.0f))，向零截断
             int healAmt = (int) (state.maxHp * (BLOOD_POTION_PERCENT / 100.0f));
             state.hp = Math.min(state.maxHp, state.hp + Math.max(0, healAmt));
+            io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
             return true;
         }
         if (ANCIENT_POTION.equals(potionId)) {

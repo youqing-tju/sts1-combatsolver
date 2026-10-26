@@ -372,4 +372,126 @@ class RelicHooksTest {
         assertEquals(79, s.hp, "3 点自伤被无实体压成 1");
         assertEquals(5, s.energy, "3 + 2，能量照给");
     }
+    // ---------------------------------------------------------------- 受伤触发 / 手牌保留
+
+    /** 符文立方：**每次**掉血抽 1 张（普通攻击、掉血、荆棘都算）。 */
+    @Test
+    void runicCubeDrawsOneOnEveryHpLoss() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.RUNIC_CUBE, Integer.valueOf(-1));
+        for (int i = 0; i < 6; i++) {
+            s.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+
+        CombatFlow.hitPlayer(s, 5, s.monsters.get(0));
+        assertEquals(1, s.hand.size(), "被打一次抽 1 张");
+
+        CombatFlow.hitPlayer(s, 5, s.monsters.get(0));
+        assertEquals(2, s.hand.size(), "再被打一次再抽 1 张");
+
+        // 被格挡全吃的那次不算
+        s.block = 30;
+        CombatFlow.hitPlayer(s, 5, s.monsters.get(0));
+        assertEquals(2, s.hand.size(), "没掉血就不抽");
+    }
+
+    /** 百夫长谜题：每场战斗**只有第一次**掉血抽 3 张。 */
+    @Test
+    void centennialPuzzleDrawsThreeOncePerCombat() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.CENTENNIAL_PUZZLE, Integer.valueOf(0));
+        for (int i = 0; i < 8; i++) {
+            s.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+
+        CombatFlow.hitPlayer(s, 5, s.monsters.get(0));
+        assertEquals(3, s.hand.size(), "第一次掉血抽 3 张");
+        assertEquals(Integer.valueOf(1), s.relics.get(RelicHooks.CENTENNIAL_PUZZLE),
+                "标记已用");
+
+        CombatFlow.hitPlayer(s, 5, s.monsters.get(0));
+        assertEquals(3, s.hand.size(), "第二次不再抽");
+    }
+
+    /**
+     * 自形成黏土：每次掉血给**下回合** 3 点格挡。
+     *
+     * <p>它挂的是 {@code NextTurnBlockPower}（ID {@code "Next Turn Block"}），
+     * 那个能力在 {@code atStartOfTurn} 里 {@code GainBlockAction} 后**整条移除**。
+     */
+    @Test
+    void selfFormingClayGrantsBlockNextTurn() {
+        SimState s = fight();
+        armedMonster(s);
+        s.relics.put(RelicHooks.SELF_FORMING_CLAY, Integer.valueOf(-1));
+
+        CombatFlow.hitPlayer(s, 5, s.monsters.get(0));
+        assertEquals(Integer.valueOf(3),
+                s.playerPowers.get(RelicHooks.NEXT_TURN_BLOCK), "先挂到下回合");
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(3, s.block, "新回合开始拿到 3 点格挡");
+        assertEquals(null, s.playerPowers.get(RelicHooks.NEXT_TURN_BLOCK), "结清后移除");
+    }
+
+    /**
+     * 红骷髅：跨过**半血线**时 ±3 力量。
+     *
+     * <p>「加过了没有」用 {@code state.relics} 里的值当标记（capture 时按血线初始化），
+     * 所以这里先手工置 0（= 未生效）。
+     */
+    @Test
+    void redSkullTradesStrengthAtTheHalfHpLine() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.RED_SKULL, Integer.valueOf(0));
+
+        CombatFlow.hitPlayer(s, 41, s.monsters.get(0));
+        assertEquals(39, s.hp, "80 - 41");
+        assertEquals(Integer.valueOf(3), s.playerPowers.get(DamageCalc.STRENGTH),
+                "掉到 39（≤ 40）→ +3 力量");
+        assertEquals(Integer.valueOf(1), s.relics.get(RelicHooks.RED_SKULL));
+
+        // 再掉血：仍然在半血以下，不该重复加
+        CombatFlow.hitPlayer(s, 5, s.monsters.get(0));
+        assertEquals(Integer.valueOf(3), s.playerPowers.get(DamageCalc.STRENGTH),
+                "还在半血以下 → 不重复加");
+
+        // 回血跨回半血以上：力量收回（回血落点会就地同步，这里直接调兜底入口）
+        s.hp = 60;
+        RelicHooks.syncRedSkull(s);
+        assertEquals(Integer.valueOf(0), s.playerPowers.get(DamageCalc.STRENGTH),
+                "回到 60（> 40）→ 力量收回");
+        assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.RED_SKULL));
+    }
+
+    /** 符文金字塔：回合结束**不弃手牌**（手牌直接带进下一回合）。 */
+    @Test
+    void runicPyramidKeepsTheHandAtEndOfTurn() {
+        SimState s = fight();
+        armedMonster(s);
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Defend_R", false, 1, 5, "SKILL"));
+        for (int i = 0; i < 10; i++) {
+            s.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+        s.relics.put(RelicHooks.RUNIC_PYRAMID, Integer.valueOf(-1));
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(7, s.hand.size(), "2 张留着 + 抽 5 张");
+        assertEquals(0, s.discard.size(), "弃牌堆还是空的");
+
+        // 没有遗物：手牌先全进弃牌堆，再抽 5 张
+        SimState s2 = fight();
+        armedMonster(s2);
+        s2.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        s2.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Defend_R", false, 1, 5, "SKILL"));
+        for (int i = 0; i < 10; i++) {
+            s2.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+        CombatFlow.endTurn(s2, 3, 5);
+        assertEquals(5, s2.hand.size());
+        assertEquals(2, s2.discard.size(), "旧手牌进了弃牌堆");
+    }
 }
