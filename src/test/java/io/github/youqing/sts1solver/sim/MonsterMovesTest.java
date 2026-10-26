@@ -2515,4 +2515,49 @@ class MonsterMovesTest {
         CombatFlow.endTurn(s, 3, 5);
         assertEquals(0, head.powers.get("Slow").intValue(), "回合末清零");
     }
+
+    // ============================ 第二十四批：全量机器「不崩」巡检 ============================
+
+    /**
+     * 56 只机器的**随机走查**：每只随机走 40 步，覆盖各种 num / slot / 进阶档，
+     * 断言三件事：不抛异常、招式不为 null、id 非负。
+     *
+     * <p>为什么需要它：每只怪的分支只被两三条测试钉住，剩下那些
+     * （比如「连打两次之后」的兜底分支）一旦空指针就会在搜索里静默炸掉 ——
+     * 这种巡检比逐个补测试便宜得多。
+     */
+    @Test
+    void everyMirroredMachineSurvivesRandomWalks() {
+        java.util.Random rng = new java.util.Random(20261026L);
+        for (String type : MonsterMoves.mirroredTypes()) {
+            for (int asc : new int[]{0, 2, 4, 9, 17, 19}) {
+                SimState state = new SimState();
+                state.ascension = asc;
+                state.hp = 60;
+                state.rng.put(SimState.RngKind.AI, RngStream.from(7L, 11L, 0));
+                SimMonster self = new SimMonster(type, 80, 80, 0,
+                        new java.util.HashMap<String, Integer>());
+                state.monsters.add(self);
+                // 再放一只同伴，覆盖「看队友」的机器（Centurion / GremlinLeader / Deca…）
+                SimMonster ally = new SimMonster("Minion", 20, 20, 0,
+                        new java.util.HashMap<String, Integer>());
+                state.monsters.add(ally);
+                java.util.List<Integer> history = new java.util.ArrayList<Integer>();
+                for (int step = 0; step < 40; step++) {
+                    int num = rng.nextInt(100);
+                    int slot = rng.nextInt(2);
+                    MonsterMove move = MonsterMoves.machineFor(type).next(
+                            new MonsterMoves.Context(state, self, history, step + 1, slot, num, asc));
+                    assertNotNull(move, type + " 的机器返回了 null（step=" + step + "）");
+                    assertTrue(move.id >= 0, type + " 返回了负 id");
+                    history.add(Integer.valueOf(move.id));
+                    if (step == 3) {
+                        state.playerPowers.put("Constricted", 10);
+                        state.playerPowers.put("Slow", 2);
+                        ally.hp = 0;
+                    }
+                }
+            }
+        }
+    }
 }
