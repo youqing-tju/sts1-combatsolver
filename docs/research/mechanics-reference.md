@@ -3306,3 +3306,42 @@ if (card.type == ATTACK
 与这两件遗物无关，属于**已知缺口** —— 也就是说「手上有 Burn」这类局面目前是低估伤害的。
 
 全量 **450 条**通过；遗物镜像 **38 件**。
+
+### 33.53 手牌的在手被动（Burn / Decay / Regret / Doubt / Shame / Pain / Void / 虚体）2026-10-26
+
+这是 §33.52 里点名的「已知缺口」，现在补上了。
+
+🔴 **关键事实：这些效果全写在卡自己的 `use()` 里，靠 `CardQueueItem(card, true)`
+「按触发方式打一遍」才生效** —— 每个 `use()` 的第一句都是
+
+```java
+if (this.dontTriggerOnUseCard) { ...真正的内容... }
+```
+
+`dontTriggerOnUseCard` 只在「触发方式」下为真。所以：
+**用蓝蜡烛/医疗包主动打出 Burn，反而什么都不发生** —— 我们给它注册的**空效果镜像是对的**
+（这一点有专门测试钉住，免得以后有人「顺手补上」）。
+
+| 卡 | 类别 | 时机 | 实际动作（字节码） |
+|---|---|---|---|
+| `Burn` | 状态 | 回合末 | `DamageAction(player, DamageInfo(player, 2, THORNS))` —— **吃格挡** |
+| `Decay` | 诅咒 | 回合末 | 同上，2 点 |
+| `Regret` | 诅咒 | 回合末 | `LoseHPAction(player, player, magicNumber)`，而 `magicNumber = 当时手牌数`（`triggerOnEndOfTurnForPlayingCard` 里现算）→ **HP_LOSS，无视图格挡** |
+| `Doubt` | 诅咒 | 回合末 | `WeakPower(player, 1)` —— 吃姜 |
+| `Shame` | 诅咒 | 回合末 | `FrailPower(player, 1)` —— 吃萝卜 |
+| `Pain` | 诅咒 | 打出别的牌时 | `LoseHPAction(player, player, 1)` —— HP_LOSS |
+| `Void` | 状态 | 抽到时 | `LoseEnergyAction(1)`（夹在 0） |
+
+**虚体**（`isEthereal`）：字节级核实有该字段写入的只有
+**`Dazed` / `VoidCard` / `AscendersBane` / `Clumsy`** 四张；
+`Burn` / `Slimed` / `Wound` / `Decay` / `Regret` / `Doubt` / `Shame` / `Pain` 都**不是**虚体。
+实现在 `SimCard.isEthereal()`（按 ID 判，不加字段）。
+
+**虚体 vs 符文金字塔**：虚体的消耗**不在** `DiscardAtEndOfTurnAction` 里，所以
+「符文金字塔不弃手牌」**救不了**虚体牌 —— 它照样在回合末被消耗。测试钉住了这条。
+
+⚠️ **顺序没核实**：金属化（给格挡）与手牌触发（Burn 伤害）谁先。影子按
+「先能力、再手牌」写（`endTurn` 的 ① → ①.5）。影响面只有「同一回合既有金属化又摸到 Burn」，
+对拍出现 2 点差异时先查这条。
+
+全量 **459 条**通过。

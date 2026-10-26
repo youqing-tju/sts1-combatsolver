@@ -52,6 +52,17 @@ public final class Hooks {
 
     /** 一张牌结算完（原版 UseCardAction 末尾）。 */
     public static void onCardUsed(SimState state, SimCard card, int targetIndex) {
+        // Pain.triggerOnOtherCardPlayed（痛楚诅咒）：手里有 Pain 时，每打出**别的**一张牌
+        // 就 LoseHPAction(player, player, 1)（HP_LOSS：无视图格挡）。
+        // 打 Pain 自己时它已经从手牌里移除了，所以这里遍历不到它 —— 与原版一致。
+        for (SimCard inHand : state.hand) {
+            if ("Pain".equals(inHand.id)) {
+                io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(state, 1, null,
+                        io.github.youqing.sts1solver.sim.DamageKind.HP_LOSS);
+                break;
+            }
+        }
+
         HookContext ctx = HookContext.none();
         ctx.card = card;
         ctx.targetIndex = targetIndex;

@@ -75,6 +75,21 @@ public final class SimCard {
         return "POWER".equals(type);
     }
 
+    /**
+     * 虚体（{@code AbstractCard.isEthereal}）：回合结束**在手上就直接消耗**，不进弃牌堆。
+     *
+     * <p>从字节码逐类核实（类文件里有没有 {@code isEthereal} 字段写入）：
+     * {@code Dazed} / {@code VoidCard} / {@code AscendersBane} / {@code Clumsy} 有，
+     * {@code Burn} / {@code Slimed} / {@code Wound} / {@code Decay} / {@code Regret} /
+     * {@code Doubt} / {@code Shame} / {@code Pain} 没有。
+     *
+     * <p>用 ID 判而不是加字段：虚体是「这张牌本身」的属性，捕获时也不需要额外信息。
+     */
+    public boolean isEthereal() {
+        return "Dazed".equals(id) || "Void".equals(id)
+                || "AscendersBane".equals(id) || "Clumsy".equals(id);
+    }
+
     /** 改**永久**费用（本场 0 费 / 永久降费）。 */
     public SimCard withCost(int newCost) {
         return new SimCard(id, upgraded, newCost, baseDamage, type, costForTurn);

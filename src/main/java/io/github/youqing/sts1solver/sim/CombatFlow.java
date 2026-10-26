@@ -37,6 +37,9 @@ public final class CombatFlow {
         // ① 弃手牌之前：金属化
         Hooks.firePhase(state, HookPhase.END_OF_TURN_PRE_CARDS);
 
+        // ①.5 手牌的在手被动（原版 AbstractPlayer.applyEndOfTurnPreEndTurnCards）
+        applyEndOfTurnHandCards(state);
+
         // ② 手牌进弃牌堆（符文金字塔除外：DiscardAtEndOfTurnAction 里
         //    `if (hasRelic("Runic Pyramid") || hasPower("Equilibrium")) return;` 整段跳过）
         if (!state.relics.containsKey(io.github.youqing.sts1solver.mirror.hooks.RelicHooks
@@ -212,6 +215,49 @@ public final class CombatFlow {
         // 怀表（atTurnStartPostDraw）必须在**抽完牌之后**，否则它抽的 3 张会被算进正常抽牌
         io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onPlayerTurnStartPostDraw(state);
         Hooks.firePhase(state, HookPhase.START_OF_TURN_POST_DRAW);
+    }
+
+    /**
+     * 回合结束时「手牌自己的被动」（原版 {@code AbstractPlayer.applyEndOfTurnPreEndTurnCards}
+     * → 每张手牌 {@code triggerOnEndOfTurnForPlayingCard()}）。
+     *
+     * <p>🔴 这些效果都写在卡的 **{@code use()}** 里，靠 {@code CardQueueItem(card, true)}
+     * 「按触发方式打一遍」才生效（`dontTriggerOnUseCard` 为真才执行）——
+     * 所以用蓝蜡烛/医疗包**主动打出**它们时反而什么都不发生（我们的空效果镜像是对的）。
+     *
+     * <pre>
+     * Burn  / Decay  → DamageAction(player, DamageInfo(player, 2, THORNS))   // 吃格挡
+     * Regret         → LoseHPAction(player, player, magicNumber = 当时手牌数)  // HP_LOSS，无视图格挡
+     * Doubt          → WeakPower(player, 1)     // 吃姜
+     * Shame          → FrailPower(player, 1)    // 吃萝卜
+     * 虚体（Dazed / Void / AscendersBane / Clumsy）→ 直接消耗，不进弃牌堆
+     * </pre>
+     *
+     * <p>⚠️ 顺序（金属化 vs 这些触发）没有在字节码里核实到调用点：影子按
+     * 「先能力（金属化给格挡）、再手牌触发」写 —— 影响面仅限「同一回合既有金属化又摸到 Burn」，
+     * 对拍出现 2 点差异时先查这条。
+     */
+    private static void applyEndOfTurnHandCards(SimState state) {
+        // Regret 的数值是**触发那一刻**的手牌数（含 Regret 自己），先记下来
+        int handSize = state.hand.size();
+        for (SimCard card : new java.util.ArrayList<SimCard>(state.hand)) {
+            if (card.isEthereal()) {
+                // 虚体：回合结束在手上就消耗（符文金字塔也救不了它 —— 原版的虚体处理
+                // 不在 DiscardAtEndOfTurnAction 里，所以「不弃手牌」不影响它）
+                state.hand.remove(card);
+                io.github.youqing.sts1solver.mirror.Effects.exhaustCard(state, card);
+                continue;
+            }
+            if ("Burn".equals(card.id) || "Decay".equals(card.id)) {
+                hitPlayer(state, 2, null, DamageKind.THORNS);
+            } else if ("Regret".equals(card.id)) {
+                hitPlayer(state, handSize, null, DamageKind.HP_LOSS);
+            } else if ("Doubt".equals(card.id)) {
+                addPlayerDebuff(state, "Weakened", 1);
+            } else if ("Shame".equals(card.id)) {
+                addPlayerDebuff(state, "Frail", 1);
+            }
+        }
     }
 
     /**
@@ -763,6 +809,10 @@ public final class CombatFlow {
                     state.draw.remove(state.draw.size() - 1);
             drawn = applyConfusion(state, drawn);
             state.hand.add(drawn);
+            // VoidCard.triggerWhenDrawn → LoseEnergyAction(1)（能量夹在 0）
+            if ("Void".equals(drawn.id)) {
+                state.energy = Math.max(0, state.energy - 1);
+            }
             if ("STATUS".equals(drawn.type)) {
                 statusDrawn++;
             }
