@@ -23,7 +23,7 @@ public final class Hooks {
     /** 减益白名单：只有这些状态被打到敌人身上时才会触发「残虐天性」。 */
     private static final Set<String> DEBUFFS = new HashSet<String>(Arrays.asList(
             "Vulnerable", "Weakened", "Frail", "Poison", "Entangled", "No Draw",
-            "Confused", "Constricted", "Hex", "Mark", "Shackled", "Flex",
+            "Confusion", "Constricted", "Hex", "Mark", "Shackled", "Flex",
             "DexLoss", "Slow", "Weak"));
 
     private Hooks() {

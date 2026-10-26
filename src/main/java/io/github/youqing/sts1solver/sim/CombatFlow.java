@@ -572,20 +572,42 @@ public final class CombatFlow {
      * <p>这不只是「费用变随机」——它把整手牌的出牌顺序都打乱了，搜索要是按原费用算，
      * 面对 Snecko 的每条路线都会偏乐观。所以必须建模。
      */
+    /**
+     * 蛇眼（{@code SneckoEye.atPreBattle} 挂的 {@code ConfusionPower.onCardDraw}）：
+     * **每抽到一张牌**就把它费用重掷成 {@code cardRandomRng.random(3)}（0..3）。
+     *
+     * <pre>
+     * if (card.cost >= 0) {
+     *     int r = cardRandomRng.random(3);
+     *     if (card.cost != r) { card.cost = r; card.costForTurn = r; card.isCostModified = true; }
+     *     card.freeToPlayOnce = false;
+     * }
+     * </pre>
+     *
+     * <p>🔴 这个能力 ID 是 **{@code "Confusion"}**，不是 "Confused"。以前这里按描述写成
+     * "Confused"，`capture()` 用 {@code pw.ID} 当 key → **永远匹配不上**，蛇眼等于没做
+     * （2026-10-26 查出来的死条目）。另外 {@code ConfusionPower} 的 {@code amount} 恒为 0，
+     * 所以判据必须是 {@code containsKey} 而不是 {@code > 0}。
+     */
     private static SimCard applyConfusion(SimState state, SimCard card) {
-        Integer confused = state.playerPowers.get("Confused");
-        if (confused == null || confused <= 0) {
+        if (!state.playerPowers.containsKey("Confusion")) {
+            return card;
+        }
+        if (card.cost < 0) {
+            // X 费（-1）与打不出（-2）都不重掷，也不消耗随机数
             return card;
         }
         RngStream rng = state.rng.get(SimState.RngKind.CARD);
         if (rng == null) {
-            return card;
+            // 快照里没有 cardRandomRng：显式拒绝，别假装重掷过（那样算出来的路线全是假的）
+            throw new io.github.youqing.sts1solver.mirror.ActionRejected(
+                    "Confusion (Snecko Eye) needs the CARD rng stream, snapshot has none");
         }
         int newCost = rng.random(3);
         if (newCost == card.cost) {
-            return card;
+            return card;    // 掷到原值：原版什么都不写（costForTurn 保持 -1）
         }
-        return new SimCard(card.id, card.upgraded, newCost, card.baseDamage, card.type);
+        return card.withCost(newCost).withCostForTurn(newCost);
     }
 
     private static void clearCostForTurn(java.util.List<SimCard> pile) {

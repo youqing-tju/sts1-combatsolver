@@ -61,6 +61,8 @@ public final class Coverage {
                     "Red Skull",
                     // 手牌保留（2026-10-26）
                     "Runic Pyramid",
+                    // 蛇眼：+2 手牌走 gameHandSize（捕获时已含），费用随机的 Confusion 走抽牌
+                    "Snecko Eye",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));

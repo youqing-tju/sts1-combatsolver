@@ -3139,3 +3139,28 @@ ID 全部按构造器首参核实（又是一堆空格差异）：
 下一回合抽牌会被上限卡住 —— 这与原版一致（`draw` 里 `if (hand.size() >= 10) break`）。
 
 全量 **429 条**通过；遗物镜像 **20 件**。
+
+### 33.47 SneckoEye / ConfusionPower —— 抓到一个「两边一起错」的死条目 2026-10-26
+
+🔴 **`ConfusionPower.POWER_ID` 是 `"Confusion"`，不是 `"Confused"`。**
+而 `CombatFlow.applyConfusion` 里查的是 `"Confused"`、单元测试灌的也是 `"Confused"`
+—— **生产代码与测试一起错**，所以测试一直是绿的，但真实游戏里 `capture()` 用
+`pw.ID` 当 key，永远匹配不上 ⇒ **蛇眼的「抽到的牌费用随机」从来没生效过**。
+这是本项目第 N 次踩同一个坑：**按描述/记忆写能力名**。
+
+顺带两条同源细节：
+- `ConfusionPower` 的 `amount` **恒为 0**（构造器只写 ID/name/type，没有 setAmount），
+  所以判据必须是 `containsKey`，写成 `> 0` 也会静默失效。
+- 重掷是 `cardRandomRng.random(3)`，`cost < 0`（X 费 / 打不出）**既不重掷也不消耗随机数**。
+
+`SneckoEye` 本体很简单：
+- `atPreBattle` → `ApplyPowerAction(player, player, ConfusionPower(player))`；
+- `onEquip` / `onUnequip` → `gameHandSize ± 2`。这个**不需要镜像** ——
+  执行侧传进来的 `handSize` 就是 `AbstractDungeon.player.gameHandSize`，
+  穿蛇眼时它已经含 +2 了。
+
+影子落点：`CombatFlow.applyConfusion`（在 `draw` 里逐张调用）。
+快照里没有 `cardRandomRng` 时**显式 `ActionRejected`**，不再「静默按原费用继续」
+（那会让整条路线建立在假费用上）。
+
+全量 **430 条**通过；遗物镜像 **21 件**。

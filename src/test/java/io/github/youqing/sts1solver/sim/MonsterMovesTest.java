@@ -1545,14 +1545,22 @@ class MonsterMovesTest {
         assertEquals(3, decide("Snecko", history(2, 2), 90, 0, 0).id, "连咬两口 → Glare");
     }
 
-    /** 混乱：每抽一张牌都消耗一次 cardRandomRng，并把费用改成掷出来的值。 */
+    /**
+     * 混乱（{@code ConfusionPower}，蛇眼挂的）：每抽一张牌都消耗一次 cardRandomRng，
+     * 并把费用改成掷出来的值。
+     *
+     * <p>🔴 能力 ID 是 **{@code "Confusion"}**，且 {@code amount} 恒为 0
+     * （{@code ConfusionPower} 构造器只写 ID/name/type，没有 setAmount）。
+     * 以前这条测试灌的是 "Confused"、生产代码查的也是 "Confused" ——
+     * 两边一起错，测试绿着但真实游戏里永远匹配不上（2026-10-26 修正）。
+     */
     @Test
     void confusionRerollsEveryDrawnCardCost() {
         SimState s = new SimState();
         s.hp = 50;
         s.maxHp = 80;
         s.energy = 3;
-        s.playerPowers.put("Confused", Integer.valueOf(1));
+        s.playerPowers.put("Confusion", Integer.valueOf(0));
         s.rng.put(SimState.RngKind.CARD, RngStream.from(11L, 22L, 0));
         for (int i = 0; i < 5; i++) {
             s.draw.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));

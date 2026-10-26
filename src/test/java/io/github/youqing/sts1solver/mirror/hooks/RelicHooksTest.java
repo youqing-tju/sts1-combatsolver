@@ -11,6 +11,7 @@ import io.github.youqing.sts1solver.sim.SimMonster;
 import io.github.youqing.sts1solver.sim.SimState;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 遗物第二批：被动 / 回合钩子（纸青蛙 / 鸟居 / 水银沙漏 / 号角夹板 / 舵轮 / 山铜）。
@@ -493,5 +494,44 @@ class RelicHooksTest {
         CombatFlow.endTurn(s2, 3, 5);
         assertEquals(5, s2.hand.size());
         assertEquals(2, s2.discard.size(), "旧手牌进了弃牌堆");
+    }
+    /**
+     * 蛇眼：{@code ConfusionPower.onCardDraw} —— **抽到的牌**费用重掷成 0..3。
+     *
+     * <p>🔴 能力 ID 是 {@code "Confusion"}（不是 "Confused"），且 {@code amount} 恒为 0，
+     * 所以判据必须是 {@code containsKey}。以前写成 "Confused" + {@code > 0}，
+     * 两条都错 → 蛇眼从来没生效过。
+     */
+    @Test
+    void sneckoEyeRandomizesCostOfEveryDrawnCard() {
+        SimState s = fight();
+        s.playerPowers.put("Confusion", Integer.valueOf(0));
+        s.rng.put(SimState.RngKind.CARD,
+                io.github.youqing.sts1solver.sim.RngStream.from(4242L, 777L, 0));
+        for (int i = 0; i < 5; i++) {
+            s.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+        s.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Whirlwind", false, -1, 5, "ATTACK"));
+
+        CombatFlow.drawCards(s, 6);
+
+        assertEquals(6, s.hand.size());
+        // 抽牌从堆顶（list 尾部）弹：最后加进去的 Whirlwind 最先到手
+        assertEquals(-1, s.hand.get(0).cost, "X 费牌不动");
+        for (int i = 1; i < 6; i++) {
+            int cost = s.hand.get(i).cost;
+            assertTrue(cost >= 0 && cost <= 3, "重掷后落在 0..3，实际 " + cost);
+        }
+        assertEquals(5, s.rng.get(SimState.RngKind.CARD).counter(),
+                "只有 5 张能打的牌各抽一次（X 费不消耗随机）");
+
+        // 没有 Confusion：费用原样（也不消耗随机）
+        SimState s2 = fight();
+        s2.rng.put(SimState.RngKind.CARD,
+                io.github.youqing.sts1solver.sim.RngStream.from(4242L, 777L, 0));
+        s2.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        CombatFlow.drawCards(s2, 1);
+        assertEquals(1, s2.hand.get(0).cost);
+        assertEquals(0, s2.rng.get(SimState.RngKind.CARD).counter());
     }
 }
