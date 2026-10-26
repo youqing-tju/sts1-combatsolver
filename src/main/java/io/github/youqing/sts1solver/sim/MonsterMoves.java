@@ -213,6 +213,11 @@ public final class MonsterMoves {
         MACHINES.put("Hexaghost", new HexaghostMachine());
         MACHINES.put("BanditBear", new BanditBearMachine());
         MACHINES.put("BanditLeader", new BanditLeaderMachine());
+        MACHINES.put("OrbWalker", new OrbWalkerMachine());
+        MACHINES.put("Maw", new MawMachine());
+        MACHINES.put("Transient", new TransientMachine());
+        MACHINES.put("Repulsor", new RepulsorMachine());
+        MACHINES.put("Spiker", new SpikerMachine());
     }
 
     private MonsterMoves() {
@@ -2151,6 +2156,146 @@ public final class MonsterMoves {
         private static MonsterMove divider(Context c) {
             int hp = c.state == null ? 12 : c.state.hp;
             return MonsterMove.multiAttack(1, hp / 12 + 1, 6);
+        }
+    }
+
+    /**
+     * 尖刺者（{@code Spiker}，第三章）。
+     *
+     * <pre>
+     * thornsCount &gt; 5                  → 1 打一下（7|9）
+     * num &lt; 50 且上一招不是 1          → 1 打一下
+     * 否则                             → 2 Sharpen：thornsCount++，自己 Thorns +2
+     * </pre>
+     *
+     * <p>开场自带的 Thorns 3（A2: 4）是 {@code usePreBattleAction} 挂的，**真机快照里已经有了**，
+     * 不用我们复现；翻倍的部分才走 {@code selfBuff}。
+     * 玩家打它时的荆棘反伤由 {@code DamageCalc.applyThorns}（已存在）负责。
+     * {@code thornsCount} 从 0 起、只在 2 号招里 +1 → 直接数历史里 2 的个数。
+     */
+    static final class SpikerMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int attack = c.baseDamage(0, c.ascension >= 2 ? 9 : 7);
+            int sharpenTimes = 0;
+            for (Integer id : c.history) {
+                if (id.intValue() == 2) {
+                    sharpenTimes++;
+                }
+            }
+            if (sharpenTimes > 5) {
+                return MonsterMove.attack(1, attack);
+            }
+            if (c.num < 50 && !c.lastMove(1)) {
+                return MonsterMove.attack(1, attack);
+            }
+            return MonsterMove.buff(2, "Thorns", 2);
+        }
+    }
+
+    /**
+     * 观测者（{@code OrbWalker}，第三章）。两招交替，靠 num 与「连着两次」互斥：
+     * <pre>
+     * num &lt; 40 且最近不是连着两次 2 → 2 号招（15|16 伤，单段）
+     * num &lt; 40 且刚连打两次 2     → 1 号招（10|11 伤 + 塞 1 张 Burn）
+     * num ≥ 40 且不是连着两次 1   → 1 号招
+     * num ≥ 40 且刚连打两次 1     → 2 号招
+     * </pre>
+     *
+     * <p>⚠️ 原版字段名是反的：{@code damage[0]} 存的是 {@code laserDmg} 但给 1 号招用，
+     * {@code damage[1]} 存的是 {@code clawDmg} 却给 2 号招用。照数值抄，别照名字抄。
+     *
+     * <p>1 号招原版是 {@code MakeTempCardInDiscardAndDeckAction}：同时往弃牌堆和**主牌组**
+     * 各塞一张 Burn（主牌组那张是全流程污染，不在战斗层）。这里只建弃牌堆那张。
+     */
+    static final class OrbWalkerMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int withBurn = c.baseDamage(0, c.ascension >= 2 ? 11 : 10);
+            int plain = c.baseDamage(1, c.ascension >= 2 ? 16 : 15);
+            boolean low = c.num < 40;
+            int heavy = low ? 2 : 1;
+            if (!c.lastTwoMoves(heavy)) {
+                return heavy == 2 ? MonsterMove.attack(2, plain)
+                        : MonsterMove.attackStatus(1, withBurn, "Burn", 1);
+            }
+            return heavy == 2 ? MonsterMove.attackStatus(1, withBurn, "Burn", 1)
+                    : MonsterMove.attack(2, plain);
+        }
+    }
+
+    /**
+     * 大嘴（{@code Maw}，第三章）。
+     *
+     * <pre>
+     * 第 1 次决策（还没吼过）→ 2 Roar：玩家 Weak 3 + Frail 3（A17: 各 5）
+     * 之后 num &lt; 50 且上一招不是 5 → 5 Nom：5 伤 × (turnCount / 2) 段
+     * 否则上一招是 3 或 5      → 4 Bellow：自己 +力量 3（A17: 5）
+     * 否则                      → 3 Slam：25 伤（A2: 30）
+     * </pre>
+     *
+     * <p>{@code turnCount} 从 1 开始、每次 {@code getMove} 开头 +1，所以第 n 次决策时等于
+     * {@code n + 1}；历史长度就是已出招次数，于是 {@code turnCount = history.size() + 2}。
+     * Nom 的段数是 {@code turnCount / 2}（1、2、3…），越拖越痛。
+     */
+    static final class MawMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int terrify = c.ascension >= 17 ? 5 : 3;
+            int strUp = c.ascension >= 17 ? 5 : 3;
+            int slam = c.baseDamage(0, c.ascension >= 2 ? 30 : 25);
+            int nom = c.baseDamage(1, 5);
+            if (!c.history.contains(Integer.valueOf(2))) {
+                return MonsterMove.doubleDebuff(2, "Weakened", terrify, "Frail", terrify);
+            }
+            int turnCount = c.history.size() + 2;
+            if (c.num < 50 && !c.lastMove(5)) {
+                return MonsterMove.multiAttack(5, nom, Math.max(1, turnCount / 2));
+            }
+            if (c.lastMove(3) || c.lastMove(5)) {
+                return MonsterMove.buff(4, "Strength", strUp);
+            }
+            return MonsterMove.attack(3, slam);
+        }
+    }
+
+    /**
+     * 瞬息（{@code Transient}，第三章）。只有一招，但**每回合更痛、而且会自己消散**：
+     * <pre>
+     * getMove：setMove(1, ATTACK, startingDeathDmg + count * 10)   // 30|40 起
+     * takeTurn：打一下 → count++ → 再 setMove(同上)
+     * FadingPower：A17 起 6、否则 5，每回合开始 -1，减到 0 当场死
+     * </pre>
+     *
+     * <p>{@code count} 就是已出招次数 = {@code history.size()}。
+     * <b>Fading 不是这只怪的私有逻辑</b>，它由 {@code CombatFlow} 在怪物回合开始时统一递减
+     * （见那里的注释）—— 不建的话 Transient 会永远打下去。
+     */
+    static final class TransientMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int base = c.baseDamage(0, c.ascension >= 2 ? 40 : 30);
+            return MonsterMove.attack(1, base + c.history.size() * 10);
+        }
+    }
+
+    /**
+     * 排斥者（{@code Repulsor}，第三章）。
+     *
+     * <pre>
+     * num &lt; 20 且上一招不是 2 → 2 打一下（11|13 伤）
+     * 否则                     → 1 Daze：往**抽牌堆**塞 2 张 Dazed
+     * </pre>
+     *
+     * <p>它和 Sentry 塞 Dazed 的区别是**进抽牌堆**（会马上摸到），不是弃牌堆。
+     */
+    static final class RepulsorMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            if (c.num < 20 && !c.lastMove(2)) {
+                return MonsterMove.attack(2, c.baseDamage(0, c.ascension >= 2 ? 13 : 11));
+            }
+            return MonsterMove.extra(1, MonsterMove.Extra.statusToDraw("Dazed", 2));
         }
     }
 

@@ -2192,4 +2192,150 @@ class MonsterMovesTest {
         assertEquals(3, decide("BanditLeader", history(2, 3, 1, 1), 50, 0, 0).id,
                 "A17 以下不会连刺");
     }
+
+    // ============================ 第二十一批：第三章先头（OrbWalker / Maw / Transient / Repulsor）============================
+
+    /** 观测者：两招互斥，num 只决定「先打哪一招」。 */
+    @Test
+    void orbWalkerAlternatesClawAndLaser() {
+        MonsterMove laser = decide("OrbWalker", history(), 10, 0, 0);
+        assertEquals(2, laser.id, "num<40 → 先打 2 号招");
+        assertEquals(15, laser.damage, "A0：15 伤");
+        assertEquals(16, decide("OrbWalker", history(), 10, 0, 2).damage, "A2 起 16");
+
+        MonsterMove claw = decide("OrbWalker", history(2, 2), 10, 0, 0);
+        assertEquals(1, claw.id, "连着两次 2 号招 → 换 1 号招（带 Burn）");
+        assertEquals(10, claw.damage, "A0：10 伤");
+        assertEquals("Burn", claw.statusCard);
+        assertEquals(1, claw.statusCount);
+
+        assertEquals(1, decide("OrbWalker", history(), 60, 0, 0).id, "num>=40 → 先打带 Burn 的那招");
+        assertEquals(2, decide("OrbWalker", history(1, 1), 60, 0, 0).id, "连着两次 → 换另一招");
+    }
+
+    /** 大嘴：先吼，之后 Nom（段数随回合涨）/ Bellow / Slam 三选一。 */
+    @Test
+    void mawRoarsThenEscalates() {
+        MonsterMove roar = decide("Maw", history(), 50, 0, 0);
+        assertEquals(2, roar.id, "第一招必是 Roar");
+        assertEquals("Weakened", roar.playerDebuff);
+        assertEquals(3, roar.playerDebuffAmount, "A17 以下 Weak 3");
+        assertEquals("Frail", roar.playerDebuff2);
+        assertEquals(3, roar.playerDebuff2Amount);
+        assertEquals(5, decide("Maw", history(), 50, 0, 17).playerDebuffAmount, "A17 起 Weak 5");
+
+        MonsterMove nom = decide("Maw", history(2), 10, 0, 0);
+        assertEquals(5, nom.id, "num<50 → Nom");
+        assertEquals(5, nom.damage, "每段 5");
+        assertEquals(1, nom.hits, "第 2 次决策 turnCount=3 → 3/2 = 1 段");
+        assertEquals(2, decide("Maw", history(2, 5, 3), 10, 0, 0).hits, "第 4 次决策 turnCount=5 → 2 段");
+
+        MonsterMove slam = decide("Maw", history(2), 60, 0, 0);
+        assertEquals(3, slam.id, "num>=50 且上一招不是 3/5 → Slam");
+        assertEquals(25, slam.damage, "A0：25 伤");
+        assertEquals(30, decide("Maw", history(2), 60, 0, 2).damage, "A2 起 30");
+
+        MonsterMove bellow = decide("Maw", history(2, 3, 5), 60, 0, 0);
+        assertEquals(4, bellow.id, "上一招是 Slam/Nom → Bellow");
+        assertEquals("Strength", bellow.selfBuff);
+        assertEquals(3, bellow.selfBuffAmount, "A17 以下 +3");
+        assertEquals(5, decide("Maw", history(2, 3, 5), 60, 0, 17).selfBuffAmount, "A17 起 +5");
+    }
+
+    /** 瞬息：伤害每回合 +10，且 Fading 到点会自己消失。 */
+    @Test
+    void transientRampsUpDamage() {
+        assertEquals(30, decide("Transient", history(), 50, 0, 0).damage, "A0：30 起");
+        assertEquals(40, decide("Transient", history(), 50, 0, 2).damage, "A2 起 40");
+        assertEquals(40, decide("Transient", history(1), 50, 0, 0).damage, "每出一招 +10");
+        assertEquals(50, decide("Transient", history(1, 1), 50, 0, 0).damage);
+    }
+
+    /** 瞬息：Fading 递减到 0 时**在出招前**死掉（不是打完再死）。 */
+    @Test
+    void transientFadesAwayBeforeActing() {
+        SimMonster t = new SimMonster("Transient", 999, 999, 0, NO_POWERS);
+        t.powers.put("Fading", 2);
+        SimState s = field(t);
+        MonsterMove atk = decideIn(s, "Transient", t, history(), 50, 0);
+        t.pendingMove = atk;
+        t.pendingMoveId = atk.id;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(1, t.powers.get("Fading").intValue(), "Fading 2 → 1，还活着");
+        int hpAfterFirst = s.hp;
+        t.pendingMove = decideIn(s, "Transient", t, history(1), 50, 0);
+        t.pendingMoveId = t.pendingMove.id;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(0, t.hp, "Fading 到 0 → 消散");
+        assertEquals(hpAfterFirst, s.hp, "消散那一回合不再出招，玩家不掉血");
+    }
+
+    /** 排斥者：大概率塞 Dazed（进抽牌堆），不会连着打两下。 */
+    @Test
+    void repulsorDazesInsteadOfAttacking() {
+        MonsterMove hit = decide("Repulsor", history(), 10, 0, 0);
+        assertEquals(2, hit.id, "num<20 → 打一下");
+        assertEquals(11, hit.damage, "A0：11 伤");
+        assertEquals(13, decide("Repulsor", history(), 10, 0, 2).damage, "A2 起 13");
+
+        MonsterMove daze = decide("Repulsor", history(), 60, 0, 0);
+        assertEquals(1, daze.id, "num>=20 → Daze");
+        assertEquals("Dazed", daze.extra.statusDrawCard);
+        assertEquals(2, daze.extra.statusDrawCount, "两张");
+        assertEquals(1, decide("Repulsor", history(2), 10, 0, 0).id, "刚打过就不能再打");
+    }
+
+    /** 排斥者的 Dazed 真的进**抽牌堆**（不是弃牌堆）。 */
+    @Test
+    void repulsorDazedGoesIntoDrawPile() {
+        SimMonster repulsor = new SimMonster("Repulsor", 35, 35, 0, NO_POWERS);
+        SimState s = field(repulsor);
+        s.draw.add(new SimCard("Strike", false, 1, 6, "ATTACK"));
+        s.draw.add(new SimCard("Defend", false, 1, -1, "SKILL"));
+        MonsterMove daze = decideIn(s, "Repulsor", repulsor, history(), 60, 0);
+        repulsor.pendingMove = daze;
+        repulsor.pendingMoveId = daze.id;
+        CombatFlow.endTurn(s, 3, 5);
+        // 注意 endTurn 末尾会**抽新的一手牌**，所以 Dazed 可能已经进了手牌 —— 三堆一起数
+        int dazed = 0;
+        for (java.util.List<SimCard> pile : java.util.Arrays.asList(s.hand, s.draw, s.discard)) {
+            for (SimCard card : pile) {
+                if ("Dazed".equals(card.id)) {
+                    dazed++;
+                }
+            }
+        }
+        assertEquals(2, dazed, "两张 Dazed 进了牌堆（不是弃牌堆之外的地方）");
+    }
+
+    /** 尖刺者：多数时候打人，偶尔磨刺；磨满 6 次就只打不磨。 */
+    @Test
+    void spikerSharpensUpToSixTimes() {
+        MonsterMove hit = decide("Spiker", history(), 10, 0, 0);
+        assertEquals(1, hit.id, "num<50 → 打");
+        assertEquals(7, hit.damage, "A0：7 伤");
+        assertEquals(9, decide("Spiker", history(), 10, 0, 2).damage, "A2 起 9");
+
+        MonsterMove sharpen = decide("Spiker", history(1), 60, 0, 0);
+        assertEquals(2, sharpen.id, "num>=50 → 磨刺");
+        assertEquals("Thorns", sharpen.selfBuff);
+        assertEquals(2, sharpen.selfBuffAmount, "每次 +2 荆棘");
+
+        assertEquals(2, decide("Spiker", history(1, 1), 10, 0, 0).id, "刚打过就不能连打 → 只能磨刺");
+        MonsterMove late = decide("Spiker", history(1, 2, 2, 2, 2, 2, 2), 60, 0, 0);
+        assertEquals(1, late.id, "thornsCount 到 6 之后哪怕 num 很大也只打");
+    }
+
+    /** 尖刺者的荆棘反伤：玩家打它 → 玩家掉血（走 DamageCalc.applyThorns）。 */
+    @Test
+    void spikerThornsHurtsThePlayer() {
+        SimMonster spiker = new SimMonster("Spiker", 50, 50, 0, NO_POWERS);
+        spiker.powers.put("Thorns", 3);
+        SimState s = field(spiker);
+        s.hp = 70;
+        int before = s.hp;
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, spiker, 10);
+        assertEquals(40, spiker.hp, "50 - 10 = 40（没格挡）");
+        assertEquals(before - 3, s.hp, "玩家吃 3 点荆棘反伤");
+    }
 }

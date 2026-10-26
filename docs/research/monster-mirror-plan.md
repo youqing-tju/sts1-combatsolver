@@ -52,6 +52,11 @@
 | `BronzeOrb` | 2 | Stasis 只放一次；Flux 给 **BronzeAutomaton** 加 12 格挡；两下一循环 |
 | `BronzeAutomaton` | 2（boss） | 4→1→5→1→5→2→3 固定循环（`numTurns` 只能从历史重放）；BOOST 召 2 个铜球 |
 | `Champ` | 2（boss） | 三阶段：半血狂暴（自 +3×力量并清自身减益）、第 4 回合 Taunt（**不打人**）、半血后连打两下重斩；姿态最多两次、门槛 `num≤15`（A19: 30）。`numTurns/threshold/forgeTimes` 全部从 `moveHistory` 重放 |
+| `OrbWalker` | 3 | 两招互斥（连打两次就换）；带 Burn 的那招 10\|11，另一招 15\|16。原版字段名反着存（`damage[0]` 叫 laserDmg 却给 Claw 用） |
+| `Maw` | 3 | 第 1 招必 Roar（Weak+Frail 3，A17 各 5）；之后 Nom（5 伤 × turnCount/2 段）/ Bellow（+力量）/ Slam（25\|30） |
+| `Transient` | 3 | 一招到底：30\|40 起、每回合 +10；**Fading 5\|6** 到点当场消散（CombatFlow 统一递减） |
+| `Spiker` | 3 | 开场自带 Thorns 3\|4（真机快照已有）；`num<50` 且没连打就刺 7\|9，否则 Sharpen +2 荆棘，磨满 6 次后只刺 |
+| `Repulsor` | 3 | 80% 往**抽牌堆**塞 2 张 Dazed，20% 打 11\|13；不会连着打两下 |
 | `Hexaghost` | 1（boss） | **没有 damage()/die()、6 个 orb 是纯视觉**。真正的状态是 `orbActiveCount`，由三个 `changeState` 改 → 整场是确定性 7 招循环：Activate → Divider(6×[玩家血/12+1]) → Sear→Tackle→Sear→Strengthen→Sear→Tackle→Sear→Inferno→循环 |
 
 **刻意不搬（缺机制，不是缺时间）**：`GremlinThief` / `Looter`（逃逸 + 偷金币 —— 没有离场模型）。
@@ -334,3 +339,46 @@ setMove((byte)1, ATTACK, damage.get(2).base, 6, true);     // 硬设 Divider，�
 
 **教训**：凡是「原版是 `ApplyPowerAction(amt)`」的字段，amt 就是**带符号增量**，
 不要用 `> 0` 判空、也不要用 `Math.max(0, ...)` 夹 —— 那会把减益变成无操作。
+
+---
+
+## D 组落地记录（2026-03 幕先头 4 只，2026-10-26）
+
+第一批挑了 4 只**不需要新玩家侧机制**的：
+
+| 怪 | 关键点 |
+|---|---|
+| `OrbWalker` | 两招互斥（`lastTwoMoves` 判重）；原版字段名反着存 —— `damage[0]` 字段叫 `laserDmg` 却给 1 号招（Claw）用，照数值抄 |
+| `Maw` | `turnCount` 从 1 起、每次 `getMove` 开头 +1 → 第 n 次决策时 `= history.size() + 2`；Nom 段数 `turnCount / 2` |
+| `Transient` | 一招递增 30→40→50…；**Fading 5\|6** 是通用机制，放进 `CombatFlow` 怪物回合开头统一递减 |
+| `Repulsor` | Dazed 进**抽牌堆**（不是弃牌堆）→ 新增 `Extra.statusToDraw`，落地时插在抽牌堆中间（原版随机位置用的是 libgdx `MathUtils.random`，不吃 run seed） |
+
+### 两处新基础设施
+
+1. **`Extra.statusToDraw(card, count)`**：`MakeTempCardInDrawPileAction`。和主字段
+   `statusCard`（`MakeTempCardInDiscardAction`，进弃牌堆）分开 —— 抽牌堆里的牌这一场更容易摸到。
+2. **`Fading` 递减**：`FadingPower.duringTurn()`，每只怪的回合开始时 -1，减到 0 当场死、
+   这回合不出招。不建的话 Transient 会永远打下去，搜索会极度悲观。
+
+### 还没做（D 组剩余 14 只，按「缺什么」排队）
+
+| 缺的机制 | 怪兽 |
+|---|---|
+| **Constricted 的回合末伤害** | `SpireGrowth` |
+| **死亡时爆炸 / 自毁** | `Exploder`（`ExplosivePower` 在字节码里只有 description，触发点待查） |
+| **半血复活 / 形态切换** | `Darkling`（`halfDead` + Reincarnate）、`AwakenedOne`、`TimeEater` |
+| **多段固定循环 + 队友联动** | `Deca` / `Donu`、`SpireShield` / `SpireSpear`、`GiantHead`、`Nemesis`、`WrithingMass`、`SnakeDagger` |
+
+⚠️ 这 14 只**不是「抄不动」而是「抄了会假」**：缺的那条机制不建，影子会把它们的威胁算错
+（例如 SpireGrowth 的 Constrict 每回合 10 点、Spiker 的荆棘 4–10 点）。
+所以先记在这里，等对应机制单独立项再做，不硬上。
+
+### 补记：Spiker 其实**不用新机制**
+
+`applyThorns`（`ThornsPower.onAttacked`）在 `DamageCalc.hit` 里**早就建好了**：玩家攻击带
+Thorns 的怪 → 玩家按 amount 掉血（走格挡）。所以 Spiker 只差一个机器：
+
+- 开场 Thorns 3（A2: 4）是 `usePreBattleAction` 挂的，真机快照里已经有了；
+- `thornsCount` 从 0 起、**只在 2 号招里 +1** → 直接数历史里 2 的个数；
+- 判据顺序：`thornsCount > 5` → 只刺；`num < 50 && !lastMove(1)` → 刺；否则 Sharpen（+2 荆棘）。
+- 注意「刚刺过就不能再刺」这条**和 num 无关** —— 低 num 也只会在磨刺后的一击上生效。

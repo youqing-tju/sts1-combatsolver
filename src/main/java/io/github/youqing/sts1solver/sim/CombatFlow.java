@@ -73,6 +73,17 @@ public final class CombatFlow {
             if (m.hp <= 0) {
                 continue;
             }
+            // FadingPower.duringTurn()（Transient 的「消散」）：它自己的回合开始时 -1，
+            // 减到 0 的那一刻**当场死掉、这回合不出招**。
+            // 建模它的意义：不建的话 Transient 会永远打下去（30/40/50/60…），搜索会极度悲观。
+            Integer fading = m.powers.get("Fading");
+            if (fading != null) {
+                if (fading.intValue() <= 1) {
+                    m.hp = 0;
+                    continue;
+                }
+                m.powers.put("Fading", Integer.valueOf(fading.intValue() - 1));
+            }
             takeTurn(state, m, nextTurn);
             if (m.hp > 0) {
                 rollNextMove(state, m, slot, nextTurn);
@@ -315,6 +326,15 @@ public final class CombatFlow {
             Integer prior = state.playerPowers.get(extra.playerDebuff3);
             state.playerPowers.put(extra.playerDebuff3,
                     (prior == null ? 0 : prior) + extra.playerDebuff3Amount);
+        }
+        if (extra.statusDrawCard != null && extra.statusDrawCount > 0) {
+            // MakeTempCardInDrawPileAction(card, n, true, true)：随机位置插进**抽牌堆**。
+            // 那个「随机位置」用的是 libgdx 的 MathUtils.random，不吃 run seed，我们复现不了；
+            // 这里固定插在中间（≈ 均匀随机的期望），偏差方向是中性的。
+            for (int i = 0; i < extra.statusDrawCount; i++) {
+                int at = state.draw.size() / 2;
+                state.draw.add(at, new SimCard(extra.statusDrawCard, false, -2, -1, "STATUS"));
+            }
         }
         if (extra.cleanseSelf) {
             // 原版 RemoveDebuffsAction：遍历 powers 移除 type == DEBUFF 的。

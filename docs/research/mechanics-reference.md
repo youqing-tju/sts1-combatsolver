@@ -2650,3 +2650,29 @@ Shackled / Lose Strength / Lose Dexterity / Strength Down / Dexterity Down / Slo
 
 **自查口径**：凡是模型里表示「玩家能力增量」的字段，问一句「原版这里传的是负数吗」；
 是就必须能让负数穿到底（构造器 + 落地 + 读数三处都不能夹）。
+
+### 33.32 第三章先头 5 只（OrbWalker / Maw / Transient / Repulsor / Spiker）2026-10-26
+
+| 怪 | 招式表 | 需要的新东西 |
+|---|---|---|
+| `OrbWalker` | `num<40` 先 2 号（15\|16），否则先 1 号（10\|11 + Burn）；`lastTwoMoves` 互斥 | 无（原版字段名反着存，照数值抄） |
+| `Maw` | Roar（Weak+Frail 3\|5）→ Nom（5 伤 × `turnCount/2` 段）/ Bellow（+3\|5 力量）/ Slam（25\|30） | 无（`turnCount = history.size()+2`） |
+| `Transient` | 一招递增：`30|40 + 10×已出招数` | **Fading 递减**（通用，放 CombatFlow） |
+| `Repulsor` | 80% 塞 Dazed×2 进**抽牌堆**，20% 打 11\|13，不连打 | **`Extra.statusToDraw`** |
+| `Spiker` | 刺 7\|9 / Sharpen +2 荆棘（最多 6 次） | 无 —— `applyThorns` 早就有 |
+
+### 两处通用机制
+
+- **`FadingPower.duringTurn`**：怪物回合开始时 amount-1，减到 0 当场死、这回合不出招。
+  不建的话 Transient 会无限打（30/40/50…），搜索会严重悲观。
+- **`Extra.statusToDraw(card, n)`**：`MakeTempCardInDrawPileAction`。插入位置在**抽牌堆中间**
+  （原版随机位置用 libgdx `MathUtils.random`，不吃 run seed，无法也不必复现）。
+
+### 记录在案：SpireGrowth / Exploder 暂缓
+
+- `SpireGrowth` 的 Constrict 是 `ConstrictedPower.atEndOfTurn` → `DamageInfo(type=THORNS)`，
+  需要在玩家回合末加一条「缠绕掉血」；本次先不做（否则它的威胁会被算成 0）。
+- `Exploder` 的 `ExplosivePower` 在字节码里**只有构造器与 updateDescription，没有任何 hook**，
+  `takeTurn` 的 2 号分支也是空 `goto`、没有 `die()` 重写 —— 爆炸触发点还没找到，先不猜。
+
+全量 **348 条**通过；累计 **51 只**。

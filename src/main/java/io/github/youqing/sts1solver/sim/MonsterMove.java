@@ -329,6 +329,12 @@ public final class MonsterMove {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, card, count);
     }
 
+    /** 本体什么都不做、只有 {@link Extra} 载荷（Repulsor 的 Daze：往抽牌堆塞牌）。 */
+    public static MonsterMove extra(int id, Extra extra) {
+        return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, 0, null, 0, extra);
+    }
+
     /** 自己加格挡 + 给所有活着的怪（含自己）挂能力（TheCollector 的 Buff：格挡 + 全队力量）。 */
     public static MonsterMove blockAndBuffAll(int id, int block, String power, int amount) {
         return new MonsterMove(id, 0, 0, block, 0, null, 0, null, 0, null, 0, null, 0,
@@ -422,10 +428,18 @@ public final class MonsterMove {
         public final int playerDebuff3Amount;
         /** 清掉自己身上的所有减益（Champ 半血的 Anger，原版 {@code RemoveDebuffsAction}）。 */
         public final boolean cleanseSelf;
+        /**
+         * 往**抽牌堆**塞的状态牌（Repulsor 的 Dazed）。
+         *
+         * <p>和主字段 {@link #statusCard}（进**弃牌堆**）不是一回事：抽牌堆里的牌这一场
+         * 更容易被摸到，所以单独建。
+         */
+        public final String statusDrawCard;
+        public final int statusDrawCount;
 
         private Extra(Summon summon, String blockAllyType, int blockAllyTypeAmount,
                       int blockAllies, String playerDebuff3, int playerDebuff3Amount,
-                      boolean cleanseSelf) {
+                      boolean cleanseSelf, String statusDrawCard, int statusDrawCount) {
             this.summon = summon;
             this.blockAllyType = blockAllyType;
             this.blockAllyTypeAmount = Math.max(0, blockAllyTypeAmount);
@@ -433,32 +447,39 @@ public final class MonsterMove {
             this.playerDebuff3 = playerDebuff3;
             this.playerDebuff3Amount = Math.max(0, playerDebuff3Amount);
             this.cleanseSelf = cleanseSelf;
+            this.statusDrawCard = statusDrawCard;
+            this.statusDrawCount = Math.max(0, statusDrawCount);
         }
 
         public static Extra summon(Summon summon) {
-            return new Extra(summon, null, 0, 0, null, 0, false);
+            return new Extra(summon, null, 0, 0, null, 0, false, null, 0);
         }
 
         public static Extra blockTypedAlly(String type, int amount) {
-            return new Extra(null, type, amount, 0, null, 0, false);
+            return new Extra(null, type, amount, 0, null, 0, false, null, 0);
         }
 
         public static Extra blockAllies(int amount) {
-            return new Extra(null, null, 0, amount, null, 0, false);
+            return new Extra(null, null, 0, amount, null, 0, false, null, 0);
         }
 
         public static Extra thirdPlayerDebuff(String power, int amount) {
-            return new Extra(null, null, 0, 0, power, amount, false);
+            return new Extra(null, null, 0, 0, power, amount, false, null, 0);
         }
 
         /** 只清自身减益（Champ 的 Anger 另外还给力量，那部分走主字段 selfBuff）。 */
         public static Extra cleanseSelfOnly() {
-            return new Extra(null, null, 0, 0, null, 0, true);
+            return new Extra(null, null, 0, 0, null, 0, true, null, 0);
+        }
+
+        /** 往抽牌堆塞状态牌（Repulsor 的 Dazed）。 */
+        public static Extra statusToDraw(String card, int count) {
+            return new Extra(null, null, 0, 0, null, 0, false, card, count);
         }
 
         public boolean isEmpty() {
             return summon == null && blockAllyType == null && blockAllies <= 0
-                    && playerDebuff3 == null && !cleanseSelf;
+                    && playerDebuff3 == null && !cleanseSelf && statusDrawCard == null;
         }
     }
 
