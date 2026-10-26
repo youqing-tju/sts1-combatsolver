@@ -56,6 +56,15 @@ public final class Potions {
     public static final String FRUIT_JUICE = "Fruit Juice";
     public static final String HEART_OF_IRON = "Heart of Iron";
     public static final String LIQUID_BRONZE = "Liquid Bronze";
+    /**
+     * 第二批（直接效果类）—— ID 有**不带空格**的，逐个 javap 核实过：
+     * {@code EssenceOfSteel} / {@code GhostInAJar} 不带空格；
+     * {@code "Swift Potion"} 带；弱化药水的 ID 是 **{@code "Weak Potion"}**（不是 WeakenPotion）。
+     */
+    public static final String ESSENCE_OF_STEEL = "EssenceOfSteel";
+    public static final String GHOST_IN_A_JAR = "GhostInAJar";
+    public static final String SWIFT_POTION = "Swift Potion";
+    public static final String WEAK_POTION = "Weak Potion";
     /** 三选一发现（走 {@code DiscoveryAction}）。ID **都无空格**。 */
     public static final String POWER_POTION = "PowerPotion";
     public static final String ATTACK_POTION = "AttackPotion";
@@ -125,6 +134,15 @@ public final class Potions {
     /** 液态青铜（{@code LiquidBronze.getPotency} → {@code iconst_3}）：3 层荆棘。 */
     private static final int LIQUID_BRONZE_AMOUNT = 3;
 
+    /** 精钢精华（{@code EssenceOfSteel.getPotency} → {@code iconst_4}）：4 层装甲。 */
+    private static final int ESSENCE_OF_STEEL_AMOUNT = 4;
+    /** 瓶中幽灵（{@code GhostInAJar}）：{@code IntangiblePlayerPower} 1 层。 */
+    private static final int GHOST_IN_A_JAR_AMOUNT = 1;
+    /** 迅捷药水（{@code SwiftPotion}）：{@code DrawCardAction} 3 张。 */
+    private static final int SWIFT_POTION_DRAW = 3;
+    /** 弱化药水（{@code WeakenPotion} → {@code iconst_3}）：单体 3 层虚弱。 */
+    private static final int WEAK_POTION_AMOUNT = 3;
+
     /** 战斗中的默认药水槽上限（{@code PotionSlot}：铁甲战士 2 格）。 */
     public static final int DEFAULT_POTION_SLOTS = 2;
 
@@ -146,7 +164,8 @@ public final class Potions {
     public static boolean needsTarget(String potionId) {
         return FIRE_POTION.equals(potionId)
                 || FEAR_POTION.equals(potionId)
-                || POISON_POTION.equals(potionId);
+                || POISON_POTION.equals(potionId)
+                || WEAK_POTION.equals(potionId);
     }
 
     /**
@@ -273,6 +292,35 @@ public final class Potions {
     public static boolean use(SimState state, String potionId, int targetIndex, int choiceIndex) {
         if (FAIRY_POTION.equals(potionId)) {
             return false;                       // 被动药水，不能主动用
+        }
+        if (ESSENCE_OF_STEEL.equals(potionId)) {
+            // ApplyPowerAction(player, player, PlatedArmorPower(4))
+            state.playerPowers.put("Plated Armor",
+                    amount(state.playerPowers.get("Plated Armor")) + ESSENCE_OF_STEEL_AMOUNT);
+            return true;
+        }
+        if (GHOST_IN_A_JAR.equals(potionId)) {
+            // ApplyPowerAction(player, player, IntangiblePlayerPower(1))
+            state.playerPowers.put("Intangible",
+                    amount(state.playerPowers.get("Intangible")) + GHOST_IN_A_JAR_AMOUNT);
+            // 刚挂上的这一回合**不掉层**（IntangiblePower 的 justApplied）
+            DamageCalc.markIntangibleFresh(state.playerPowers, "Intangible");
+            return true;
+        }
+        if (SWIFT_POTION.equals(potionId)) {
+            // DrawCardAction(player, player, 3, false)
+            io.github.youqing.sts1solver.sim.CombatFlow.drawAfterPotion(state, SWIFT_POTION_DRAW);
+            return true;
+        }
+        if (WEAK_POTION.equals(potionId)) {
+            SimMonster target = monsterAt(state, targetIndex);
+            if (target == null || target.hp <= 0) {
+                return false;
+            }
+            // ApplyPowerAction(target, player, WeakPower(target, 3, true))
+            target.powers.put("Weakened",
+                    amount(target.powers.get("Weakened")) + WEAK_POTION_AMOUNT);
+            return true;
         }
         if (FIRE_POTION.equals(potionId)) {
             SimMonster target = monsterAt(state, targetIndex);

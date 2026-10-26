@@ -547,4 +547,50 @@ class PotionsTest {
         assertEquals(1, m.block, "第二次打 5 伤，格挡吃掉 5 → 剩 1；不再触发蜷缩");
     }
 
+    // ------------------------------------------------------------ 第二批（直接效果类）
+
+    /** 精钢精华：4 层装甲（Plated Armor）。 */
+    @Test
+    void essenceOfSteelGrantsPlatedArmor() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.ESSENCE_OF_STEEL, -1));
+        assertEquals(Integer.valueOf(4), s.playerPowers.get("Plated Armor"));
+        assertTrue(Potions.use(s, Potions.ESSENCE_OF_STEEL, -1));
+        assertEquals(Integer.valueOf(8), s.playerPowers.get("Plated Armor"), "可以叠加");
+    }
+
+    /** 瓶中幽灵：1 层无实体，且刚挂上那回合不掉层（justApplied）。 */
+    @Test
+    void ghostInAJarGrantsFreshIntangible() {
+        SimState s = fight();
+        assertTrue(Potions.use(s, Potions.GHOST_IN_A_JAR, -1));
+        assertEquals(Integer.valueOf(1), s.playerPowers.get("Intangible"));
+        assertTrue(s.playerPowers.containsKey("Intangible#fresh"),
+                "刚挂上要打 fresh 标，否则同一回合末就掉光了");
+
+        int hpBefore = s.hp;
+        io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(s, 30);
+        assertEquals(hpBefore - 1, s.hp, "无实体把 30 点压成 1 点");
+    }
+
+    /** 迅捷药水：抽 3 张。 */
+    @Test
+    void swiftPotionDrawsThree() {
+        SimState s = fight();
+        for (int i = 0; i < 6; i++) {
+            s.draw.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+        assertTrue(Potions.use(s, Potions.SWIFT_POTION, -1));
+        assertEquals(3, s.hand.size());
+    }
+
+    /** 弱化药水：单体 3 层虚弱，且必须指定目标。 */
+    @Test
+    void weakPotionAppliesThreeWeakToItsTarget() {
+        SimState s = fight();
+        assertTrue(Potions.needsTarget(Potions.WEAK_POTION), "单体药水要选目标");
+        assertTrue(Potions.use(s, Potions.WEAK_POTION, 0));
+        assertEquals(Integer.valueOf(3), s.monsters.get(0).powers.get("Weakened"));
+        assertFalse(Potions.use(s, Potions.WEAK_POTION, 5), "目标越界要拒绝");
+    }
 }
