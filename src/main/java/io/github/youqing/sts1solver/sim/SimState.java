@@ -83,6 +83,15 @@ public final class SimState {
     public int energy;
 
     /**
+     * 本回合被**外力提前结束**（{@code TimeWarpPower.onAfterUseCard}：玩家打出第 12 张牌
+     * → {@code callEndTurnEarlySequence()}）。
+     *
+     * <p>语义是「这个局面已经不能再出牌了」：搜索侧看到它是真就必须立刻推过回合末，
+     * 执行侧的回合也可能自己翻页。所以它同时进 {@link #copy()} 和 {@link #fingerprint()}。
+     */
+    public boolean turnForcedEnd;
+
+    /**
      * 玩家身上的状态，**保持应用顺序**。
      *
      * <p>原版 {@code AbstractCreature.applyStartOfTurnPowers()} 是 {@code for (p : powers)}，
@@ -349,6 +358,7 @@ public final class SimState {
         c.deathSaveUseCount = deathSaveUseCount;
         c.deathSaveHpRestored = deathSaveHpRestored;
         c.energy = energy;
+        c.turnForcedEnd = turnForcedEnd;
 
         c.playerPowers.putAll(playerPowers);
         c.powerAux.putAll(powerAux);
@@ -567,7 +577,7 @@ public final class SimState {
         Mix hash = new Mix();
         hash.add(act).add(floor).add(ascension);
         hash.add(turn).add(hpLossCount).add(potionSlots);
-        hash.add(hp).add(maxHp).add(block).add(energy);
+        hash.add(hp).add(maxHp).add(block).add(energy).add(turnForcedEnd ? 1 : 0);
         hash.add(deathSaveUsed ? 1 : 0).add(deathSaveUseCount).add(deathSaveHpRestored);
         hash.textMap(playerPowers);
         hash.textMap(powerAux);

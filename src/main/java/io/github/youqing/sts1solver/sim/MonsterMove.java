@@ -405,6 +405,33 @@ public final class MonsterMove {
                 Extra.secondSelfBuff(second, secondAmount));
     }
 
+    /**
+     * 加格挡 + 最多三个玩家减益（TimeEater 的 Ripple：20 格挡 + Vulnerable/Weak，
+     * A19 起再加 Frail）。{@code third} 传 {@code null} 表示没有第三样。
+     */
+    public static MonsterMove blockAndDebuffs(int id, int block,
+                                              String first, int firstAmount,
+                                              String second, int secondAmount,
+                                              String third, int thirdAmount) {
+        return new MonsterMove(id, 0, 0, block, 0, null, 0, first, firstAmount,
+                second, secondAmount, null, 0, null, 0, null, 0, false, false, 0, null, 0,
+                third == null ? null
+                        : Extra.thirdPlayerDebuff(third, thirdAmount));
+    }
+
+    /** 攻击 + 塞状态牌 + 一个玩家减益（TimeEater 的 Head Slam：伤害 + 2 Slimed + 抽牌 -1）。 */
+    public static MonsterMove attackStatusDebuff(int id, int damage, String card, int count,
+                                                 String debuff, int amount) {
+        return new MonsterMove(id, damage, 1, 0, 0, null, 0, debuff, amount, null, 0,
+                card, count);
+    }
+
+    /** 给自己回血 + 清自身减益（+ 可选格挡）：TimeEater 的 Haste。 */
+    public static MonsterMove healSelfAndCleanse(int id, int heal, int block) {
+        return new MonsterMove(id, 0, 0, block, 0, null, 0, null, 0, null, 0, null, 0,
+                null, 0, null, 0, false, false, heal, null, 0, Extra.cleanseSelfOnly());
+    }
+
     /** 本体什么都不做、只有 {@link Extra} 载荷（Repulsor 的 Daze：往抽牌堆塞牌）。 */
     public static MonsterMove extra(int id, Extra extra) {
         return new MonsterMove(id, 0, 0, 0, 0, null, 0, null, 0, null, 0, null, 0,

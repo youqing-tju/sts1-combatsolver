@@ -232,6 +232,7 @@ public final class MonsterMoves {
         MACHINES.put("CorruptHeart", new CorruptHeartMachine());
         MACHINES.put("WrithingMass", new WrithingMassMachine());
         MACHINES.put("AwakenedOne", new AwakenedOneMachine());
+        MACHINES.put("TimeEater", new TimeEaterMachine());
     }
 
     private MonsterMoves() {
@@ -3148,6 +3149,89 @@ public final class MonsterMoves {
                 }
             }
             return false;
+        }
+    }
+    /**
+     * 时间吞噬者（{@code TimeEater}，第三章 boss）。HP 456（A9: 480）。
+     *
+     * <p>核心不是它的招，而是 `TimeWarpPower`（见 {@code Hooks.monsterOnCardUsed} +
+     * {@link SimState#turnForcedEnd}）：**玩家每打出 12 张牌，回合当场结束，且全体怪 +2 力量**。
+     *
+     * <pre>
+     * 血量 &lt; 一半 且还没 Haste 过 → 5 HASTE（回血到半血、清减益，A19 起再加 headSlamDmg 格挡）
+     * num &lt; 45  → !lastTwoMoves(2) ? 2 回响（3 段 × reverbDmg）: getMove(random(50,99))
+     * num &lt; 80  → !lastMove(4) ? 4 头槌（headSlamDmg + 玩家抽牌 -1；A19 起 2 张 Slimed 进弃牌堆）
+     *                            : (randomBoolean(0.66) ? 2 回响 : 3 涟漪)
+     * 否则        → !lastMove(3) ? 3 涟漪（20 格挡 + Vulnerable 1 + Weak 1；A19 起 + Frail 1）
+     *                            : getMove(random(74))
+     * </pre>
+     *
+     * <p>3 涟漪的 Frail 只在 A19 起；4 头槌的 Slimed 也只在 A19 起。
+     * Haste 的回血量是 {@code maxHealth/2 - currentHealth}（现算，不是常量）；
+     * 它只治自己，而这场战斗只有它一只，所以走 {@code healAllies} 等价。
+     */
+    static final class TimeEaterMachine implements Machine {
+        private static final int MAX_DEPTH = 16;
+
+        @Override
+        public MonsterMove next(Context c) {
+            return decide(c, c.num, 0);
+        }
+
+        private static MonsterMove decide(Context c, int num, int depth) {
+            int reverb = c.baseDamage(0, c.ascension >= 4 ? 8 : 7);
+            int headSlam = c.baseDamage(1, c.ascension >= 4 ? 32 : 26);
+            if (c.monster != null && c.monster.hp * 2 < c.monster.maxHp
+                    && !c.history.contains(Integer.valueOf(5))) {
+                return haste(c, headSlam);
+            }
+            if (depth >= MAX_DEPTH) {
+                return MonsterMove.multiAttack(2, reverb, 3);
+            }
+            if (num < 45) {
+                if (!c.lastTwoMoves(2)) {
+                    return MonsterMove.multiAttack(2, reverb, 3);
+                }
+                return decide(c, c.rollAiRange(50, 99), depth + 1);
+            }
+            if (num < 80) {
+                if (!c.lastMove(4)) {
+                    return headSlamMove(c, headSlam);
+                }
+                if (c.randomBoolean(0.66f)) {
+                    return MonsterMove.multiAttack(2, reverb, 3);
+                }
+                return ripple(c);
+            }
+            if (!c.lastMove(3)) {
+                return ripple(c);
+            }
+            return decide(c, c.rollAiRange(0, 74), depth + 1);
+        }
+
+        /** 涟漪：20 格挡 + Vulnerable 1 + Weak 1（A19 起再加 Frail 1）。 */
+        private static MonsterMove ripple(Context c) {
+            return c.ascension >= 19
+                    ? MonsterMove.blockAndDebuffs(3, 20, "Vulnerable", 1, "Weakened", 1,
+                            "Frail", 1)
+                    : MonsterMove.blockAndDebuffs(3, 20, "Vulnerable", 1, "Weakened", 1,
+                            null, 0);
+        }
+
+        /** 头槌：headSlamDmg + 玩家「下回合少抽 1 张」（A19 起再塞 2 张 Slimed 进弃牌堆）。 */
+        private static MonsterMove headSlamMove(Context c, int headSlam) {
+            return c.ascension >= 19
+                    ? MonsterMove.attackStatusDebuff(4, headSlam, "Slimed", 2, "Draw Reduction", 1)
+                    : MonsterMove.attackStatusDebuff(4, headSlam, null, 0, "Draw Reduction", 1);
+        }
+
+        /** Haste：回血到半血（现算）+ 清自身减益；A19 起再给自己 headSlamDmg 格挡。 */
+        private static MonsterMove haste(Context c, int headSlam) {
+            int heal = 0;
+            if (c.monster != null) {
+                heal = Math.max(0, c.monster.maxHp / 2 - c.monster.hp);
+            }
+            return MonsterMove.healSelfAndCleanse(5, heal, c.ascension >= 19 ? headSlam : 0);
         }
     }
 }

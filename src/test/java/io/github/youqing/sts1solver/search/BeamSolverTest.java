@@ -252,4 +252,43 @@ class BeamSolverTest {
         assertEquals(20 + 400, solver.strategicHpDeficit(nodeOf(revived)),
                 "复活回的血不算挣的，还要连本带溢价扣回去");
     }
+    /**
+     * Time Warp（TimeEater）：打出第 12 张牌时**全场强制结束这个回合**。
+     *
+     * <p>这条钉的是搜索侧的接线：`Hooks` 把 {@code turnForcedEnd} 置真之后，
+     * {@code route(...)} 必须把这一手直接推进「回合结束」那一档 ——
+     * 否则搜索会以为还能继续出第 13 张牌，整条路线都建立在假前提上。
+     */
+    @Test
+    void timeWarpStopsThePlanRightAfterTheTwelfthCard() {
+        SimState s = new SimState();
+        s.hp = 80;
+        s.maxHp = 80;
+        s.energy = 5;
+        s.playerPowers.put("Time Warp", Integer.valueOf(11));   // 再打一张就到 12
+        for (int i = 0; i < 6; i++) {
+            s.hand.add(new SimCard("Strike_R", false, 0, 6, "ATTACK"));   // 0 费，够打满
+        }
+        SimMonster m = new SimMonster("TestMonster", 300, 300, 0,
+                Collections.<String, Integer>emptyMap());
+        m.intentDmg = 0;
+        s.monsters.add(m);
+        for (int i = 0; i < 8; i++) {
+            s.draw.add(new SimCard("Strike_R", false, 1));
+        }
+
+        BeamSolver solver = new BeamSolver(3, 5, 8, 3);
+        PlanAction first = solver.bestFirstAction(s);
+        assertNotNull(first);
+
+        int cardsBeforeFirstEndTurn = 0;
+        for (RouteStep step : solver.lastSteps) {
+            if (step.endTurn) {
+                break;
+            }
+            cardsBeforeFirstEndTurn++;
+        }
+        assertEquals(1, cardsBeforeFirstEndTurn,
+                "第 12 张牌打完就该强制结束回合（实际计划：" + solver.lastSteps + "）");
+    }
 }

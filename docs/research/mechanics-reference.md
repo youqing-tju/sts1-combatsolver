@@ -2878,3 +2878,38 @@ Curiosity 1（A19:2）、Unawakened；A4 起 Strength +2 —— 全在快照里�
   → `Hooks.monsterOnCardUsed`。**Regenerate**（`atEndOfTurn`，半死窗口里不回）→ `CombatFlow` ④.5。
 
 全量 **389 条**通过；累计 **65 只**（只剩 `TimeEater`）。
+
+### 33.42 TimeEater（时间吞噬者）+ Time Warp 容器 2026-10-26
+
+HP 456（A9: 480）；`reverbDmg` 7（A4: 8）、`headSlamDmg` 26（A4: 32）。
+
+| 条件 | 招 |
+|---|---|
+| 血量 < 一半 且没用过 Haste | 5 HASTE（回血到半血、清自身减益；A19 起再加 headSlamDmg 格挡） |
+| num<45 | !lastTwoMoves(2) ? 2 回响（3 × reverbDmg）: `getMove(random(50,99))` |
+| num<80 | !lastMove(4) ? 4 头槌 :（`randomBoolean(0.66)` ? 2 回响 : 3 涟漪） |
+| 否则 | !lastMove(3) ? 3 涟漪 : `getMove(random(74))` |
+
+- **3 涟漪**：`GainBlock(20)` + Vulnerable 1 + Weak 1；**A19 起才**追加 Frail 1。
+- **4 头槌**：headSlamDmg + `DrawReductionPower(1)`；**A19 起才**追加 2 张 Slimed 进弃牌堆。
+- **5 Haste**：`HealAction(this, this, maxHealth/2 - currentHealth)`（**现算**）+
+  `RemoveDebuffsAction` + 摘 `Shackled`；A19 起再 `GainBlock(headSlamDmg)`。
+  `usedHaste` 在 getMove 里置真 → 从历史里数 5 就知道用过没有。
+
+**🔴 Time Warp（真正的容器）**：`TimeWarpPower.onAfterUseCard` ——
+玩家**每打一张牌** `amount++`；到 **12** 时 `amount = 0`、`callEndTurnEarlySequence()`
+（当场结束玩家回合），并且给**每只怪 +2 力量**。
+
+影子里的接法（三层，缺一层就是静默算错）：
+1. `Hooks.monsterOnCardUsed`：计数 / 满 12 清零 / 全体怪 +2 力量 / 置 `SimState.turnForcedEnd`；
+2. `SimState.turnForcedEnd` 进 `copy()` 与 `fingerprint()`（不同局面不能互相去重）；
+   `CombatFlow.endTurn` 开头清掉（只对那个回合有效）；
+3. `BeamSolver.route(...)`：子节点带这个标记 → 直接 `endTurnOf(child)` 推进「回合结束」档，
+   计划里仍保留「打这张牌」这一步。**不接这层，搜索会以为还能打第 13 张牌。**
+
+**Draw Reduction**：原版 `onInitialApplication` 里 `gameHandSize -= amount`、
+`atEndOfRound` 里减 1 层（带 `justApplied` 跳过第一次）—— 净效果就是
+「只影响紧接着的那一次抽牌」。影子照净效果写：`CombatFlow.endTurn` 的 ⑦ 里
+`drawCount = handSize - amount`，抽完立刻移除。
+
+全量 **394 条**通过；**怪物镜像 66/66（Act 1–4 全齐，M3.3 完成）**。

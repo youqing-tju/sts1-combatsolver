@@ -1270,12 +1270,17 @@ public final class BeamSolver {
     }
 
     /** 按「这一步之后还在不在本回合」把子节点放进不同的桶。 */
-    private static boolean route(SearchNode child, List<SearchNode> plays, List<SearchNode> ended) {
+    private boolean route(SearchNode child, List<SearchNode> plays, List<SearchNode> ended) {
         if (child == null) {
             return false;
         }
         if (child.terminal()) {
             ended.add(child);       // 打死了 = 这条路线结束了，和结束回合同一档
+        } else if (child.state.turnForcedEnd) {
+            // Time Warp（TimeEater）：打出第 12 张牌时**全场强制结束这个回合**。
+            // 这一手打完就不能再出牌了，所以直接推过回合末（和「主动结束回合」同一档），
+            // 计划里仍然保留「打这张牌」这一步（它是 endTurnOf 的父节点）。
+            ended.add(endTurnOf(child));
         } else {
             plays.add(child);
         }

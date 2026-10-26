@@ -3254,4 +3254,104 @@ class MonsterMovesTest {
         assertEquals(210, boss.hp, "回 10 点（低于上限）");
         assertEquals(60, s.hp, "同时打了 20 点");
     }
+    // ============================ 第三十三批：TimeEater（时间吞噬者）+ Time Warp ============================
+
+    /** 出招树：回响 / 头槌 / 涟漪三支 + 递归重掷。 */
+    @Test
+    void timeEaterFollowsItsMoveTree() {
+        MonsterMove reverb = decide("TimeEater", history(1), 10, 0, 0);
+        assertEquals(2, reverb.id, "num<45 且没连两次回响 → 回响");
+        assertEquals(3, reverb.hits, "回响 3 段");
+        assertEquals(7, reverb.damage, "A0：7");
+        assertEquals(8, decide("TimeEater", history(1), 10, 0, 4).damage, "A4 起 8");
+
+        MonsterMove ripple = decide("TimeEater", history(1), 90, 0, 0);
+        assertEquals(3, ripple.id, "num>=80 且上一招不是涟漪 → 涟漪");
+        assertEquals(20, ripple.block);
+        assertEquals("Vulnerable", ripple.playerDebuff);
+        assertEquals(1, ripple.playerDebuffAmount);
+        assertEquals("Weakened", ripple.playerDebuff2);
+        assertTrue(ripple.extra == null || ripple.extra.playerDebuff3 == null,
+                "A19 以下没有 Frail");
+        assertEquals("Frail", decide("TimeEater", history(1), 90, 0, 19).extra.playerDebuff3);
+
+        MonsterMove slam = decide("TimeEater", history(1), 60, 0, 0);
+        assertEquals(4, slam.id, "num<80 且上一招不是头槌 → 头槌");
+        assertEquals(26, slam.damage, "A0：26");
+        assertEquals(32, decide("TimeEater", history(1), 60, 0, 4).damage, "A4 起 32");
+        assertEquals("Draw Reduction", slam.playerDebuff, "头槌让玩家下回合少抽 1 张");
+        assertNull(slam.statusCard, "A19 以下不塞牌");
+        assertEquals("Slimed", decide("TimeEater", history(1), 60, 0, 19).statusCard,
+                "A19 起塞 2 张 Slimed");
+    }
+
+    /** 半血以下只 Haste 一次：回血到半血、清减益；A19 起额外给自己格挡。 */
+    @Test
+    void timeEaterHastesOnceBelowHalfHp() {
+        SimState s = new SimState();
+        SimMonster eater = new SimMonster("TimeEater", 456, 456, 0, NO_POWERS);
+        eater.hp = 100;
+        MonsterMove haste = decideIn(s, "TimeEater", eater, history(1), 10, 0);
+        assertEquals(5, haste.id);
+        assertEquals(228 - 100, haste.healAllies, "回血到半血（现算，不是常量）");
+        assertTrue(haste.extra.cleanseSelf, "顺手清掉自己身上的减益");
+        assertEquals(0, haste.block);
+        assertEquals(32, decideIn(s, "TimeEater", eater, history(1), 10, 19).block,
+                "A19 起 Haste 额外给 headSlamDmg 点格挡");
+
+        assertTrue(decideIn(s, "TimeEater", eater, history(1, 5), 10, 0).id != 5,
+                "Haste 只有一次（usedHaste）");
+    }
+
+    /** Time Warp：打满 12 张牌 → 计数清零、回合强制结束、全体怪 +2 力量。 */
+    @Test
+    void timeWarpEndsTheTurnOnTheTwelfthCard() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 50;
+        s.playerPowers.put("Time Warp", Integer.valueOf(11));
+        SimMonster eater = new SimMonster("TimeEater", 456, 456, 0,
+                new java.util.HashMap<String, Integer>());
+        s.monsters.add(eater);
+
+        io.github.youqing.sts1solver.mirror.hooks.Hooks
+                .onCardUsed(s, new SimCard("Strike_R", false, 1, 6, "ATTACK"), 0);
+
+        assertEquals(Integer.valueOf(0), s.playerPowers.get("Time Warp"), "满 12 就清零");
+        assertTrue(s.turnForcedEnd, "这个回合不能再出牌了");
+        assertEquals(Integer.valueOf(2), eater.powers.get("Strength"), "全体怪 +2 力量");
+
+        // 第 11 张时不该触发
+        SimState s2 = new SimState();
+        s2.playerPowers.put("Time Warp", Integer.valueOf(10));
+        io.github.youqing.sts1solver.mirror.hooks.Hooks
+                .onCardUsed(s2, new SimCard("Strike_R", false, 1, 6, "ATTACK"), 0);
+        assertFalse(s2.turnForcedEnd);
+        assertEquals(Integer.valueOf(11), s2.playerPowers.get("Time Warp"));
+    }
+
+    /** 头槌的 Draw Reduction：下回合少抽 1 张，且只影响那一次。 */
+    @Test
+    void drawReductionShrinksExactlyOneDraw() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 50;
+        s.energy = 3;
+        s.playerPowers.put("Draw Reduction", Integer.valueOf(1));
+        SimMonster eater = new SimMonster("TimeEater", 456, 456, 0, NO_POWERS);
+        eater.pendingMove = MonsterMove.block(1, 0);
+        eater.pendingMoveId = 1;
+        s.monsters.add(eater);
+        for (int i = 0; i < 8; i++) {
+            s.draw.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(4, s.hand.size(), "5 - 1 = 4 张");
+        assertNull(s.playerPowers.get("Draw Reduction"), "用过就没了");
+
+        CombatFlow.endTurn(s, 3, 5);
+        assertTrue(s.hand.size() <= 5 && s.hand.size() > 0, "下一回合恢复正常抽牌");
+    }
 }

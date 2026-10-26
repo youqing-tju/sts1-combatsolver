@@ -31,6 +31,9 @@ public final class CombatFlow {
 
     /** 结束玩家回合并进入下一回合。 */
     public static void endTurn(SimState state, int energyPerTurn, int handSize) {
+        // ⓪ 「被 Time Warp 提前结束」的标记只对**那个回合**有效，翻页即清
+        state.turnForcedEnd = false;
+
         // ① 弃手牌之前：金属化
         Hooks.firePhase(state, HookPhase.END_OF_TURN_PRE_CARDS);
 
@@ -170,7 +173,16 @@ public final class CombatFlow {
         // ⑦ 新回合的钩子 → 回能 → 抽牌 → 抽牌后的钩子
         Hooks.firePhase(state, HookPhase.START_OF_TURN);
         state.energy = energyPerTurn;
-        draw(state, handSize);
+        // DrawReductionPower（TimeEater 的 Head Slam）：下回合**少抽** amount 张，用一次就消失。
+        // 原版是 onInitialApplication 里 gameHandSize -= amount、atEndOfRound 里减 1 层，
+        // 净效果就是「只影响紧接着的那一次抽牌」—— 这里照净效果写，省掉 justApplied 状态。
+        int drawCount = handSize;
+        Integer drawReduction = state.playerPowers.get("Draw Reduction");
+        if (drawReduction != null && drawReduction.intValue() > 0) {
+            drawCount = Math.max(0, drawCount - drawReduction.intValue());
+            state.playerPowers.remove("Draw Reduction");
+        }
+        draw(state, drawCount);
         Hooks.firePhase(state, HookPhase.START_OF_TURN_POST_DRAW);
     }
 

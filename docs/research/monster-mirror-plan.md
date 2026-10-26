@@ -520,14 +520,14 @@ SnakeDagger 本身：1 号招 9 伤 + 塞 Wound；2 号招 25 伤后自爆（`Lo
 
 | 怪 | 卡在哪（已核实到字节码） | 需要什么 |
 |---|---|---|
-| `TimeEater` | **`TimeWarpPower.onAfterUseCard`：玩家打出第 12 张牌时 `callEndTurnEarlySequence()` —— 当场结束玩家回合** | 搜索层要能「中途打断玩家回合」，是新容器；不是怪物 AI 层能解决的 |
+| `TimeEater` | ✅ **已做**（§33.42）：出招树 + Time Warp 容器（`SimState.turnForcedEnd` → `BeamSolver.route` 直接推过回合末 + 全体怪 +2 力量）+ Draw Reduction（下回合少抽 1 张，用一次就消失） | 完成 |
 | `AwakenedOne` | ✅ **已做**（§33.41）：换形态在 `damage()` 重写里（摘 Unawakened/Curiosity + 钉 REBIRTH）→ `DamageCalc.maybeAwaken`；REBIRTH 回满血在 `CombatFlow`；Curiosity/Regenerate 各挂一个钩子 | 完成 |
 | `WrithingMass` | ✅ **已做**（§33.40）：getMove 递归树照抄；植入=污染主牌组（战斗层空招）；挨打改招=**`ReactivePower`（ID `Compulsive`）的 onAttacked** → `DamageCalc.maybeRerollCompulsive` | 完成 |
 | `SpireShield` | ✅ **已做**（§33.38）：`moveCount % 3` 三支 + BASH 恒扣力量 + FORTIFY 全体 30 格挡 + SMASH 的 `block = output`（`Extra.blockFromDamage`） | 完成 |
 | `SpireSpear` | ✅ **已做**（§33.38）：SKEWER 恒 2 段 + A18 改塞抽牌堆；BURN STRIKE 段数走 `skewerCount`；PREPARE 全体 +2 力量 | 完成 |
 | `CorruptHeart` | ✅ **已做**（§33.39）：四招循环 + 3 减益 + 5 张状态牌进抽牌堆 + Buff 双能力 + Beat of Death。**Invincible 未建模**（需「每回合伤害上限」容器） | 完成（除 Invincible） |
 
-**结论**：Act 1/2 全齐、**Act 4 全齐**（盾 / 矛 / 心脏），Act 3 除 `TimeEater` 外全齐。
+**结论**：Act 1/2 全齐、**Act 4 全齐**（盾 / 矛 / 心脏），Act 3 全齐。
 剩下这几只都不是「再抄一段」的量级，而是各缺一个容器 —— 先记着，等对应容器立项。
 
 ### Reptomancer：`daggersPerSpawn` 是 A18 档

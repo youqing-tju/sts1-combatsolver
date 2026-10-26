@@ -148,6 +148,26 @@ public final class Hooks {
                         .hitPlayer(state, beat.intValue());
             }
         }
+        // TimeWarpPower.onAfterUseCard（TimeEater）：**每打一张牌**计数 +1；
+        // 到第 12 张时清零、`callEndTurnEarlySequence()`（当场结束玩家回合），
+        // 并且给**每只怪** +2 力量。
+        Integer timeWarp = state.playerPowers.get("Time Warp");
+        if (timeWarp != null) {
+            int next = timeWarp.intValue() + 1;
+            if (next >= 12) {
+                state.playerPowers.put("Time Warp", Integer.valueOf(0));
+                state.turnForcedEnd = true;
+                for (SimMonster monster : state.monsters) {
+                    if (monster.hp <= 0) {
+                        continue;
+                    }
+                    Integer strength = monster.powers.get("Strength");
+                    monster.powers.put("Strength", (strength == null ? 0 : strength) + 2);
+                }
+            } else {
+                state.playerPowers.put("Time Warp", Integer.valueOf(next));
+            }
+        }
         if (!"SKILL".equals(card.type)) {
             // CuriosityPower.onUseCard（AwakenedOne 一形态）：玩家打出 **POWER** 牌 →
             // 主人 +amount 力量（字节码判据就是 `card.type == CardType.POWER`）。
