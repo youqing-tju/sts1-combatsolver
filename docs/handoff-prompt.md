@@ -55,9 +55,15 @@
 
 ---
 
-## 三、当前进度（2026-10-26 · 怪物镜像 59/68）
+## 三、当前进度（2026-10-26 · 怪物镜像 62/66，Act 1/2/4 全齐）
 
-> 上一轮（10-23）：221 测试全绿、怪物 37 只。**本轮（10-26）把怪物推到 59 只、测试 369 条**。
+> 上一轮（10-23）：221 测试全绿、怪物 37 只。**本轮（10-26）把怪物推到 62 只、测试 379 条**。
+>
+> **收尾追加（10-26 中午）**：`SpireShield` / `SpireSpear`（Act 4 精英双子，§33.38）、
+> `CorruptHeart`（Act 4 boss，§33.39）—— **Act 4 三只全齐**。新增基础设施：
+> `Extra.blockFromDamage`（格挡=实际伤害）、`Extra.drawPileCards`（一次多张不同状态牌进抽牌堆）、
+> `Extra.extraSelfBuff`（一招挂两个能力）、Beat of Death 出牌掉血钩子。
+> ⚠️ **CorruptHeart 的 `Invincible` 未建模**（需「每回合伤害上限」容器）。
 >
 > **本轮新增 22 只**：A 组召唤（`GremlinLeader`/`TorchHead`/`TheCollector`/`BronzeOrb`/`BronzeAutomaton`）、
 > B 组多阶段（`Champ`/`Hexaghost`）、C 组面具强盗（`BanditBear`/`BanditLeader`）、
@@ -312,7 +318,7 @@ python tools/coverage_report.py
 |---|---|---|
 | 1 | 指纹口径缺口 | ✅ **已补**（2026-10-24）：`turn` / `hpLossCount` / `potionSlots` 三个都进了指纹；判据改成单向「新口径只能更细，不能更粗」（`SimStateFingerprintTest`） |
 | 2 | 药水战略成本 | ✅ **第一切片已做**（`mechanics-reference` §31）：三档成本 + 对账闸（喝药必须比不喝药基线多省 ≥ Σ成本）。⚠️ 档位映射只有 3 瓶有蓝本同形对应，其余 18 张按基准档，**映射表待你核对**；`SolverPotionPolicy` 档位与额度输入仍未做 |
-| 3 | 怪物镜像（M3.3，全量重写） | 🔨 **进行中，已 60 / 68 只**（2026-10-26 更新）。Act 1 **30 只全齐**；Act 2 全齐（含三只面具强盗）；Act 3 已做 `OrbWalker` / `Maw` / `Transient` / `Repulsor` / `Spiker` / `SpireGrowth` / `Deca` / `Donu` / `Exploder` / `GiantHead` / `Nemesis` / `Darkling` / `SnakeDagger` / `Reptomancer`。**剩余 6 只：`AwakenedOne`（两阶段，需要「换一只怪上场」）/ `TimeEater`（Time Warp 计数重排）/ `WrithingMass`（寄生牌 + 挨打即换招）/ `SpireShield` / `SpireSpear`（Act 4，`moveCount % 3` + 结伴增益）/ `CorruptHeart`（Act 4，四阶段）。另有两个**纯视觉类**不算：`HexaghostBody` / `HexaghostOrb`。框架支持：多段 / 格挡 / 队友格挡 / 自身增益 / 玩家（含**负增量**）减益 / 进阶数值 / 塞状态牌（弃牌堆 + **抽牌堆**）/ 召唤 / 分裂 / 逃逸 / 吸血 / Fading / Constricted 回合末伤害。施工表与每只的账：`docs/research/monster-mirror-plan.md`，机制细节：`mechanics-reference` §33 |
+| 3 | 怪物镜像（M3.3，全量重写） | 🔨 **已 62 / 66 只**（2026-10-26 中午更新，Act 4 全齐）。Act 1 **30 只全齐**；Act 2 全齐（含三只面具强盗）；Act 3 已做 `OrbWalker` / `Maw` / `Transient` / `Repulsor` / `Spiker` / `SpireGrowth` / `Deca` / `Donu` / `Exploder` / `GiantHead` / `Nemesis` / `Darkling` / `SnakeDagger` / `Reptomancer`。**剩余 6 只：`AwakenedOne`（两阶段，需要「换一只怪上场」）/ `TimeEater`（Time Warp 计数重排）/ `WrithingMass`（寄生牌 + 挨打即换招）/ `SpireShield` / `SpireSpear`（Act 4，`moveCount % 3` + 结伴增益）/ `CorruptHeart`（Act 4，四阶段）。另有两个**纯视觉类**不算：`HexaghostBody` / `HexaghostOrb`。框架支持：多段 / 格挡 / 队友格挡 / 自身增益 / 玩家（含**负增量**）减益 / 进阶数值 / 塞状态牌（弃牌堆 + **抽牌堆**）/ 召唤 / 分裂 / 逃逸 / 吸血 / Fading / Constricted 回合末伤害。施工表与每只的账：`docs/research/monster-mirror-plan.md`，机制细节：`mechanics-reference` §33 |
 | 4 | `BeamPortfolioSelector` | ⏳ **待你拍板**：它不是规则代码，是**训练出来的决策树 JSON**（32 特征 + 程序集 GUID 校验）。搬运行器没意义（没有模型文件）；要就得先建自对弈数据 + 训练管线。倾向先记 ⛔ |
 | 5 | 能力估值模型族（`PersistentBuffValue`） | ✅ **第一批已做**（`mechanics-reference` §32）：五维模型 + 7 个能力专门分支 + 默认档，已接进 Beam 排序。⚠️ 查证结果：`Combust` / `Metallicize` / `FireBreathing` / `Evolve` / `Brutality` 在蓝本**全库 0 命中**，只能走蓝本默认档。Retention 批 3/5 与前沿分桶仍缺其它维度 |
 | 6 | `CyclePlanning` | 🔜 **你已说「可搬」** → 按批推进：批 1 = 同回合内的动作周期检测（`CycleShapeKey` + 周期 ≤32）；批 2 = 周期退出探测（probe 预算）；批 3 = 周期族（family）状态机 |
