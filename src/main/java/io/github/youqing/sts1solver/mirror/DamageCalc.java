@@ -124,6 +124,40 @@ public final class DamageCalc {
         applyThorns(state, target);
         applyMalleable(target);
         maybeRerollCompulsive(state, target, damage);
+        maybeAwaken(target);
+    }
+
+    /**
+     * 觉醒者换形态（{@code AwakenedOne.damage} 重写）：血量归零且还没「半死」过时，
+     * 原版做四件事 ——
+     * <ol>
+     *   <li>{@code halfDead = true}（这一下不算死；房间 {@code cannotLose = true}）；</li>
+     *   <li>摘掉所有 DEBUFF，外加 {@code Curiosity} / {@code Unawakened} / {@code Shackled}
+     *       （所以二形态不再「你打能力牌它加力量」）；</li>
+     *   <li>{@code setMove(3, UNKNOWN)} —— 下一招固定是 REBIRTH；</li>
+     *   <li>{@code firstTurn = true; form1 = false}。</li>
+     * </ol>
+     *
+     * <p>影子里的等价写法：血留 **1**（同 Darkling 的理由 —— 0 血会被当尸体跳过）、
+     * 打 {@code Half Dead} 标记、摘能力和减益、把下一招直接钉成 {@code none(3)}。
+     * REBIRTH 的**回满血**在 {@code CombatFlow.takeTurn}（原版在
+     * {@code changeState("REBIRTH")}：{@code currentHealth = maxHealth} + CanLoseAction）。
+     */
+    private static void maybeAwaken(SimMonster target) {
+        if (!"AwakenedOne".equals(target.type) || target.hp > 0
+                || !target.powers.containsKey("Unawakened")) {
+            return;
+        }
+        target.powers.put("Half Dead", Integer.valueOf(1));
+        target.hp = 1;
+        target.powers.remove("Unawakened");
+        target.powers.remove("Curiosity");
+        target.powers.remove("Shackled");
+        for (String debuff : io.github.youqing.sts1solver.sim.CombatFlow.SELF_DEBUFFS) {
+            target.powers.remove(debuff);
+        }
+        target.pendingMove = io.github.youqing.sts1solver.sim.MonsterMove.none(3);
+        target.pendingMoveId = 3;
     }
 
     /**

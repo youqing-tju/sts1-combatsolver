@@ -371,6 +371,11 @@ public final class MonsterMove {
                 null, 0, null, 0, false, false, 0, null, 0, Extra.blockFromDamage());
     }
 
+    /** 单段攻击 + 往**抽牌堆**塞状态牌（AwakenedOne 的 SLUDGE：18 伤 + 1 张 Void）。 */
+    public static MonsterMove attackStatusToDraw(int id, int damage, String card, int count) {
+        return multiAttackStatusToDraw(id, damage, 1, card, count);
+    }
+
     /** 多段攻击 + 往**抽牌堆**塞状态牌（SpireSpear 的 A18 版 Skewer：2 段 + 2 张 Burn）。 */
     public static MonsterMove multiAttackStatusToDraw(int id, int damage, int hits,
                                                       String card, int count) {

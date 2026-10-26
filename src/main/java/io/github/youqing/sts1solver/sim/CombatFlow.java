@@ -131,6 +131,13 @@ public final class CombatFlow {
             if (m.powers.containsKey("Slow")) {
                 m.powers.put("Slow", Integer.valueOf(0));
             }
+            // RegenerateMonsterPower.atEndOfTurn（AwakenedOne 的「再生」）：
+            // 没半死/没死就回 amount（10｜A19:15）。原版挂在**它自己回合末**，
+            // 我们统一挂在 ④.5（一轮一次，差一次先后不影响回血总额）。
+            Integer regenerate = m.powers.get("Regenerate");
+            if (regenerate != null && regenerate > 0 && !m.powers.containsKey("Half Dead")) {
+                m.hp = Math.min(m.maxHp, m.hp + regenerate);
+            }
             // IntangiblePower.atEndOfTurn → amount--，到 0 移除
             // ⚠️ 原版有 justApplied 保护（刚加上的那回合不递减），我们没记这个标志 ——
             //    施加那回合会多递减一次，方向是**低估防御**（安全偏差）。
@@ -256,6 +263,12 @@ public final class CombatFlow {
         if ("TheGuardian".equals(m.type) && move.id == 4 && m.hp > 0) {
             m.powers.remove("Sharp Hide");
             MonsterMoves.reopenGuardian(m, state.ascension);
+        }
+        // 觉醒者的 REBIRTH（3 号招）：原版在 changeState("REBIRTH") 里
+        // currentHealth = maxHealth（A9 起 320）+ CanLoseAction —— 回满血、解除半死。
+        if ("AwakenedOne".equals(m.type) && move.id == 3 && m.hp > 0) {
+            m.hp = m.maxHp;
+            m.powers.remove("Half Dead");
         }
         if (move.healAllies > 0) {
             // HealAction：逐只活怪回血，上限是各自 maxHp（可以治自己）
@@ -403,7 +416,7 @@ public final class CombatFlow {
     }
 
     /** {@code PowerType.DEBUFF} 的能力 ID 白名单（见 {@code applyExtra} 的说明）。 */
-    private static final String[] SELF_DEBUFFS = {
+    public static final String[] SELF_DEBUFFS = {
             "Weakened", "Vulnerable", "Frail", "Shackled", "Lose Strength", "Lose Dexterity",
             "Strength Down", "Dexterity Down", "Slow", "Constricted", "Poison",
     };

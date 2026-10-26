@@ -149,6 +149,20 @@ public final class Hooks {
             }
         }
         if (!"SKILL".equals(card.type)) {
+            // CuriosityPower.onUseCard（AwakenedOne 一形态）：玩家打出 **POWER** 牌 →
+            // 主人 +amount 力量（字节码判据就是 `card.type == CardType.POWER`）。
+            // 不建的话搜索会以为「打能力牌没代价」，在觉醒者面前免费叠 buff。
+            for (SimMonster curious : state.monsters) {
+                if (curious.hp <= 0) {
+                    continue;
+                }
+                Integer curiosity = curious.powers.get("Curiosity");
+                if (curiosity == null || curiosity <= 0 || !"POWER".equals(card.type)) {
+                    continue;
+                }
+                Integer str = curious.powers.get("Strength");
+                curious.powers.put("Strength", (str == null ? 0 : str) + curiosity);
+            }
             return;
         }
         for (SimMonster monster : state.monsters) {

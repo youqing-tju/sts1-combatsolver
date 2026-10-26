@@ -3124,4 +3124,134 @@ class MonsterMovesTest {
         io.github.youqing.sts1solver.mirror.DamageCalc.hit(s2, plain, 3);
         assertTrue(plain.pendingMove == keep, "没有 Compulsive 的怪不该被重掷");
     }
+
+    // ============================ 第三十二批：AwakenedOne（觉醒者，第三章 boss，两形态）============================
+
+    /** 一形态：首招 SLASH；之后 num<25 偏 SOUL_STRIKE、否则偏 SLASH，各自带「刚打过就不来」守卫。 */
+    @Test
+    void awakenedOnePhaseOneAlternatesSlashAndSoulStrike() {
+        MonsterMove first = decide("AwakenedOne", history(), 50, 0, 0);
+        assertEquals(1, first.id, "首招 SLASH");
+        assertEquals(20, first.damage);
+
+        MonsterMove soul = decide("AwakenedOne", history(1), 10, 0, 0);
+        assertEquals(2, soul.id);
+        assertEquals(4, soul.hits, "SOUL_STRIKE 固定 4 段");
+        assertEquals(6, soul.damage, "每段 6");
+
+        assertEquals(1, decide("AwakenedOne", history(2), 10, 0, 0).id,
+                "刚打过 SOUL_STRIKE → 回到 SLASH");
+        assertEquals(2, decide("AwakenedOne", history(1, 1), 50, 0, 0).id,
+                "连着两次 SLASH → 换 SOUL_STRIKE");
+        assertEquals(1, decide("AwakenedOne", history(1, 2), 50, 0, 0).id,
+                "没连两次 SLASH → 继续 SLASH");
+    }
+
+    /** 二形态：首招 DARK_ECHO 40；之后 SLUDGE（18 + Void 进抽牌堆）与 TACKLE（10×3）交替。 */
+    @Test
+    void awakenedOnePhaseTwoUsesDarkEchoSludgeAndTackle() {
+        MonsterMove echo = decide("AwakenedOne", history(1, 2, 3), 90, 0, 0);
+        assertEquals(5, echo.id, "刚 REBIRTH 完 → DARK_ECHO");
+        assertEquals(40, echo.damage);
+
+        MonsterMove sludge = decide("AwakenedOne", history(1, 2, 5), 10, 0, 0);
+        assertEquals(6, sludge.id);
+        assertEquals(18, sludge.damage);
+        assertEquals("Void", sludge.extra.statusDrawCard, "SLUDGE 会塞一张 Void 进抽牌堆");
+        assertEquals(1, sludge.extra.statusDrawCount);
+
+        MonsterMove tackle = decide("AwakenedOne", history(1, 2, 5, 6, 6), 10, 0, 0);
+        assertEquals(8, tackle.id, "连两次 SLUDGE → TACKLE");
+        assertEquals(3, tackle.hits, "TACKLE 3 段");
+        assertEquals(10, tackle.damage);
+
+        assertEquals(6, decide("AwakenedOne", history(1, 2, 5, 6, 8, 8), 90, 0, 0).id,
+                "连两次 TACKLE → 回到 SLUDGE");
+    }
+
+    /** 换形态：一形态被打到 0 血 → 留 1 血、摘掉 Unawakened/Curiosity、下一招钉成 REBIRTH(3)。 */
+    @Test
+    void awakenedOneSwitchesFormInsteadOfDying() {
+        SimMonster boss = new SimMonster("AwakenedOne", 300, 300, 0,
+                new java.util.HashMap<String, Integer>());
+        boss.powers.put("Unawakened", Integer.valueOf(1));
+        boss.powers.put("Curiosity", Integer.valueOf(2));
+        boss.powers.put("Strength", Integer.valueOf(2));
+        boss.powers.put("Weakened", Integer.valueOf(3));
+        SimState s = field(boss);
+
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, boss, 400);
+
+        assertEquals(1, boss.hp, "第一次致死只算半死（留 1 血，同 Darkling 口径）");
+        assertNull(boss.powers.get("Unawakened"), "Unawakened 被摘掉（这就是二形态的开关）");
+        assertNull(boss.powers.get("Curiosity"), "Curiosity 也摘掉");
+        assertNull(boss.powers.get("Weakened"), "身上的减益全清");
+        assertEquals(Integer.valueOf(2), boss.powers.get("Strength"), "增益留着");
+        assertEquals(1, boss.powers.get("Half Dead").intValue());
+        assertEquals(3, boss.pendingMoveId, "下一招固定 REBIRTH");
+    }
+
+    /** REBIRTH 那一回合：回满血、解除半死，然后才进二形态出招。 */
+    @Test
+    void awakenedOneRebirthHealsToFull() {
+        SimState s = new SimState();
+        s.hp = 100;
+        s.maxHp = 100;
+        SimMonster boss = new SimMonster("AwakenedOne", 320, 320, 0,
+                new java.util.HashMap<String, Integer>());
+        boss.hp = 1;
+        boss.powers.put("Half Dead", Integer.valueOf(1));
+        boss.moveHistory.add(Integer.valueOf(1));
+        boss.moveHistory.add(Integer.valueOf(3));
+        boss.pendingMove = MonsterMove.none(3);
+        boss.pendingMoveId = 3;
+        s.monsters.add(boss);
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(320, boss.hp, "REBIRTH 回满血");
+        assertNull(boss.powers.get("Half Dead"), "半死标记解除");
+        assertEquals(5, boss.pendingMoveId, "下一招进二形态：DARK_ECHO(5)");
+        assertEquals(100, s.hp, "REBIRTH 不打人");
+    }
+
+    /** Curiosity：玩家每打一张 POWER 牌，它 +amount 力量；技能牌不加。 */
+    @Test
+    void awakenedOneCuriosityPunishesPowerCards() {
+        SimState s = new SimState();
+        s.hp = 80;
+        s.maxHp = 80;
+        SimMonster boss = new SimMonster("AwakenedOne", 300, 300, 0,
+                new java.util.HashMap<String, Integer>());
+        boss.powers.put("Curiosity", Integer.valueOf(2));
+        s.monsters.add(boss);
+
+        io.github.youqing.sts1solver.mirror.hooks.Hooks
+                .onCardUsed(s, new SimCard("Defend_R", false, 1, 0, "SKILL"), -1);
+        assertNull(boss.powers.get("Strength"), "技能牌不触发");
+
+        io.github.youqing.sts1solver.mirror.hooks.Hooks
+                .onCardUsed(s, new SimCard("Inflame", false, 1, 0, "POWER"), -1);
+        assertEquals(Integer.valueOf(2), boss.powers.get("Strength"), "能力牌 → +2 力量");
+    }
+
+    /** Regenerate：它自己回合末回 amount（半死窗口里不回）。 */
+    @Test
+    void awakenedOneRegeneratesEachRound() {
+        SimState s = new SimState();
+        s.hp = 80;
+        s.maxHp = 80;
+        SimMonster boss = new SimMonster("AwakenedOne", 300, 300, 0,
+                new java.util.HashMap<String, Integer>());
+        boss.hp = 200;
+        boss.powers.put("Regenerate", Integer.valueOf(10));
+        boss.pendingMove = MonsterMove.attack(1, 20);
+        boss.pendingMoveId = 1;
+        s.monsters.add(boss);
+
+        CombatFlow.endTurn(s, 3, 5);
+
+        assertEquals(210, boss.hp, "回 10 点（低于上限）");
+        assertEquals(60, s.hp, "同时打了 20 点");
+    }
 }

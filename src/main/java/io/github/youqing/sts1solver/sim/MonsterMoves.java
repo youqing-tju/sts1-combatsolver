@@ -231,6 +231,7 @@ public final class MonsterMoves {
         MACHINES.put("SpireSpear", new SpireSpearMachine());
         MACHINES.put("CorruptHeart", new CorruptHeartMachine());
         MACHINES.put("WrithingMass", new WrithingMassMachine());
+        MACHINES.put("AwakenedOne", new AwakenedOneMachine());
     }
 
     private MonsterMoves() {
@@ -3058,6 +3059,95 @@ public final class MonsterMoves {
                 return MonsterMove.attackBlock(2, attackBlock, attackBlock);
             }
             return decide(c, c.rollAiRange(0, 69), false, depth + 1);
+        }
+    }
+
+    /**
+     * 觉醒者（{@code AwakenedOne}，第三章 boss）。HP 300（A9: 320）。**两形态**：
+     *
+     * <p>第一阶段（有 {@code Unawakened} 能力）：
+     * <pre>
+     * history 空 → 1 SLASH 20
+     * num &lt; 25   → !lastMove(2) ? 2 SOUL_STRIKE（6 × 4）: 1 SLASH 20
+     * 否则        → !lastTwoMoves(1) ? 1 SLASH 20 : 2 SOUL_STRIKE
+     * </pre>
+     * 第二阶段（{@code Unawakened} 已被摘掉）：
+     * <pre>
+     * 还没出过 5/6/8 → 5 DARK_ECHO 40
+     * num &lt; 50      → !lastTwoMoves(6) ? 6 SLUDGE（18 伤 + 1 张 Void 进抽牌堆）: 8 TACKLE（10 × 3）
+     * 否则           → !lastTwoMoves(8) ? 8 TACKLE : 6 SLUDGE
+     * </pre>
+     *
+     * <p>⚠️ 两形态的 `firstTurn` 都是「这个形态还没出过招」：
+     * 一形态 = history 空；二形态 = history 里还没有 5/6/8。
+     *
+     * <p>换形态不在 getMove 里：{@code damage()} 重写里「血量归零且还没半死」时
+     * ① 摘掉所有 DEBUFF 与 Curiosity/Unawakened/Shackled、② 强制下一招 3(REBIRTH)、
+     * ③ `firstTurn = true; form1 = false`。我们落在 {@code DamageCalc.maybeAwaken}；
+     * REBIRTH 的**回满血**在 {@code CombatFlow.takeTurn} 里（原版写死在
+     * {@code changeState("REBIRTH")}：{@code currentHealth = maxHealth} + CanLoseAction）。
+     *
+     * <p>开场的 Regenerate（10｜A19:15）/ Curiosity（1｜A19:2）/ A4 起的 Strength +2
+     * 都是 {@code usePreBattleAction} 挂的，快照里已有；生效逻辑分别在
+     * {@code CombatFlow} ④.5（回合末回血）与 {@code Hooks.monsterOnCardUsed}（打能力牌加力量）。
+     */
+    static final class AwakenedOneMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            int slash = c.baseDamage(0, 20);
+            int soulStrike = c.baseDamage(1, 6);
+            int darkEcho = c.baseDamage(2, 40);
+            int sludge = c.baseDamage(3, 18);
+            int tackle = c.baseDamage(4, 10);
+            if (formOne(c)) {
+                if (c.history.isEmpty()) {
+                    return MonsterMove.attack(1, slash);
+                }
+                if (c.num < 25) {
+                    return c.lastMove(2) ? MonsterMove.attack(1, slash)
+                            : MonsterMove.multiAttack(2, soulStrike, 4);
+                }
+                return c.lastTwoMoves(1) ? MonsterMove.multiAttack(2, soulStrike, 4)
+                        : MonsterMove.attack(1, slash);
+            }
+            if (!hasFormTwoMove(c.history)) {
+                return MonsterMove.attack(5, darkEcho);
+            }
+            if (c.num < 50) {
+                return c.lastTwoMoves(6) ? MonsterMove.multiAttack(8, tackle, 3)
+                        : sludgeMove(sludge);
+            }
+            return c.lastTwoMoves(8) ? sludgeMove(sludge)
+                    : MonsterMove.multiAttack(8, tackle, 3);
+        }
+
+        /** SLUDGE：18 伤 + 1 张 Void 进抽牌堆（意图是 ATTACK_DEBUFF，那个「debuff」就是塞牌）。 */
+        private static MonsterMove sludgeMove(int damage) {
+            return MonsterMove.attackStatusToDraw(6, damage, "Void", 1);
+        }
+
+        /**
+         * 判断还在不在第一阶段：优先看 {@code Unawakened} 能力（原版就是靠它）；
+         * 拿不到能力时退回「历史里既没有二形态的招、也没打过 REBIRTH(3)」。
+         */
+        private static boolean formOne(Context c) {
+            if (c.monster != null && c.monster.powers.containsKey("Unawakened")) {
+                return true;
+            }
+            if (c.monster != null && c.monster.powers.containsKey("Half Dead")) {
+                return false;                       // 半死窗口里等 REBIRTH
+            }
+            return !hasFormTwoMove(c.history) && !c.history.contains(Integer.valueOf(3));
+        }
+
+        private static boolean hasFormTwoMove(List<Integer> history) {
+            for (Integer id : history) {
+                int v = id.intValue();
+                if (v == 5 || v == 6 || v == 8) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

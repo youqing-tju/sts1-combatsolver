@@ -2845,3 +2845,36 @@ HP 160（A7: 175）。`damage[0]` 重击 32（A2:38）、`damage[1]` 三连击�
   ⚠️ `hit()` 没有 `DamageInfo.type`，THORNS/HP_LOSS 那两类也会重掷 —— 只多消耗随机，不改数值。
 
 全量 **383 条**通过；累计 **64 只**（剩 `AwakenedOne` / `TimeEater`）。
+
+### 33.41 AwakenedOne（觉醒者，第三章 boss，两形态）2026-10-26
+
+HP 300（A9: 320）。`damage[]`：`[0]` SLASH 20、`[1]` SOUL_STRIKE 每段 6（4 段）、
+`[2]` DARK_ECHO 40、`[3]` SLUDGE 18、`[4]` TACKLE 每段 10（3 段）。
+开场 `usePreBattleAction`：`room.cannotLose = true`；Regenerate 10（A19:15）、
+Curiosity 1（A19:2）、Unawakened；A4 起 Strength +2 —— 全在快照里。
+
+| 形态 | 条件 | 招 |
+|---|---|---|
+| 一 | history 空 | 1 SLASH |
+| 一 | num<25 | !lastMove(2) ? 2 SOUL_STRIKE(6×4) : 1 SLASH |
+| 一 | 否则 | !lastTwoMoves(1) ? 1 SLASH : 2 SOUL_STRIKE |
+| 二 | 还没出过 5/6/8 | 5 DARK_ECHO 40 |
+| 二 | num<50 | !lastTwoMoves(6) ? 6 SLUDGE : 8 TACKLE(10×3) |
+| 二 | 否则 | !lastTwoMoves(8) ? 8 TACKLE : 6 SLUDGE |
+
+- **SLUDGE 的「debuff」其实是塞牌**：`MakeTempCardInDrawPileAction(new VoidCard(), 1, …)` ——
+  1 张 Void（状态牌）进抽牌堆，不是能力。意图仍是 `ATTACK_DEBUFF`。
+- 🔴 **换形态在 `damage()` 重写里，不在 `die()`/`getMove` 里**：血量归零且 `!halfDead` →
+  `halfDead = true`、房间 `cannotLose`、**摘掉所有 DEBUFF + Curiosity/Unawakened/Shackled**、
+  `setMove(3, UNKNOWN)`、`firstTurn = true; form1 = false`。
+  影子落在 `DamageCalc.maybeAwaken`：血留 1（同 Darkling 口径）、打 `Half Dead`、
+  摘能力/减益、把 `pendingMove` 直接钉成 `none(3)`。
+- **REBIRTH(3) 的回血写死在 `changeState("REBIRTH")`**：`currentHealth = maxHealth` +
+  `CanLoseAction`。落在 `CombatFlow.takeTurn`（`AwakenedOne` + `move.id == 3` → `hp = maxHp`）。
+- **形态判据**：原版是 `form1` 布尔；影子用游戏自己的信号 ——
+  `powers` 里有 `Unawakened` = 一形态，被摘掉 = 二形态；拿不到能力时退回
+  「历史里既没有 5/6/8、也没打过 3」。
+- **Curiosity**（`onUseCard`，只认 `CardType.POWER`）：玩家每打一张能力牌 → 它 +amount 力量
+  → `Hooks.monsterOnCardUsed`。**Regenerate**（`atEndOfTurn`，半死窗口里不回）→ `CombatFlow` ④.5。
+
+全量 **389 条**通过；累计 **65 只**（只剩 `TimeEater`）。
