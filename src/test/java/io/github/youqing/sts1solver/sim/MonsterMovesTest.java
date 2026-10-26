@@ -2618,4 +2618,114 @@ class MonsterMovesTest {
         assertEquals(1, nemesis.powers.get("Intangible").intValue(),
                 "回合末的 tick 被 justApplied 跳过 → 玩家回合仍然无实体");
     }
+
+    // ============================ 第二十六批：Darkling（小黑，三只联动）============================
+
+    /** 小黑：开场 Harden 或 Chomp；位次是偶数才会 Nip；半死后只出 Reincarnate。 */
+    @Test
+    void darklingOpensWithHardenOrChomp() {
+        MonsterMove harden = decide("Darkling", history(), 10, 0, 0);
+        assertEquals(2, harden.id, "num<50 → Harden");
+        assertEquals(12, harden.block, "12 格挡");
+        assertNull(harden.selfBuff, "A17 以下不加力量");
+        assertEquals("Strength", decide("Darkling", history(), 10, 0, 17).selfBuff, "A17 起 +2 力量");
+        assertEquals(2, decide("Darkling", history(), 10, 0, 17).selfBuffAmount);
+
+        MonsterMove chomp = decide("Darkling", history(), 60, 0, 0);
+        assertEquals(3, chomp.id, "num>=50 → Chomp");
+        assertEquals(10, chomp.damage, "A0：10");
+        assertEquals(12, decide("Darkling", history(), 60, 0, 2).damage, "A2 起 12");
+
+        assertEquals(1, decide("Darkling", history(3), 10, 0, 0).id, "偶数位 + num<40 → Nip");
+        assertEquals(2, decide("Darkling", history(3), 10, 1, 0).id, "奇数位不能 Nip → 递归后落到别的招");
+    }
+
+    /** 半死的小黑只出 Reincarnate（5 号招）。 */
+    @Test
+    void halfDeadDarklingOnlyReincarnates() {
+        SimMonster darkling = new SimMonster("Darkling", 1, 50, 0,
+                new java.util.HashMap<String, Integer>());
+        darkling.powers.put("Half Dead", 1);
+        SimState s = field(darkling);
+        MonsterMove move = decideIn(s, "Darkling", darkling, history(), 10, 0);
+        assertEquals(5, move.id, "半死 → Reincarnate");
+        assertTrue(move.extra.reincarnate);
+    }
+
+    /** 第一次致死只是「半死」：血留 1、打上标记；复活回半血。 */
+    @Test
+    void darklingHalfDiesThenReincarnates() {
+        SimMonster darkling = new SimMonster("Darkling", 12, 50, 0,
+                new java.util.HashMap<String, Integer>());
+        // 必须再放一只**还活着**的小黑：三只里只要还有一只没半死，这一只就不会真死
+        SimMonster buddy = new SimMonster("Darkling", 50, 50, 0,
+                new java.util.HashMap<String, Integer>());
+        SimState s = field(darkling, buddy);
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, darkling, 999);
+        assertEquals(1, darkling.hp, "第一次死 → 半死，血留 1");
+        assertNotNull(darkling.powers.get("Half Dead"), "打上 Half Dead 标记");
+
+        MonsterMove revive = decideIn(s, "Darkling", darkling, history(), 10, 0);
+        darkling.pendingMove = revive;
+        darkling.pendingMoveId = revive.id;
+        CombatFlow.endTurn(s, 3, 5);
+        assertEquals(25, darkling.hp, "Reincarnate 回到 maxHp/2");
+        assertNull(darkling.powers.get("Half Dead"), "标记被清掉");
+    }
+
+    /** 三只小黑全部半死时才真的全灭。 */
+    @Test
+    void darklingsDieTogetherOnlyWhenAllHalfDead() {
+        SimMonster a = new SimMonster("Darkling", 10, 50, 0, new java.util.HashMap<String, Integer>());
+        SimMonster b = new SimMonster("Darkling", 10, 50, 0, new java.util.HashMap<String, Integer>());
+        SimMonster c = new SimMonster("Darkling", 10, 50, 0, new java.util.HashMap<String, Integer>());
+        SimState s = field(a, b, c);
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, a, 999);
+        assertEquals(1, a.hp, "只死一只 → 半死");
+        assertTrue(b.hp > 0, "另外两只还活着");
+
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, b, 999);
+        assertEquals(1, b.hp, "第二只也是半死");
+
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, c, 999);
+        assertEquals(0, a.hp, "三只全半死 → 一起真死（a）");
+        assertEquals(0, b.hp, "（b）");
+        assertEquals(0, c.hp, "（c）");
+    }
+
+    // ============================ 第二十七批：SnakeDagger + Malleable ============================
+
+    /** 蛇匕首：先刺 9 伤塞 Wound，下一招 25 伤并自爆。 */
+    @Test
+    void snakeDaggerStabsThenSuicides() {
+        MonsterMove first = decide("SnakeDagger", history(), 50, 0, 0);
+        assertEquals(1, first.id);
+        assertEquals(9, first.damage);
+        assertEquals("Wound", first.statusCard);
+
+        MonsterMove boom = decide("SnakeDagger", history(1), 50, 0, 0);
+        assertEquals(2, boom.id, "第二招就是自爆");
+        assertEquals(25, boom.damage);
+        assertTrue(boom.extra.selfDestruct);
+    }
+
+    /** 韧性：每挨一下加「当前 amount」点格挡，然后 amount+1（字节码就是这个顺序）。 */
+    @Test
+    void malleableGrowsBlockPerHit() {
+        SimMonster dagger = new SimMonster("SnakeDagger", 100, 100, 0,
+                new java.util.HashMap<String, Integer>());
+        dagger.powers.put("Malleable", 3);
+        SimState s = field(dagger);
+
+        // 第一下：这一下全额吃（100→90），**之后**才 +3 格挡；amount 3 → 4
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, dagger, 10);
+        assertEquals(90, dagger.hp, "格挡是「下一段」才起作用");
+        assertEquals(3, dagger.block, "挨打后补 3 点格挡");
+        assertEquals(4, dagger.powers.get("Malleable").intValue(), "amount 3 → 4");
+        // 第二下：先用掉那 3 点格挡（掉 7 血），再补 4 点格挡；amount 4 → 5
+        io.github.youqing.sts1solver.mirror.DamageCalc.hit(s, dagger, 10);
+        assertEquals(83, dagger.hp, "3 点格挡吃掉 3 点伤害");
+        assertEquals(4, dagger.block, "这次补 4 点");
+        assertEquals(5, dagger.powers.get("Malleable").intValue(), "amount 4 → 5");
+    }
 }

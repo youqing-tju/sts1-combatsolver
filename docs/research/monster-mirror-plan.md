@@ -55,6 +55,8 @@
 | `OrbWalker` | 3 | 两招互斥（连打两次就换）；带 Burn 的那招 10\|11，另一招 15\|16。原版字段名反着存（`damage[0]` 叫 laserDmg 却给 Claw 用） |
 | `Maw` | 3 | 第 1 招必 Roar（Weak+Frail 3，A17 各 5）；之后 Nom（5 伤 × turnCount/2 段）/ Bellow（+力量）/ Slam（25\|30） |
 | `Transient` | 3 | 一招到底：30\|40 起、每回合 +10；**Fading 5\|6** 到点当场消散（CombatFlow 统一递减） |
+| `Darkling` | 3 | 三只一组：**第一次致死只算「半死」**（血留 1 + `Half Dead` 标记），下回合 Reincarnate 回半血；三只全半死才一起真死 |
+| `SnakeDagger` | 3 | 先 9 伤 + Wound，第二招 25 伤**自爆**；开场带 **Malleable 3**（挨打加格挡，一回合内越挡越多） |
 | `Nemesis` | 3（精英） | num 三段状态机 + 巨镰冷却（初值 0、每次 -1、打完归 2），分支里还会**额外掷 aiRng 硬币**；**每招末尾补一层无实体**（缺失才补） |
 | `GiantHead` | 3（精英） | `count` 初值 5、每次决策 -1：前四招 Glare（Weak **1**）/ 13 伤交替，之后 It's Time（30\|40 起、每回合 +5、封顶 +30）。真威胁是 **Slow**（每张牌 +10% 受伤，回合末清零） |
 | `Exploder` | 3 | 爆炸**不在招式里**：`ExplosivePower.duringTurn` 在 amount==1 时自杀 + 打 30（THORNS 类型，吃格挡）。打两下 → 第三回合自爆 |
@@ -370,8 +372,7 @@ setMove((byte)1, ATTACK, damage.get(2).base, 6, true);     // 硬设 Divider，�
 
 | 缺的机制 | 怪兽 |
 |---|---|
-| **半血复活 / 形态切换** | `Darkling`（`halfDead` + 三只联动「全半死才真死」）、`AwakenedOne`（两阶段）、`TimeEater`（计数重排） |
-| **Malleable**（每次挨打加点格挡，一回合有次数上限） | `SnakeDagger`、`Dagger`（Reptomancer 的召唤物） |
+| **两阶段 / 计数重排** | `AwakenedOne`（死后复活成第二阶段）、`TimeEater`（计数重排） |
 | **多段固定循环 + 队友联动** | `SpireShield` / `SpireSpear`、`Nemesis`、`WrithingMass`、`Reptomancer`、`CorruptHeart` |
 
 ⚠️ 这 14 只**不是「抄不动」而是「抄了会假」**：缺的那条机制不建，影子会把它们的威胁算错
@@ -442,8 +443,8 @@ public void duringTurn() {
 
 ## 收口状态（2026-10-26 11:00 前后）
 
-**已镜像 57 / 68**（`jar` 里 68 个 `monsters/*` 类，其中 `HexaghostBody` / `HexaghostOrb` 是纯视觉对象，不算）。
-Act 1 全齐、Act 2 全齐、Act 3 已做 14 只、Act 4 未开。
+**已镜像 59 / 68**（`jar` 里 68 个 `monsters/*` 类，其中 `HexaghostBody` / `HexaghostOrb` 是纯视觉对象，不算）。
+Act 1 全齐、Act 2 全齐、Act 3 已做 16 只、Act 4 未开。
 
 剩余 13 只**全部卡在同一个模式**：它们的核心机制在**玩家侧**（或需要跨回合计数器），
 影子现在还没有那个「容器」：
@@ -492,3 +493,21 @@ Nemesis 本身：
 - 判据里会**额外抽 `aiRng.randomBoolean()`**（三条分支各一处），`Context.randomBoolean()` 已有；
 - 每招末尾 `if (!hasPower("Intangible")) ApplyPower(Intangible, 1)` → 新增
   `Extra.onlyIfAbsent(power, amount)`（和 `selfBuff` 的「无脑叠加」区分开）。
+
+### Darkling：三只一套命
+
+- **第一次致死不算死**：`damage()` 里 `if (currentHealth <= 0 && !halfDead)` → `halfDead = true`，
+  战斗 `cannotLose = true`，它照样站着（显示「…」），下一回合 `5 Reincarnate` → `HealAction(maxHealth/2)`。
+- 影子把血量抬到 **1** 并打 `Half Dead` 标记（原版这一窗口是 0 血但打不死，差 1 点可忽略），
+  这样它不会被当成尸体跳过、也不会触发胜利判定。
+- **三只联动**：同一段代码里检查「所有 Darkling 都半死了吗」，是 → 全部真死。
+- `getMove` 里有**两条递归**（`aiRng.random(40,99)` / `aiRng.random(0,99)`），必须照抄消耗。
+
+### SnakeDagger：Malleable 的语义照字节码，不照 wiki
+
+`MalleablePower.onAttacked`（怪物分支）是：**先加 `amount` 点格挡，然后 `amount++`**；
+`atEndOfTurn` 把 `amount` 重置回 `basePower`（默认 3）。也就是说同一回合内
+第一下挡 3、第二下挡 4、第三下挡 5……而不是「固定挡 3、最多三次」。
+格挡在**下一段**才起作用（`onAttacked` 只是把 GainBlockAction 排进队列）。
+
+SnakeDagger 本身：1 号招 9 伤 + 塞 Wound；2 号招 25 伤后自爆（`LoseHPAction` 自己）。

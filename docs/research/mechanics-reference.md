@@ -2731,3 +2731,16 @@ Nemesis：`scytheCooldown`（0 起、每次 -1、巨镰后归 2）+ 三分支 nu
 巨镰 45、Burn 3 张（A18: 5）。
 
 全量 **363 条**通过；累计 **57 只**。
+
+### 33.37 Darkling（三只联动）+ SnakeDagger / Malleable 2026-10-26
+
+**Darkling**：第一次致死 → `halfDead = true`（血留 1 + `Half Dead` 标记）、下回合 `5 Reincarnate`
+（`HealAction(maxHealth/2)`）；**三只全部半死才一起真死**（原版同一段里干掉所有 Darkling）。
+`getMove` 有两条递归（`random(40,99)` / `random(0,99)`），`slot % 2 == 0` 才允许 Nip。
+
+**Malleable**（`MalleablePower.onAttacked`）：先加 `amount` 点格挡，再 `amount++`；
+`atEndOfTurn` 重置回 `basePower`(3)。**不是**「固定挡 3 三次」。格挡从下一段起生效。
+
+**SnakeDagger**：9 伤 + Wound → 25 伤 + 自爆。
+
+全量 **369 条**通过；累计 **59 只**。

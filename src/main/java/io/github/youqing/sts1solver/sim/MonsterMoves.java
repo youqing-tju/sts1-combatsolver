@@ -224,6 +224,8 @@ public final class MonsterMoves {
         MACHINES.put("Exploder", new ExploderMachine());
         MACHINES.put("GiantHead", new GiantHeadMachine());
         MACHINES.put("Nemesis", new NemesisMachine());
+        MACHINES.put("Darkling", new DarklingMachine());
+        MACHINES.put("SnakeDagger", new SnakeDaggerMachine());
     }
 
     private MonsterMoves() {
@@ -2162,6 +2164,80 @@ public final class MonsterMoves {
         private static MonsterMove divider(Context c) {
             int hp = c.state == null ? 12 : c.state.hp;
             return MonsterMove.multiAttack(1, hp / 12 + 1, 6);
+        }
+    }
+
+    /**
+     * 蛇匕首（{@code SnakeDagger}，第三章 Reptomancer 的召唤物）。
+     *
+     * <pre>
+     * getMove：firstMove（只有第 1 次）→ 1：9 伤 + 塞 1 张 Wound
+     *          之后                    → 2：25 伤，然后**自爆自杀**（LoseHPAction 自己）
+     * </pre>
+     *
+     * <p>它的防御手段是 **Malleable**（开场带着，挨打加格挡）—— 那条在
+     * {@code DamageCalc.applyMalleable} 与 {@code CombatFlow} ④.5 里，不在这个类里。
+     */
+    static final class SnakeDaggerMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            if (c.history.isEmpty()) {
+                return MonsterMove.attackStatus(1, c.baseDamage(0, 9), "Wound", 1);
+            }
+            return MonsterMove.explode(2, c.baseDamage(1, 25));
+        }
+    }
+
+    /**
+     * 小黑（{@code Darkling}，第三章，一次三只）。
+     *
+     * <pre>
+     * 半死（Half Dead 标记）      → 5 Reincarnate（回半血、清标记；血量恢复在 CombatFlow）
+     * 第 1 招：num&lt;50 → 2 Harden（12 格挡；A17 起再 +2 力量）；否则 3 Chomp（10|12）
+     * num&lt;40 ：没连打过 1 且**自己在队伍里的位次是偶数** → 1 Nip（两段 7|9）
+     *            否则**递归**：再抽 aiRng.random(40,99) 重新走一遍
+     * num&lt;70 ：上一招不是 2 → Harden；否则 Chomp
+     * 否则    ：没连打两次 3 → Chomp；否则**递归**：再抽 aiRng.random(0,99)
+     * </pre>
+     *
+     * <p>两条递归都要照抄（多消耗一次 aiRng，区间还不同），否则整条随机序列错位。
+     * 半死/复活/三只联动在 {@code DamageCalc.maybeHalfKillDarkling} 与
+     * {@code CombatFlow}（{@code Extra.reincarnate}）里。
+     */
+    static final class DarklingMachine implements Machine {
+        @Override
+        public MonsterMove next(Context c) {
+            if (c.monster != null && c.monster.powers.containsKey("Half Dead")) {
+                return MonsterMove.extra(5, MonsterMove.Extra.reincarnate());
+            }
+            int chomp = c.baseDamage(1, c.ascension >= 2 ? 12 : 10);
+            int nip = c.baseDamage(0, c.ascension >= 2 ? 9 : 7);
+            if (c.history.isEmpty()) {
+                return c.num < 50 ? harden(c) : MonsterMove.attack(3, chomp);
+            }
+            int num = c.num;
+            for (int guard = 0; guard < 16; guard++) {
+                if (num < 40) {
+                    if (!c.lastMove(1) && c.slot % 2 == 0) {
+                        return MonsterMove.multiAttack(1, nip, 2);
+                    }
+                    num = c.rollAiRange(40, 99);
+                    continue;
+                }
+                if (num < 70) {
+                    return c.lastMove(2) ? MonsterMove.attack(3, chomp) : harden(c);
+                }
+                if (!c.lastTwoMoves(3)) {
+                    return MonsterMove.attack(3, chomp);
+                }
+                num = c.rollAiRange(0, 99);
+            }
+            return MonsterMove.attack(3, chomp);   // 理论到不了；防止死循环
+        }
+
+        private static MonsterMove harden(Context c) {
+            return c.ascension >= 17 ? MonsterMove.buffBlock(2, "Strength", 2, 12)
+                    : MonsterMove.block(2, 12);
         }
     }
 

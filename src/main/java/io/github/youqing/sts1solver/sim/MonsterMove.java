@@ -473,11 +473,17 @@ public final class MonsterMove {
          */
         public final String absentBuff;
         public final int absentBuffAmount;
+        /**
+         * 复活（Darkling 的 5 号招 Reincarnate）：把血量拉回 {@code maxHp / 2} 并清掉半死标记。
+         * 原版是 {@code HealAction(this, this, maxHealth / 2)}，只治自己、不治队友。
+         */
+        public final boolean reincarnate;
 
         private Extra(Summon summon, String blockAllyType, int blockAllyTypeAmount,
                       int blockAllies, String playerDebuff3, int playerDebuff3Amount,
                       boolean cleanseSelf, String statusDrawCard, int statusDrawCount,
-                      boolean selfDestruct, String absentBuff, int absentBuffAmount) {
+                      boolean selfDestruct, String absentBuff, int absentBuffAmount,
+                      boolean reincarnate) {
             this.summon = summon;
             this.blockAllyType = blockAllyType;
             this.blockAllyTypeAmount = Math.max(0, blockAllyTypeAmount);
@@ -490,48 +496,54 @@ public final class MonsterMove {
             this.selfDestruct = selfDestruct;
             this.absentBuff = absentBuff;
             this.absentBuffAmount = Math.max(0, absentBuffAmount);
+            this.reincarnate = reincarnate;
         }
 
         public static Extra summon(Summon summon) {
-            return new Extra(summon, null, 0, 0, null, 0, false, null, 0, false, null, 0);
+            return new Extra(summon, null, 0, 0, null, 0, false, null, 0, false, null, 0, false);
         }
 
         public static Extra blockTypedAlly(String type, int amount) {
-            return new Extra(null, type, amount, 0, null, 0, false, null, 0, false, null, 0);
+            return new Extra(null, type, amount, 0, null, 0, false, null, 0, false, null, 0, false);
         }
 
         public static Extra blockAllies(int amount) {
-            return new Extra(null, null, 0, amount, null, 0, false, null, 0, false, null, 0);
+            return new Extra(null, null, 0, amount, null, 0, false, null, 0, false, null, 0, false);
         }
 
         public static Extra thirdPlayerDebuff(String power, int amount) {
-            return new Extra(null, null, 0, 0, power, amount, false, null, 0, false, null, 0);
+            return new Extra(null, null, 0, 0, power, amount, false, null, 0, false, null, 0, false);
         }
 
         /** 只清自身减益（Champ 的 Anger 另外还给力量，那部分走主字段 selfBuff）。 */
         public static Extra cleanseSelfOnly() {
-            return new Extra(null, null, 0, 0, null, 0, true, null, 0, false, null, 0);
+            return new Extra(null, null, 0, 0, null, 0, true, null, 0, false, null, 0, false);
+        }
+
+        /** 复活回半血（Darkling 的 Reincarnate）。 */
+        public static Extra reincarnate() {
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, null, 0, true);
         }
 
         /** 自己没有这个能力时才挂上（Nemesis 的无实体回补）。 */
         public static Extra onlyIfAbsent(String power, int amount) {
-            return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, power, amount);
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, false, power, amount, false);
         }
 
         /** 结算完自己死掉（Exploder）。 */
         public static Extra selfDestruct() {
-            return new Extra(null, null, 0, 0, null, 0, false, null, 0, true, null, 0);
+            return new Extra(null, null, 0, 0, null, 0, false, null, 0, true, null, 0, false);
         }
 
         /** 往抽牌堆塞状态牌（Repulsor 的 Dazed）。 */
         public static Extra statusToDraw(String card, int count) {
-            return new Extra(null, null, 0, 0, null, 0, false, card, count, false, null, 0);
+            return new Extra(null, null, 0, 0, null, 0, false, card, count, false, null, 0, false);
         }
 
         public boolean isEmpty() {
             return summon == null && blockAllyType == null && blockAllies <= 0
                     && playerDebuff3 == null && !cleanseSelf && statusDrawCard == null
-                    && !selfDestruct && absentBuff == null;
+                    && !selfDestruct && absentBuff == null && !reincarnate;
         }
     }
 

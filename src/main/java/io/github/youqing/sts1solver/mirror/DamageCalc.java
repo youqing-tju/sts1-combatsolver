@@ -109,6 +109,7 @@ public final class DamageCalc {
         // Lagavulin.damage(DamageInfo) 被重写过：**血量真的变了** 且还没醒过 → 立刻醒并晕一回合。
         // 这是它作为精英的核心机制（睡着的 3 回合是可以白打的窗口，一旦动手就换它先手）。
         if (target.hp != hpBefore) {
+            maybeHalfKillDarkling(state, target);
             wakeSleepingLagavulin(target);
             maybeQueueSplit(target);
             // TheGuardian：Mode Shift 的量与 dmgTaken 同步递减，归零就切防御姿态
@@ -121,6 +122,55 @@ public final class DamageCalc {
             }
         }
         applyThorns(state, target);
+        applyMalleable(target);
+    }
+
+    /**
+     * 韧性（{@code MalleablePower.onAttacked}）：被打中一次 → 加 {@code amount} 点格挡，
+     * 然后 {@code amount++}（所以同一回合第二下挡得更多）。回合末 {@code atEndOfTurn}
+     * 把 {@code amount} 重置回 {@code basePower}（默认 3，见 {@code CombatFlow} ④.5）。
+     *
+     * <p>⚠️ 这里有悖直觉：字节码确实是「挡 = amount，然后 amount+1」，
+     * 不是「固定挡 3、最多三次」。照字节码抄，别照 wiki 印象改。
+     */
+    private static void applyMalleable(SimMonster target) {
+        Integer malleable = target.powers.get("Malleable");
+        if (malleable == null || malleable.intValue() <= 0) {
+            return;
+        }
+        target.block += malleable.intValue();
+        target.powers.put("Malleable", Integer.valueOf(malleable.intValue() + 1));
+    }
+
+    /**
+     * 小黑（{@code Darkling.damage}）：**第一次被打死不算死**。
+     *
+     * <p>原版：{@code super.damage(info); if (currentHealth <= 0 && !halfDead) { halfDead = true; ... }}，
+     * 半死期间它照样站着（战斗不能结束，`cannotLose = true`），下一回合先「…」再复活回半血。
+     *
+     * <p>影子里的等价写法：把血量抬到 **1**（而不是 0）并打上 {@code Half Dead} 标记 ——
+     * 这样它不会被当成尸体跳过、也不会触发胜利判定。原版这一窗口里血量显示 0 但确实打不死，
+     * 差 1 点血量可以忽略。
+     *
+     * <p>**三只联动**：全部半死时它们才真的全灭（原版在同一段里干掉所有 Darkling）。
+     */
+    private static void maybeHalfKillDarkling(SimState state, SimMonster target) {
+        if (!"Darkling".equals(target.type) || target.hp > 0
+                || target.powers.containsKey("Half Dead")) {
+            return;
+        }
+        target.powers.put("Half Dead", Integer.valueOf(1));
+        target.hp = 1;
+        for (SimMonster m : state.monsters) {
+            if ("Darkling".equals(m.type) && m.hp > 0 && !m.powers.containsKey("Half Dead")) {
+                return;                       // 还有活蹦乱跳的小黑 → 战斗继续
+            }
+        }
+        for (SimMonster m : state.monsters) {
+            if ("Darkling".equals(m.type)) {
+                m.hp = 0;                     // 三只全半死 → 一起真死
+            }
+        }
     }
 
     /**

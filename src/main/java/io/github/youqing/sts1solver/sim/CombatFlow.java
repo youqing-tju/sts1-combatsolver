@@ -123,6 +123,10 @@ public final class CombatFlow {
                 Integer str = m.powers.get("Strength");
                 m.powers.put("Strength", (str == null ? 0 : str) + ritual);
             }
+            // MalleablePower.atEndOfTurn → amount = basePower（默认 3）
+            if (m.powers.containsKey("Malleable")) {
+                m.powers.put("Malleable", Integer.valueOf(3));
+            }
             // SlowPower.atEndOfRound → amount = 0（一轮结束，玩家这回合打的牌不再加成）
             if (m.powers.containsKey("Slow")) {
                 m.powers.put("Slow", Integer.valueOf(0));
@@ -282,6 +286,11 @@ public final class CombatFlow {
         // Exploder 的 ExplosivePower.duringTurn：先自杀再打 30，本回合结算完就下场
         if (move.extra != null && move.extra.selfDestruct && m.hp > 0) {
             m.hp = 0;
+        }
+        // Darkling 的 Reincarnate：HealAction(this, this, maxHealth / 2) + 清半死标记
+        if (move.extra != null && move.extra.reincarnate) {
+            m.hp = Math.max(1, m.maxHp / 2);
+            m.powers.remove("Half Dead");
         }
     }
 
