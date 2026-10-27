@@ -147,7 +147,14 @@ public final class Effects {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
-                add(target.powers, id, amount);
+                if (io.github.youqing.sts1solver.mirror.hooks.Hooks.isDebuff(id, amount)) {
+                    // 🔴 卡牌上的减益必须和药水走同一条门，否则「神器」形同不存在
+                    if (!applyDebuff(state, target, id, amount)) {
+                        return;     // 被神器吃掉：这次施加整条作废（Sadistic 也不该响）
+                    }
+                } else {
+                    add(target.powers, id, amount);
+                }
                 io.github.youqing.sts1solver.mirror.hooks.Hooks.onPowerApplied(
                         state, id, amount, target);
             }
@@ -170,11 +177,18 @@ public final class Effects {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 for (SimMonster m : state.monsters) {
-                    if (m.hp > 0) {
-                        add(m.powers, id, amount);
-                        io.github.youqing.sts1solver.mirror.hooks.Hooks.onPowerApplied(
-                                state, id, amount, m);
+                    if (m.hp <= 0) {
+                        continue;
                     }
+                    if (io.github.youqing.sts1solver.mirror.hooks.Hooks.isDebuff(id, amount)) {
+                        if (!applyDebuff(state, m, id, amount)) {
+                            continue;   // 被神器吃掉
+                        }
+                    } else {
+                        add(m.powers, id, amount);
+                    }
+                    io.github.youqing.sts1solver.mirror.hooks.Hooks.onPowerApplied(
+                            state, id, amount, m);
                 }
             }
 
@@ -1620,6 +1634,16 @@ public final class Effects {
      * @return {@code true} = 真的加上了；{@code false} = 被神器抵消
      */
     public static boolean applyDebuff(SimState state, SimMonster target, String id, int amount) {
+        // 冠军腰带（{@code ApplyPowerAction} 里的 Champion Belt 分支）：玩家给**别的**生物
+        // 挂易伤时，只要目标身上**一层神器都没有**，就先排一个 +1 虚弱（`onTrigger`）。
+        // 字节码判据：hasRelic("Champion Belt") && source.isPlayer && target != source
+        //            && powerToApply.ID.equals("Vulnerable") && !target.hasPower("Artifact")
+        // 注意这里用的是 hasPower（有没有），不是「还剩几层」—— 有神器就整条不触发。
+        boolean championBelt = "Vulnerable".equals(id)
+                && state != null && target != null
+                && state.relics.containsKey(
+                        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.CHAMPION_BELT)
+                && !target.powers.containsKey("Artifact");
         Integer artifact = target.powers.get("Artifact");
         if (artifact != null && artifact > 0) {
             if (artifact == 1) {
@@ -1630,6 +1654,9 @@ public final class Effects {
             return false;
         }
         add(target.powers, id, amount);
+        if (championBelt) {
+            add(target.powers, "Weakened", 1);
+        }
         return true;
     }
 }

@@ -31,11 +31,23 @@ public final class DamageCalc {
         if (penNib != null && penNib == 9) {
             dmg = (int) Math.floor(dmg * 2.0f);
         }
+        // 靴子（Boot.onAttackToChangeDamage）：**玩家打出的** 1..4 点攻击伤害抬到 5。
+        // 原版那段在 AbstractMonster.damage() 里，外面套着 `info.owner == player` 才遍历
+        // 玩家遗物 —— 所以只作用于「玩家 → 怪物」这条链，怪物打玩家时不吃。
+        // 它发生在 applyPowers / calculateCardDamage 之后 → 排在笔尖之后、落地之前。
+        if (state.relics.containsKey(
+                io.github.youqing.sts1solver.mirror.hooks.RelicHooks.BOOT)
+                && dmg > 0 && dmg
+                < io.github.youqing.sts1solver.mirror.hooks.RelicHooks.bootFloor()) {
+            dmg = io.github.youqing.sts1solver.mirror.hooks.RelicHooks.bootFloor();
+        }
         return Math.max(0, dmg);
     }
 
     private static int attackDamageWithoutRelics(SimState state, int base, SimMonster target) {
-        int dmg = base + power(state, STRENGTH);
+        // VigorPower.atDamageGive：只有 NORMAL 类型吃，直接加在力量那一档
+        // （Akabeko 的 8 层就是这里生效）。它**不是**遗物钩子，是一个能力。
+        int dmg = base + power(state, STRENGTH) + power(state, "Vigor");
         if (power(state, WEAKENED) > 0) {
             dmg = (int) Math.floor(dmg * 0.75f);
         }

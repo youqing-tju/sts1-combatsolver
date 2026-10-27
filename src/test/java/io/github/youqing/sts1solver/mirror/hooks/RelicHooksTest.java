@@ -1068,4 +1068,149 @@ class RelicHooksTest {
         assertEquals(15, DamageCalc.attackDamage(s2, 10, m),
                 "纸鹤/奇异蘑菇都不动「玩家打敌人」的 ×1.5");
     }
+    // ---------------------------------------------------------------- 第十批：Vigor / 靴子 / 腰带 / 不停之巅
+
+    /**
+     * 阿卡贝科给的 **Vigor**（`VigorPower.atDamageGive`）：+8 伤，
+     * 而且多段攻击**每一段**都吃；打完第一张攻击牌整条移除。
+     *
+     * <p>它不是遗物钩子：Akabeko 只在 `atBattleStart` 挂 8 层 Vigor（快照里已有），
+     * 真正生效的是这个能力。
+     */
+    @Test
+    void vigorAddsToEveryHitThenIsConsumedByTheFirstAttack() {
+        SimState s = fight();
+        s.monsters.get(0).hp = 200;
+        s.playerPowers.put("Vigor", Integer.valueOf(8));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard(
+                "Pommel Strike", false, 1, 9, "ATTACK"));
+
+        assertEquals(17, DamageCalc.attackDamage(s, 9, s.monsters.get(0)), "9 + 8");
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+        assertEquals(183, s.monsters.get(0).hp, "200 - 17");
+        assertEquals(null, s.playerPowers.get("Vigor"), "打完攻击牌整条移除");
+
+        // 第二张不再加成
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard(
+                "Pommel Strike", false, 1, 9, "ATTACK"));
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+        assertEquals(174, s.monsters.get(0).hp, "只打 9");
+    }
+
+    /** Vigor 只对**攻击牌**生效；打技能牌既不加成也不消耗。 */
+    @Test
+    void vigorSurvivesSkillCards() {
+        SimState s = fight();
+        s.playerPowers.put("Vigor", Integer.valueOf(8));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard(
+                "Shrug It Off", false, 1, -1, "SKILL"));
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, -1);
+
+        assertEquals(Integer.valueOf(8), s.playerPowers.get("Vigor"), "技能牌不消耗 Vigor");
+    }
+
+    /**
+     * 靴子（`Boot.onAttackToChangeDamage`）：玩家打出的 **1..4** 点抬到 5；0 和 5 以上不动。
+     *
+     * <p>🔴 它只作用于「玩家 → 怪物」：原版那段在 `AbstractMonster.damage()` 里，
+     * 外面套着 `info.owner == AbstractDungeon.player` 才遍历玩家遗物。怪物打玩家不吃。
+     */
+    @Test
+    void bootRaisesSmallPlayerHitsToFive() {
+        SimState s = fight();
+        SimMonster m = s.monsters.get(0);
+        s.relics.put(RelicHooks.BOOT, Integer.valueOf(-1));
+
+        assertEquals(5, DamageCalc.attackDamage(s, 2, m), "2 → 5");
+        assertEquals(5, DamageCalc.attackDamage(s, 4, m), "4 → 5");
+        assertEquals(5, DamageCalc.attackDamage(s, 5, m), "5 不动");
+        assertEquals(9, DamageCalc.attackDamage(s, 9, m), "9 不动");
+
+        // 没遗物：原值
+        SimState s2 = fight();
+        assertEquals(2, DamageCalc.attackDamage(s2, 2, s2.monsters.get(0)));
+
+        // 怪物打玩家不吃：2 点还是 2 点（玩家没易伤、怪没力量）
+        assertEquals(2, DamageCalc.monsterAttackDamage(s2, 2, s2.monsters.get(0)),
+                "靴子不放大怪物伤害");
+    }
+
+    /**
+     * 冠军腰带（`ApplyPowerAction` 里的 Champion Belt 分支）：给**别的**生物挂易伤时
+     * 顺手给 1 层虚弱；目标身上**有任何一层神器**就整条不触发。
+     */
+    @Test
+    void championBeltAddsWeakAlongWithVulnerable() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.CHAMPION_BELT, Integer.valueOf(-1));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Bash", false, 2, 8, "ATTACK"));
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+
+        assertEquals(Integer.valueOf(2), s.monsters.get(0).powers.get("Vulnerable"));
+        assertEquals(Integer.valueOf(1), s.monsters.get(0).powers.get("Weakened"),
+                "易伤 + 虚弱各一层");
+
+        // 没有腰带：只给易伤
+        SimState s2 = fight();
+        s2.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Bash", false, 2, 8, "ATTACK"));
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s2, 0, 0);
+        assertEquals(null, s2.monsters.get(0).powers.get("Weakened"));
+    }
+
+    /**
+     * 🔴 卡牌上的减益也要过**神器**这一关（以前只有药水过，卡牌直接用 `add` 绕过）。
+     *
+     * <p>原版 `ApplyPowerAction` 是唯一入口：目标有 Artifact 就消耗一层、这次施加作废。
+     * 这条钉的是「Bash 打有神器的怪，易伤不该落地」。
+     */
+    @Test
+    void cardDebuffsAreEatenByArtifact() {
+        SimState s = fight();
+        s.monsters.get(0).powers.put("Artifact", Integer.valueOf(1));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Bash", false, 2, 8, "ATTACK"));
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+
+        assertEquals(null, s.monsters.get(0).powers.get("Vulnerable"), "神器吃掉这次易伤");
+        assertEquals(null, s.monsters.get(0).powers.get("Artifact"), "吃完就没了");
+        assertEquals(92, s.monsters.get(0).hp, "伤害照打：8 点（没易伤）");
+
+        // 有神器时冠军腰带也不触发（判据是 hasPower("Artifact")，不是「还剩几层」）
+        SimState s2 = fight();
+        s2.relics.put(RelicHooks.CHAMPION_BELT, Integer.valueOf(-1));
+        s2.monsters.get(0).powers.put("Artifact", Integer.valueOf(2));
+        s2.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Bash", false, 2, 8, "ATTACK"));
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s2, 0, 0);
+        assertEquals(null, s2.monsters.get(0).powers.get("Vulnerable"));
+        assertEquals(null, s2.monsters.get(0).powers.get("Weakened"), "腰带也不给虚弱");
+        assertEquals(Integer.valueOf(1), s2.monsters.get(0).powers.get("Artifact"),
+                "只消耗一层");
+    }
+
+    /** 不停之巅（`UnceasingTop.onRefreshHand`）：手牌打空且牌堆还有牌 → 再抽 1 张。 */
+    @Test
+    void unceasingTopDrawsWhenTheHandEmpties() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.UNCEASING_TOP, Integer.valueOf(-1));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        for (int i = 0; i < 5; i++) {
+            s.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+
+        assertEquals(1, s.hand.size(), "手牌打空 → 补抽 1 张");
+
+        // 没遗物：不抽
+        SimState s2 = fight();
+        s2.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        for (int i = 0; i < 5; i++) {
+            s2.draw.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK"));
+        }
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s2, 0, 0);
+        assertEquals(0, s2.hand.size());
+    }
 }

@@ -156,6 +156,22 @@ public final class RelicHooks {
     /** 纸鹤（{@code PaperCrane}）：**敌人**中虚弱时的减伤从 25% 提到 40%（×0.6）。 */
     public static final String PAPER_CRANE = "Paper Crane";
 
+    // ---- 第十批：伤害侧三件套 + 清手牌（2026-10-27）----
+
+    /** 靴子（{@code Boot}）：玩家打出的 1..4 点攻击伤害抬到 5。 */
+    public static final String BOOT = "Boot";
+    /** 不停之巅（{@code UnceasingTop}）：手牌打空时再抽 1 张。 */
+    public static final String UNCEASING_TOP = "Unceasing Top";
+    /** 冠军腰带（{@code ChampionsBelt}）：给敌人挂易伤时顺手给 1 层虚弱。 */
+    public static final String CHAMPION_BELT = "Champion Belt";
+    /** {@code Boot.onAttackToChangeDamage}: `info.output < 5` → 5。 */
+    private static final int BOOT_FLOOR = 5;
+
+    /** 靴子的下限值（{@code DamageCalc} 要用，避免两处各写一个 5）。 */
+    public static int bootFloor() {
+        return BOOT_FLOOR;
+    }
+
     /** {@code Abacus.onShuffle}: {@code GainBlockAction(player, player, 6)}。 */
     private static final int ABACUS_BLOCK = 6;
     /** {@code StoneCalendar}: 第 7 回合结束 {@code DamageAllEnemiesAction(52, THORNS)}。 */

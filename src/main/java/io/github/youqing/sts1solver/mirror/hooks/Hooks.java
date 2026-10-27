@@ -253,7 +253,13 @@ public final class Hooks {
         }
     }
 
-    private static boolean isDebuff(String id, int amount) {
+    /**
+     * 这个「施加能力」算不算减益（{@code AbstractPower.PowerType.DEBUFF}）。
+     *
+     * <p>判定口径与原版 {@code ApplyPowerAction} 一样：力量/敏捷的**负增量**按减益算
+     * （缴械那种），其余查白名单。
+     */
+    public static boolean isDebuff(String id, int amount) {
         if (DamageCalc.STRENGTH.equals(id) || DamageCalc.DEXTERITY.equals(id)) {
             return amount < 0;      // 缴械那种「力量 -2」按减益算
         }

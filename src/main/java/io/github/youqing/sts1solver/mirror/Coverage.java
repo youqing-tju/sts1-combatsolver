@@ -77,6 +77,8 @@ public final class Coverage {
                     "Mummified Hand", "OrangePellets", "Art of War",
                     // 倍率侧（2026-10-26）
                     "Odd Mushroom", "Paper Crane",
+                    // 第十批（2026-10-27）：伤害侧三件套 + 清手牌
+                    "Boot", "Unceasing Top", "Champion Belt",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));

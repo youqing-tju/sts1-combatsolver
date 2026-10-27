@@ -123,6 +123,12 @@ public final class CardPlayer {
         // 同样要触发 onUseCard：自动打出的牌也会数进遗物/能力计数
         io.github.youqing.sts1solver.mirror.hooks.Hooks.onCardUsed(state, card, targetIndex);
 
+        // VigorPower.onUseCard：打出**攻击牌** → 整条移除（不管这一击有没有造成伤害）。
+        // 必须在复制重放之前：副本在游戏里是「另一次使用」，那时 Vigor 已经没了。
+        if (card.isAttack()) {
+            state.playerPowers.remove("Vigor");
+        }
+
         // BlueCandle.onUseCard：打出诅咒牌 → LoseHPAction(player, player, 1)（HP_LOSS：无视图格挡）
         if (blueCandle) {
             io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(state, 1, null,
@@ -166,6 +172,16 @@ public final class CardPlayer {
             Effects.exhaustCard(state, card);
         } else {
             state.discard.add(card);
+        }
+        // 不停之巅（UnceasingTop.onRefreshHand）：手牌打空且牌堆里还有牌 → 再抽 1 张。
+        // 原版判据：动作队列空 && hand.isEmpty && !turnHasEnded && canDraw && 没有 No Draw
+        // && 房间在战斗阶段 && !disabledUntilEndOfTurn &&（弃牌堆或抽牌堆非空）。
+        // `disabledUntilEndOfTurn` 只在回合末弃牌流程里置真，影子的「打完一张牌」这个点上恒假。
+        if (state.hand.isEmpty() && state.turnForcedEnd == false
+                && state.relics.containsKey(
+                        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.UNCEASING_TOP)
+                && (!state.draw.isEmpty() || !state.discard.isEmpty())) {
+            io.github.youqing.sts1solver.sim.CombatFlow.drawCards(state, 1);
         }
         // 不在这里移除死亡怪物：游戏会保留 0 血单位直到死亡动画播完。
         // 影子若立刻删除，怪物列表长度就和实机对不上，核对前统一做归一化。

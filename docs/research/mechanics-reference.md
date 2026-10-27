@@ -3438,3 +3438,41 @@ if (this.dontTriggerOnUseCard) { ...真正的内容... }
 
 RNG 全部固定种子，所以这个数字**可复现**。测试断言「6 场全胜 + 毛战损 ≤ 105」
 —— 它是**回归网**（涨过阈值 = 某处退化），不是质量线；估值做好了应该往下走。
+
+### 33.56 遗物第十批 + 一个「神器形同不存在」的静默 bug（2026-10-27）
+
+#### 🔴 先修 bug：卡牌上的减益**绕过了神器**
+
+`Effects.powerOnTarget` / `powerOnAll`（卡牌施加减益的唯一路径）直接 `add(target.powers, …)`，
+**没有过 `applyDebuff` 那道神器门** —— 而药水路径是过的。后果：
+Bash / 上勾拳 / 闪电霹雳打**有神器的怪**（尖塔之盾 1–2 层、甜甜圈、心脏…）时，
+易伤/虚弱照常有，等于神器从来没起作用。
+
+原版只有 `ApplyPowerAction` 一个入口：目标有 `Artifact` 就 `onSpecificTrigger()` 消耗一层、
+这次施加作废。现在两条路径都走 `applyDebuff`，并且被吃掉时**不再触发**
+`Hooks.onPowerApplied`（残虐天性不该为一次没落地的减益响）。
+
+#### 本批四件
+
+| 名字 | 运行时 ID | 钩子（字节码） | 影子落点 |
+|---|---|---|---|
+| 阿卡贝科 | `Akabeko` | `atBattleStart` → `VigorPower(player, 8)` | **能力**侧：`DamageCalc` + `CardPlayer` |
+| 靴子 | `Boot` | `onAttackToChangeDamage`：`owner != null && type ∉ {HP_LOSS, THORNS} && 0 < dmg < 5` → 5 | `DamageCalc.attackDamage` 末尾 |
+| 冠军腰带 | **`Champion Belt`** | `ApplyPowerAction` 里的分支：`hasRelic && source.isPlayer && target != source && power.ID=="Vulnerable" && !target.hasPower("Artifact")` → `onTrigger` 给 1 层虚弱 | `Effects.applyDebuff` |
+| 不停之巅 | **`Unceasing Top`** | `onRefreshHand`：动作队列空 && 手牌空 && 未结束回合 && 有牌可抽 && 无 No Draw && 战斗中 && 未禁用 → `DrawCardAction(1)` | `CardPlayer.play` 末尾 |
+
+**三个容易写错的点**：
+
+1. **Vigor 是能力，不是遗物钩子**。Akabeko 只在开场挂 8 层（快照里已有）；
+   真正生效的是 `VigorPower.atDamageGive`：**只吃 NORMAL 类型**、加在力量那一档，
+   多段攻击**每段都吃**；`onUseCard` 里 `card.type == ATTACK` 就把**整条**移除
+   （不管这一击有没有造成伤害）。所以落点是「伤害管线 +1 档」+「打完攻击牌 remove」。
+   `Sling` 查了字节码：它给的是 `StrengthPower(2)`（且只在精英房），已经被快照吃掉了，**不用做**。
+2. **靴子只作用于「玩家 → 怪物」**。原版那段在 `AbstractMonster.damage()` 里，外面套着
+   `info.owner == AbstractDungeon.player` 才遍历**玩家**遗物；怪物打玩家时根本走不到这个循环。
+   （我一开始记的是「需要怪物侧伤害类型」——错了，方向反了。）
+   位置在笔尖之后：`onAttackToChangeDamage` 发生在 `applyPowers`/`calculateCardDamage` 之后。
+3. **冠军腰带用的是 `hasPower("Artifact")`（有没有），不是「还剩几层」**。
+   哪怕目标只剩 1 层神器、这次易伤本来就会被吃掉，腰带也**不**给虚弱 —— 两个判断各自独立。
+
+全量 **476 条**通过；遗物镜像 **50 件**。
