@@ -164,6 +164,8 @@ public final class RelicHooks {
     public static final String UNCEASING_TOP = "Unceasing Top";
     /** 冠军腰带（{@code ChampionsBelt}）：给敌人挂易伤时顺手给 1 层虚弱。 */
     public static final String CHAMPION_BELT = "Champion Belt";
+    /** 奇异勺子（{@code StrangeSpoon}）：本该消耗的牌 50% 改成进弃牌堆（能力牌除外）。 */
+    public static final String STRANGE_SPOON = "Strange Spoon";
     /** {@code Boot.onAttackToChangeDamage}: `info.output < 5` → 5。 */
     private static final int BOOT_FLOOR = 5;
 

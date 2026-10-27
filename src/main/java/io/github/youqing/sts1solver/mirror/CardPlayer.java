@@ -168,7 +168,24 @@ public final class CardPlayer {
 
         // 蓝蜡烛 / 医疗包打出时**强制消耗**（onUseCard 里把 card.exhaust 与
         // UseCardAction.exhaustCard 都置 true），和「这张牌自己消耗」是两条路
-        if (mirror.exhaustsOnPlay || blueCandle || medicalKit) {
+        boolean wouldExhaust = mirror.exhaustsOnPlay || blueCandle || medicalKit;
+        // 奇异勺子（UseCardAction.update 里那段）：本该消耗时掷一次
+        // `cardRandomRng.randomBoolean()`，掷中且**不是能力牌**就改成进弃牌堆。
+        // ⚠️ 只有「打出的牌」吃这个：回合末虚体牌的消耗走 ExhaustSpecificCardAction，
+        // 那条路不查遗物 —— 所以这个判断写在这里，不写进 Effects.exhaustCard。
+        boolean spooned = false;
+        if (wouldExhaust && !card.isPower()
+                && state.relics.containsKey(
+                        io.github.youqing.sts1solver.mirror.hooks.RelicHooks.STRANGE_SPOON)) {
+            io.github.youqing.sts1solver.sim.RngStream rng =
+                    state.rng.get(SimState.RngKind.CARD);
+            if (rng == null) {
+                throw new ActionRejected(
+                        "Strange Spoon needs the CARD rng stream, snapshot has none");
+            }
+            spooned = rng.randomBoolean();
+        }
+        if (wouldExhaust && !spooned) {
             Effects.exhaustCard(state, card);
         } else {
             state.discard.add(card);

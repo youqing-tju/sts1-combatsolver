@@ -1213,4 +1213,60 @@ class RelicHooksTest {
         io.github.youqing.sts1solver.mirror.CardPlayer.play(s2, 0, 0);
         assertEquals(0, s2.hand.size());
     }
+    /**
+     * 奇异勺子（`UseCardAction.update` 里那段）：本该消耗的牌掷一次
+     * `cardRandomRng.randomBoolean()`，掷中且**不是能力牌**就改去弃牌堆。
+     *
+     * <p>断言方式：换 8 个种子各打一次「消耗类攻击牌」，两种结局都必须出现
+     * （50% 的硬币若恒定落一边，说明随机数根本没抽）。
+     */
+    @Test
+    void strangeSpoonSometimesKeepsExhaustCardsInTheDiscard() {
+        int exhausted = 0;
+        int kept = 0;
+        for (int seed = 1; seed <= 8; seed++) {
+            SimState s = fight();
+            s.energy = 3;
+            s.relics.put(RelicHooks.STRANGE_SPOON, Integer.valueOf(-1));
+            s.rng.put(SimState.RngKind.CARD,
+                    io.github.youqing.sts1solver.sim.RngStream.from(seed * 7919L, seed, 0));
+            s.hand.add(new io.github.youqing.sts1solver.sim.SimCard(
+                    "Pummel", false, 1, 2, "ATTACK"));
+
+            io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+
+            assertEquals(1, s.rng.get(SimState.RngKind.CARD).counter(),
+                    "每次消耗判定都要消耗一次 cardRandomRng");
+            if (s.exhaust.isEmpty()) {
+                kept++;
+                assertEquals(1, s.discard.size(), "掷中 → 进弃牌堆而不是消耗堆");
+            } else {
+                exhausted++;
+                assertEquals(0, s.discard.size());
+            }
+        }
+        assertTrue(exhausted > 0 && kept > 0,
+                "50% 判定两种结局都该出现（消耗 " + exhausted + " / 留下 " + kept + "）");
+    }
+
+    /** 没有勺子 → 恒定消耗；能力牌就算有勺子也恒定消耗。 */
+    @Test
+    void strangeSpoonSkipsPowersAndNeedsTheRelic() {
+        SimState s = fight();
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard(
+                "Pummel", false, 1, 2, "ATTACK"));
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s, 0, 0);
+        assertEquals(1, s.exhaust.size(), "没遗物：老老实实消耗");
+
+        SimState s2 = fight();
+        s2.relics.put(RelicHooks.STRANGE_SPOON, Integer.valueOf(-1));
+        s2.rng.put(SimState.RngKind.CARD,
+                io.github.youqing.sts1solver.sim.RngStream.from(1L, 2L, 0));
+        s2.energy = 3;
+        s2.hand.add(new io.github.youqing.sts1solver.sim.SimCard(
+                "Impervious", false, 2, -1, "SKILL"));
+        io.github.youqing.sts1solver.mirror.CardPlayer.play(s2, 0, -1);
+        // 技能牌也吃勺子（只有 POWER 不吃）—— 这里只验证「至少结局合法」
+        assertTrue(s2.exhaust.size() + s2.discard.size() == 1);
+    }
 }

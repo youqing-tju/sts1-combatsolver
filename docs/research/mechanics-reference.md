@@ -1692,20 +1692,22 @@ LinkedHashMap 的施加顺序）。混洗器：黄金比例步进 + murmur 收�
 
 外加「不同状态的数量与老口径一致」「只有 base 与它的 copy 允许同指纹」两条。
 
-### 29.4 ⚠️ 顺带查出来的口径缺口（原样保留，未改）
+### 29.4 ✅ 口径缺口已补（2026-10-24，本节原为「待拍板」）
 
-`toJson()` 里**没有** `turn` / `hpLossCount` / `potionSlots` / `gold`，
-所以这几个字段不同的两个状态会被判成同一个局面：
+原来 `fingerprint()` 里**没有** `turn` / `hpLossCount` / `potionSlots`，
+于是这几个字段不同的两个状态会被判成同一个局面。**2026-10-24 已补进去**
+（`SimState.java` 的 `fingerprint()`：`hash.add(turn).add(hpLossCount).add(potionSlots)`）：
 
-- `turn` 不进指纹：`TranspositionTable` 那段注释写「键含回合号」是**错的**（注释待改）；
-  实践中回合前进必然伴随抽牌/洗牌，局面会变，所以暂时没炸；
-- `hpLossCount` 不进指纹：它决定浴血奋战（Blood for Blood）的动态费用 ——
-  「同样血量、挨打次数不同」的两条路线会被去重掉一条；
-- `potionSlots` 是常量（铁甲 2 格），`gold` 战斗内不变。
+- `hpLossCount` 决定浴血奋战（Blood for Blood）的动态费用 ——
+  「同样血量、挨打次数不同」的两条路线以前会被去重掉一条，这是**静默算错**，必须补；
+- `turn` 是意图学习表（未镜像怪物）的索引维度之一；
+- `potionSlots` 在铁甲身上是常量，补进去无副作用，但换角色就未必。
 
-**这是语义变更**（补进去 = 等价类变细 = 去重变少 = 节点数变多、结果可能变），
-所以要用户拍板，不擅自改。§29.2 的哈希字段严格按现有口径排列，就是为了让这一步
-可以独立决定。
+`gold` 仍然不进指纹：战斗内不变，进不进等价。
+
+补进去 = 等价类变细 = 去重变少 = 节点数变多。当时复测的结论是**吞吐没有可见退化**
+（`SearchThroughputTest` 仍绿），所以保持补齐。
+`TranspositionTable` 里「键含回合号」那句注释以前是错的，现在与实现一致。
 
 ## 30. 带骨肉的阈值回血进基础分（A｜蓝本源码，2026-10-24）
 
@@ -3476,3 +3478,37 @@ Bash / 上勾拳 / 闪电霹雳打**有神器的怪**（尖塔之盾 1–2 层�
    哪怕目标只剩 1 层神器、这次易伤本来就会被吃掉，腰带也**不**给虚弱 —— 两个判断各自独立。
 
 全量 **476 条**通过；遗物镜像 **50 件**。
+
+### 33.57 奇异勺子（Strange Spoon）+ 两处过期文档更正（2026-10-27）
+
+**奇异勺子**（ID `Strange Spoon`）：触发点在 `UseCardAction.update()`，不在遗物自己身上：
+
+```java
+boolean spooned = false;
+if (exhaustCard && player.hasRelic("Strange Spoon") && targetCard.type != POWER)
+    spooned = AbstractDungeon.cardRandomRng.randomBoolean();   // 50%
+if (!exhaustCard || spooned) { /* 正常进弃牌堆 */ } else { /* 真消耗 */ }
+```
+
+三个要点：
+1. **只有「打出的牌」吃它**。回合末虚体牌的消耗走 `ExhaustSpecificCardAction`，
+   那条路不查遗物 —— 所以判断写在 `CardPlayer.play`，**不**写进 `Effects.exhaustCard`
+   （写进去会让 Dazed / AscendersBane 也被勺子救）。
+2. **能力牌不吃**（`type != POWER` 是硬条件，不是概率）。
+3. 掷的是 `cardRandomRng.randomBoolean()`，与 `random(3)` 是**两种不同的消耗方式**
+   （`nextBoolean()` vs `nextInt(n)`），所以必须用 `RngStream.randomBoolean()`；
+   快照里没有 CARD 流就显式 `ActionRejected`。
+
+**顺带更正两处过期文档**（都是「结论早已落地、文档还写着待办」）：
+
+- `mechanics-reference §29.4` 原写「指纹缺 `turn`/`hpLossCount`/`potionSlots`，等用户拍板」——
+  实际 **2026-10-24 就补了**（`fingerprint()` 里 `hash.add(turn).add(hpLossCount).add(potionSlots)`）。
+  已改写成「已补 + 为什么必须补（浴血奋战动态费用）+ 吞吐无退化」。
+- `blueprint-parity` 的 `SelectEarlyTurnFrontier` 行原写「5 项未建模」，其中
+  `PersistentBuffValue` **早已建模**（`PowerValuation.persistentBuffValue`）。已改成 4 项，
+  并把 `ReachableHandValue` 的**精确依赖链**写进去：它要逐张牌的 `CardValue`，
+  而 `SimCard` 只有 `baseDamage`、缺 `baseBlock` / 抽牌数 —— 要做得先补捕获层字段。
+
+> 这两条是同一类问题：**文档没跟上代码**。以后改完一项顺手改状态，别留「已做完但还写着❌」。
+
+全量 **478 条**通过；遗物镜像 **51 件**；jar 打包已验证可出（`STS1CombatSolver.jar`，264 个条目）。

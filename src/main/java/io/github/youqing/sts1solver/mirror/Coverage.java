@@ -78,7 +78,7 @@ public final class Coverage {
                     // 倍率侧（2026-10-26）
                     "Odd Mushroom", "Paper Crane",
                     // 第十批（2026-10-27）：伤害侧三件套 + 清手牌
-                    "Boot", "Unceasing Top", "Champion Belt",
+                    "Boot", "Unceasing Top", "Champion Belt", "Strange Spoon",
                     // 死亡豁免（DeathSaveRelic）
                     "Lizard Tail"
             ));
