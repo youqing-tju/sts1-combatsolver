@@ -3511,4 +3511,10 @@ if (!exhaustCard || spooned) { /* 正常进弃牌堆 */ } else { /* 真消耗 */
 
 > 这两条是同一类问题：**文档没跟上代码**。以后改完一项顺手改状态，别留「已做完但还写着❌」。
 
-全量 **478 条**通过；遗物镜像 **51 件**；jar 打包已验证可出（`STS1CombatSolver.jar`，264 个条目）。
+全量 **478 条**通过；jar 打包已验证可出（`STS1CombatSolver.jar`，264 个条目）。
+
+**计数更正**：`Coverage.INERT_RELICS` 白名单现在是 **58 条**，其中 6 条是
+「开局已被快照捕获 / 纯局外」（`Ectoplasm` / `Burning Blood` / `Anchor` / `Bag of Marbles` /
+`Vajra` / `Bag of Preparation`）—— 所以**真正镜像的是 52 件**。
+之前一串「47 → 50 → 51」是沿着一个早已偏小的基数往上加，累计偏了 7。
+以后报这个数就报「52 件（白名单 58 条）」，别再逐个 +1。
