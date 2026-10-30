@@ -211,6 +211,10 @@ public final class CombatFlow {
             drawCount = Math.max(0, drawCount - drawReduction.intValue());
             state.playerPowers.remove("Draw Reduction");
         }
+        // NoDrawPower.atEndOfTurn → RemoveSpecificPowerAction：只封「本回合」。
+        // 原版在回合结束那一刻移除；我们整段 endTurn 里唯一会抽牌的地方就是下一回合的
+        // 起手抽牌，所以在这里清掉等价（敌人阶段不抽牌）。
+        state.playerPowers.remove("No Draw");
         draw(state, drawCount);
         // 怀表（atTurnStartPostDraw）必须在**抽完牌之后**，否则它抽的 3 张会被算进正常抽牌
         io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onPlayerTurnStartPostDraw(state);
@@ -794,6 +798,14 @@ public final class CombatFlow {
      *                    我们同步算就要自己限深度。
      */
     private static void draw(SimState state, int count, int evolveDepth) {
+        // 🔴 原版 DrawCardAction.update() 的第一句：
+        //     if (player.hasPower("No Draw")) { isDone = true; return; }
+        // 也就是「战斗专注之后本回合一张都不许再抽」。以前这里完全不查，
+        // 影子里照样抽满，于是每打一张战斗专注就和实机差 3 张手牌（真机 5 次失配）。
+        // 判据用 containsKey 而不是 > 0：NoDrawPower 的 amount 恒为 -1。
+        if (state.playerPowers.containsKey("No Draw")) {
+            return;
+        }
         int statusDrawn = 0;
         for (int i = 0; i < count; i++) {
             if (state.hand.size() >= HAND_LIMIT) {

@@ -220,6 +220,27 @@ public final class Effects {
      * <p>原版这两个 power 的 {@code amount} 是倒计时/计数，伤害在私有字段里，
      * 所以影子得把伤害单独记到 {@link SimState#powerAux}，否则算不出正确数值。
      */
+    /**
+     * 把能力**置成**这个层数（不累加），对应原版那些「不叠层」的能力。
+     *
+     * <p>典型是 {@code NoDrawPower}：构造器里 {@code this.amount = -1} 写死，
+     * 再打一张战斗专注也不会变成 -2。以前用 {@link #powerOnPlayer} 累加，
+     * 影子里就变成 -2，和实机的 -1 每回合对不上。
+     */
+    public static Effect powerOnPlayerExact(final String id, final int amount) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                state.playerPowers.put(id, Integer.valueOf(amount));
+            }
+
+            @Override
+            public String toString() {
+                return id + "(self:=" + amount + ")";
+            }
+        };
+    }
+
     public static Effect powerOnPlayerAux(final String id, final int amount,
                                           final String auxKey, final int auxValue) {
         return new Effect() {
@@ -1510,10 +1531,10 @@ public final class Effects {
                     return;
                 }
                 SimCard c = state.hand.get(choiceIndex);
-                if (c.upgraded) {
+                if (c.upgraded || !canUpgrade(c)) {
                     return;
                 }
-                state.hand.set(choiceIndex, new SimCard(c.id, true, c.cost));
+                state.hand.set(choiceIndex, upgradeOf(c));
             }
 
             @Override
@@ -1530,9 +1551,10 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 for (int i = 0; i < state.hand.size(); i++) {
                     SimCard c = state.hand.get(i);
-                    if (!c.upgraded) {
-                        state.hand.set(i, new SimCard(c.id, true, c.cost));
+                    if (c.upgraded || !canUpgrade(c)) {
+                        continue;
                     }
+                    state.hand.set(i, upgradeOf(c));
                 }
             }
 
@@ -1541,6 +1563,30 @@ public final class Effects {
                 return "upgrade(allHand)";
             }
         };
+    }
+
+    /**
+     * 原版 {@code AbstractCard.canUpgrade()}：<b>诅咒和状态牌永远升不了</b>
+     * （字节码：{@code type == CURSE → false; type == STATUS → false}）。
+     *
+     * <p>🔴 真机实测：军备+ 打完，影子把手里的「黏液」升成了 Slimed+，实机没有 ——
+     * 因为 {@code ArmamentsAction} 逐张调的就是 {@code canUpgrade()}。
+     * 少了这一层，每次军备+ 都会在影子里多出几张不该有的升级牌。
+     */
+    private static boolean canUpgrade(SimCard card) {
+        return !"CURSE".equals(card.type) && !"STATUS".equals(card.type);
+    }
+
+    /**
+     * 生成「升级后」的卡片副本。
+     *
+     * <p>🔴 必须把 {@code baseDamage} / {@code type} / {@code costForTurn} 一起带过去：
+     * 以前只写 {@code new SimCard(c.id, true, c.cost)}，伤害字段落成 -1，
+     * 影子里的灼热打击打完只掉个位数血，实机掉 11 点（真机日志：{@code monsters[0].hp 16 vs 5}）。
+     * 升级带来的数值上涨本身要靠捕获（下一次对拍会读到真实卡面），这里先保证不丢数据。
+     */
+    private static SimCard upgradeOf(SimCard c) {
+        return new SimCard(c.id, true, c.cost, c.baseDamage, c.type, c.costForTurn);
     }
 
     /** 消耗指定手牌，然后抽牌（烧牌契约 Burning Pact）。 */

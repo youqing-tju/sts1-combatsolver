@@ -201,9 +201,9 @@ public final class MirrorRegistry {
 
         // 战斗专注：抽 3，然后本回合禁止再抽
         register("Battle Trance", Arrays.asList(
-                Effects.draw(3), Effects.powerOnPlayer("No Draw", -1)));
+                Effects.draw(3), Effects.powerOnPlayerExact("No Draw", -1)));
         register("Battle Trance+", Arrays.asList(
-                Effects.draw(4), Effects.powerOnPlayer("No Draw", -1)));
+                Effects.draw(4), Effects.powerOnPlayerExact("No Draw", -1)));
 
         // ---- 第三批：能力牌 ---------------------------------------------------
         register("Demon Form", Effects.powerOnPlayer("Demon Form", 2));
