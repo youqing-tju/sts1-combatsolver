@@ -96,15 +96,10 @@ public final class PowerHooks {
             }
         });
 
-        // GainStrengthPower.atEndOfTurn（Flex「活动肌肉」）→ ApplyPowerAction(..., Strength, -amount)
-        // 即回合末减去 amount 点力量。原版 power ID 是 "Gain Strength"，不是 "Flex"。
-        reg("Gain Strength", HookPhase.END_OF_TURN, new Handler() {
-            @Override
-            public void fire(SimState state, int amount, HookContext ctx) {
-                addPower(state, DamageCalc.STRENGTH, -amount);
-                state.playerPowers.remove("Gain Strength");
-            }
-        });
+        // ⚠️ 这里原来还注册过一个 "Gain Strength" 的回合末钩子，2026-10-30 删掉：
+        //    `GainStrengthPower.ID` 其实是 **"Shackled"**（javap 核实），"Gain Strength" 这个 ID
+        //    在原版根本不存在；Flex 挂的是 `LoseStrengthPower`，ID = "Flex"，钩子在下面。
+        //    旧写法让 Flex 的力量**永久保留**，每张攻击牌都多算 2 点伤害。
 
         // RitualPower.atEndOfTurn（邪教徒药水）→ ApplyPowerAction(owner, owner, StrengthPower(amount))
         // 🔴 玩家版走 atEndOfTurn、怪物版走 atEndOfRound（后者在 CombatFlow ④.5），两条是

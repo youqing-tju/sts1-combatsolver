@@ -88,16 +88,22 @@ public final class MirrorRegistry {
         register("Metallicize", Effects.powerOnPlayer("Metallicize", 3));
         register("Metallicize+", Effects.powerOnPlayer("Metallicize", 4));
 
-        // 活动肌肉（Flex）：力量 +2，回合末失去
-        // 🔴 能力名必须用原版 ID "Gain Strength"（GainStrengthPower.POWER_ID）——
-        //    SimState.capture() 用 pw.ID 作 key，写 "Flex" 会对拍失配。
-        //    这个 power 的 atEndOfTurn 会减去 amount 点力量。
+        // 活动肌肉（Flex）：力量 +2，回合末失去。
+        //
+        // 🔴 字节码核实（2026-10-30）：`Flex.use` 挂的是 `StrengthPower(+2)` 与 **`LoseStrengthPower(+2)`**，
+        //    而 `LoseStrengthPower.ID = "Flex"`（javap 里 `ldc #5 // String Flex`）。
+        //    以前我们写成 "Gain Strength" —— 那是 `GainStrengthPower` 的名字，而它的 ID 其实是
+        //    **"Shackled"**，跟 Flex 毫无关系。写错的后果不是「差一个字段」，而是
+        //    回合末扣力量挂在 "Flex" 上、永远匹配不到 "Gain Strength" → **+2 力量变成永久的**，
+        //    之后每一张攻击牌都多算 2 点伤害。
+        //    真机日志证据：`playerPowers.Gain Strength: 2 vs (missing)` /
+        //    `playerPowers.Flex: (missing) vs 2`（sim vs live）。
         register("Flex", Arrays.asList(
                 Effects.powerOnPlayer(DamageCalc.STRENGTH, 2),
-                Effects.powerOnPlayer("Gain Strength", 2)));
+                Effects.powerOnPlayer("Flex", 2)));
         register("Flex+", Arrays.asList(
                 Effects.powerOnPlayer(DamageCalc.STRENGTH, 4),
-                Effects.powerOnPlayer("Gain Strength", 4)));
+                Effects.powerOnPlayer("Flex", 4)));
 
         // ---- 第三批：攻击/技能 -------------------------------------------------
         // 铁斩波：5 伤 + 5 格挡

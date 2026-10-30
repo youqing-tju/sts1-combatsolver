@@ -27,7 +27,7 @@ import io.github.youqing.sts1solver.sim.SimState;
  *
  * <table>
  *   <tr><th>能力</th><th>蓝本分支</th><th>公式</th></tr>
- *   <tr><td>Gain Strength / Strength</td><td>{@code StrengthPower}</td>
+ *   <tr><td>Flex / Strength</td><td>{@code StrengthPower}</td>
  *       <td>{@code Damage(amount × AttackHits)}</td></tr>
  *   <tr><td>Dexterity</td><td>{@code DexterityPower}</td>
  *       <td>{@code Prevention(amount × BlockSkillPlays)}</td></tr>
@@ -149,7 +149,9 @@ public final class PowerValuation {
         int cardAccess = 0;
         int scaling = 0;
 
-        if (DamageCalc.STRENGTH.equals(powerId) || "Gain Strength".equals(powerId)) {
+        // "Flex" = LoseStrengthPower（回合末还回去的那份力量）。以前写成 "Gain Strength"，
+        // 那个 ID 在原版不存在（GainStrengthPower.ID 是 "Shackled"）。
+        if (DamageCalc.STRENGTH.equals(powerId) || "Flex".equals(powerId)) {
             damage = value * Math.max(0, p.attackHits);
         } else if (DamageCalc.DEXTERITY.equals(powerId)) {
             prevention = value * Math.max(0, p.blockSkillPlays);

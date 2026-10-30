@@ -123,18 +123,19 @@ class MissingPowerEffectsTest {
     /**
      * Flex「活动肌肉」：立即 +N 力量，回合末 −N。
      *
-     * <p>🔴 能力名必须是 {@code "Gain Strength"}（{@code GainStrengthPower.POWER_ID}），
-     * 不是 {@code "Flex"} —— {@code SimState.capture()} 用 {@code pw.ID} 作 key，
-     * 写错会对拍失配。
+     * <p>🔴 能力名必须是 {@code "Flex"}（{@code LoseStrengthPower.POWER_ID}，javap 核实）。
+     * 以前写 {@code "Gain Strength"} 是错的：那是 {@code GainStrengthPower} 的**名字**，
+     * 而它的 ID 其实是 {@code "Shackled"}。写错的后果是回合末扣力量的钩子永远匹配不到，
+     * Flex 的 +2 力量会变成永久的。
      */
     @Test
     void flexAddsStrengthNowAndLosesItAtEndOfTurn() {
         SimState s = fight();
-        Effects.powerOnPlayer("Gain Strength", 2).applyTo(s, -1, null);
+        Effects.powerOnPlayer("Flex", 2).applyTo(s, -1, null);
         Effects.powerOnPlayer(io.github.youqing.sts1solver.mirror.DamageCalc.STRENGTH, 2)
                 .applyTo(s, -1, null);
         assertEquals(2, s.playerPowers.get("Strength"));
-        assertEquals(2, s.playerPowers.get("Gain Strength"));
+        assertEquals(2, s.playerPowers.get("Flex"));
 
         CombatFlow.endTurn(s, 3, 5);
 
