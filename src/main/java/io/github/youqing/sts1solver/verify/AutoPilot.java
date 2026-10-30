@@ -521,6 +521,9 @@ public final class AutoPilot {
         }
         player.removePotion(potion);
         player.adjustPotionPositions();
+        // 药水效果不在对拍台架的跟踪范围里（台架只跟「打牌」）：作废基线，
+        // 否则下一张牌的影子还停在喝药前，差出来的正是药水抽的牌/打的伤害。
+        ShadowTracker.invalidateBaseline("potion " + step.cardKey);
         plan.poll();
         noProgressEndTurns = 0;
         queuedCard = null;

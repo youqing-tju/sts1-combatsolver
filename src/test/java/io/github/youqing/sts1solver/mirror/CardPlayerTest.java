@@ -339,8 +339,11 @@ class CardPlayerTest {
         s.draw.add(new SimCard("Defend_R", false, 1));
         s.draw.add(new SimCard("Defend_R", false, 1));
         CardPlayer.play(s, 0, 0);
-        assertEquals(5, s.energy, "4 - 1 cost + 2 refund = 5");
-        assertEquals(2, s.hand.size(), "one draw + one extra draw");
+        // 原版 DropkickAction：易伤时 DrawCardAction(1) + GainEnergyAction(1)，
+        // 没有无条件抽牌，回的是 **1** 点能量（卡面 UPGRADE_DESCRIPTION 为空）。
+        assertEquals(4, s.energy, "4 - 1 cost + 1 refund = 4");
+        assertEquals(1, s.hand.size(), "易伤时只抽 1 张");
+        assertEquals(1, s.draw.size(), "抽牌堆少 1 张");
     }
 
     @Test

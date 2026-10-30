@@ -1095,6 +1095,24 @@ public final class BeamSolver {
         return node.terminal() ? node.state.turn : Integer.MAX_VALUE;
     }
 
+    /** 还活着的敌人下标（展开「需要指定目标」的分支时用）。 */
+    private static int[] aliveMonsterIndices(SimState state) {
+        int n = 0;
+        for (SimMonster m : state.monsters) {
+            if (m.hp > 0) {
+                n++;
+            }
+        }
+        int[] out = new int[n];
+        int k = 0;
+        for (int i = 0; i < state.monsters.size(); i++) {
+            if (state.monsters.get(i).hp > 0) {
+                out[k++] = i;
+            }
+        }
+        return out;
+    }
+
     /** 还活着的敌人的有效血量合计（蓝本 {@code Features.EnemyHp}）。 */
     private static int aliveEnemyHp(SimState state) {
         int total = 0;
@@ -1143,12 +1161,21 @@ public final class BeamSolver {
                 } else {
                     choices = Math.max(0, state.hand.size() - 1);
                 }
-                for (int c = 0; c < choices; c++) {
-                    if (branchLimit > 0 && produced >= branchLimit) {
-                        break;
-                    }
-                    if (route(playNode(state, i, -1, c, node), plays, ended)) {
-                        produced++;
+                // 「既要选牌、又要指定敌人」的牌（头槌 Headbutt = 打 9 伤 + 从弃牌堆捡一张回牌堆顶）
+                // 也必须把目标枚举上。以前这里一律传 -1，效果层 requireTarget 直接抛，
+                // 整张牌一条分支都不产出 —— 于是「1 能量 + 只有头槌能打」被判成无事可做，
+                // 真机 20:31:01 就这么结束回合白挨了一刀。
+                int[] targets = mirror.targeted
+                        ? aliveMonsterIndices(state) : new int[]{-1};
+                outer:
+                for (int t : targets) {
+                    for (int c = 0; c < choices; c++) {
+                        if (branchLimit > 0 && produced >= branchLimit) {
+                            break outer;
+                        }
+                        if (route(playNode(state, i, t, c, node), plays, ended)) {
+                            produced++;
+                        }
                     }
                 }
             } else if (mirror != null && mirror.targeted) {
@@ -1676,10 +1703,17 @@ public final class BeamSolver {
             attempts++;
             // 蓝本要求 candidate.ResultScope == SearchCompletion 才算数（被截断的搜索不算成绩）
             boolean complete = candidate != null && !sub.hitNodeLimit && !sub.lastPassCutShort;
-            boolean improved = complete && better(candidate, selected);
+            // 平手也采纳：这条补搜存在的意义就是「这回合什么都不做看着像死了」。
+            // 0 费牌打出去最坏是没效果（威吓撞上人工制品），但消耗掉能瘦牌组、
+            // 能推动遗物计数；而「结束回合」在平手时是纯粹的空过。
+            // 蓝本的严格改善判据会把这种平手判给「结束回合」，真机 2026-10-30 20:35:57
+            // 就这么空过了一回合（3 能量、手里只有眩晕和威吓）。
+            boolean tie = complete && selected != null && !better(selected, candidate);
+            boolean improved = complete && (better(candidate, selected) || tie);
             Trace.info("ZERO_COST_OPENING prefix=" + describePrefix(prefix)
                     + " hp_lost=" + (candidate == null ? -1 : rootHp - candidate.state.hp)
-                    + " nodes=" + sub.lastNodes + " selected=" + improved);
+                    + " nodes=" + sub.lastNodes + " selected=" + improved
+                    + (tie && !better(candidate, selected) ? " (tie)" : ""));
             if (improved) {
                 selected = candidate;
                 lastZeroCostImproved = true;

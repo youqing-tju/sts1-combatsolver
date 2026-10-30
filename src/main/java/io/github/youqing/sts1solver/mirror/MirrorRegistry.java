@@ -255,12 +255,17 @@ public final class MirrorRegistry {
         registerExhaust("Fiend Fire+", Effects.exhaustHandForDamage(10));
 
         // 回旋踢：5 伤 + 抽 1；若目标易伤则 +2 能量 +1 抽牌
+        // 飞身踢：**只有**目标有易伤才回 1 能量 + 抽 1 张（升级只加伤害）。
+        // 字节码 DropkickAction 构造器：if (target.hasPower("Vulnerable")) { addToTop(DrawCardAction(1));
+        // addToTop(GainEnergyAction(1)); } —— 没有任何无条件抽牌；卡面 UPGRADE_DESCRIPTION 为空。
+        // 2026-10-30 真机：原来写成「无条件抽 1 + 易伤时回 2 能量抽 1」，
+        // 打一次就多抽一张、多回 1 能量，后面整场手牌/能量全漂。
         register("Dropkick", Arrays.asList(
-                Effects.damage(5), Effects.draw(1),
-                Effects.ifTargetVulnerable(Effects.gainEnergy(2), Effects.draw(1))));
+                Effects.damage(5),
+                Effects.ifTargetVulnerable(Effects.gainEnergy(1), Effects.draw(1))));
         register("Dropkick+", Arrays.asList(
-                Effects.damage(8), Effects.draw(1),
-                Effects.ifTargetVulnerable(Effects.gainEnergy(2), Effects.draw(1))));
+                Effects.damage(8),
+                Effects.ifTargetVulnerable(Effects.gainEnergy(1), Effects.draw(1))));
 
         // 完美打击：6 伤 + 每张 Strike 牌 +2
         register("Perfected Strike", Effects.damagePlusPerStrike(6, 2));

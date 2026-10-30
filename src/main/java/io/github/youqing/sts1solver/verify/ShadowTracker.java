@@ -182,6 +182,31 @@ public final class ShadowTracker {
         }
     }
 
+    /**
+     * 喝药之后影子就落后了 —— 把基线作废，等实机动作队列排空再重新捕获。
+     *
+     * <p>为什么不能直接算：药水的效果（迅捷药水抽 3 张、火药水打 10 伤）是**实机侧**的
+     * 一等动作，本台架只跟踪「打牌」这一种（{@link #onCardPlayed}）。以前喝药不作废基线，
+     * 于是下一张牌的 {@code pre} 还是喝药前的影子：真机 20:30:55 打 Bash 时就报了
+     * {@code hand.size 3 vs 6 / draw.size 11 vs 8} —— 差的那 3 张全是迅捷药水抽的，
+     * 跟 Bash 一点关系都没有。作废比瞎算诚实：这一张记为 skipped，不污染统计。
+     */
+    public static void invalidateBaseline(String reason) {
+        if (baseline != null) {
+            Trace.info("DIFF baseline dropped: " + reason);
+        }
+        baseline = null;
+        if (pending) {
+            Trace.info("DIFF " + pendingKey + " skipped (baseline dropped: " + reason + ")");
+            pending = false;
+            pendingSim = null;
+            pendingRejection = null;
+            pendingDeferred = false;
+            pre = null;
+            expectedTotal = -1;
+        }
+    }
+
     public static void resetCounters() {
         comparisons = 0;
         matches = 0;
@@ -419,6 +444,13 @@ public final class ShadowTracker {
      * 才不会在动画中途就先比对。
      */
     private static boolean cardAnimationsIdle() {
+        // 牌在牌堆之间"飞"的时候（SoulGroup.souls 里还有没就绪的 Soul），那张牌
+        // 不属于手牌/抽牌堆/弃牌堆/消耗堆中的任何一个 —— 此时比对必然少 1 张。
+        // 打**能力牌**最容易踩到：真机 2026-10-30 20:30:53 打暗黑拥抱+ 时就报了
+        // `forced after 90f: [discard.size: 12 vs 11] cards=19/18`，其实只是飞行没落地。
+        if (com.megacrit.cardcrawl.cards.SoulGroup.isActive()) {
+            return false;
+        }
         if (AbstractDungeon.effectList == null) {
             return true;
         }
