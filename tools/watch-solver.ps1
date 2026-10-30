@@ -64,6 +64,40 @@ if ($plans.Count -gt 0) {
     $max = ($ms | Measure-Object -Maximum).Maximum
     Write-Host ("  plan ms   : avg {0} / max {1}" -f $avg, $max)
 }
+# ---- search shape: beam width portfolio + novelty exploration (2026-10-30) ----
+$port = @($lines | Where-Object { $_ -match 'PORTFOLIO .*adopted=(\S+)' })
+$nov  = @($lines | Where-Object { $_ -match 'NOVELTY stop=(\w+)' })
+$slow = @($lines | Where-Object { $_ -match 'SEARCH slow:' })
+if ($port.Count -gt 0) {
+    $adopted = @{}
+    foreach ($p in $port) {
+        if ($p -match 'adopted=(\S+)') {
+            $k = $Matches[1]
+            if ($adopted.ContainsKey($k)) { $adopted[$k] = $adopted[$k] + 1 } else { $adopted[$k] = 1 }
+        }
+    }
+    $parts = @()
+    $adopted.GetEnumerator() | Sort-Object -Property Value -Descending | ForEach-Object {
+        $parts += ("{0} x{1}" -f $_.Key, $_.Value)
+    }
+    Write-Host ("  portfolio : {0} runs -> {1}" -f $port.Count, ($parts -join ', '))
+}
+if ($nov.Count -gt 0) {
+    $stops = @{}
+    foreach ($n in $nov) {
+        if ($n -match 'NOVELTY stop=(\w+)') {
+            $k = $Matches[1]
+            if ($stops.ContainsKey($k)) { $stops[$k] = $stops[$k] + 1 } else { $stops[$k] = 1 }
+        }
+    }
+    $parts = @()
+    $stops.GetEnumerator() | Sort-Object -Property Value -Descending | ForEach-Object {
+        $parts += ("{0} x{1}" -f $_.Key, $_.Value)
+    }
+    Write-Host ("  novelty   : {0} runs -> {1}" -f $nov.Count, ($parts -join ', '))
+}
+Write-Host ("  slow(>2s) : {0}" -f $slow.Count)
+
 $total = $match.Count + $mism.Count
 if ($total -gt 0) {
     $rate = [math]::Round(100.0 * $match.Count / $total, 2)

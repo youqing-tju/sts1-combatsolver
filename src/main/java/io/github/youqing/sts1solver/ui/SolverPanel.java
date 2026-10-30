@@ -234,9 +234,18 @@ public final class SolverPanel {
                 out.add(new Row(line, new Color(0.64f, 0.8f, 0.96f, 1f), false));
             }
         } else {
-            out.add(new Row(AutoPilot.enabled()
-                    ? "planning…" : "click AUTO to plan this combat",
-                    new Color(0.6f, 0.62f, 0.66f, 1f), false));
+            // 开了宽度组合 + 新颖度之后单步要 1~5 秒：把「已等多少秒」显示出来，
+            // 否则和「卡死」长得一模一样（2026-10-30 用户就报过一次）。
+            long waited = AutoPilot.searchElapsedMillis();
+            String text;
+            if (!AutoPilot.enabled()) {
+                text = "click AUTO to plan this combat";
+            } else if (waited >= 0) {
+                text = String.format("planning… %.1fs   (beam portfolio + novelty)", waited / 1000.0);
+            } else {
+                text = "waiting for combat…";
+            }
+            out.add(new Row(text, new Color(0.6f, 0.62f, 0.66f, 1f), false));
         }
         return out.toArray(new Row[0]);
     }

@@ -100,3 +100,26 @@ selected    = better(exploration, beam) ? exploration : beam
   就把 `MaximumMilliseconds` 降到 1500（对第一章足够）。
 - **不吃预算**：若第一章也出现「算满 5 秒」，说明新颖度表的原子爆炸（`MaxNoveltyEntries` 打到 1M），
   这时应缩事实集而不是缩预算。
+
+## 五、下一轮真机要抓什么（重启后照这个看）
+
+**前置**（一次性，都已就绪）：jar 已部署、`config.properties` 里 `budget=VERY_HIGH` / `autoStart=true`；
+`novelty` / `portfolio` 两个键没有也能用 —— `SpireConfig.load()` 是把文件**合并**进带默认值的
+`Properties`，缺键保留默认 `true`。
+
+| 看哪 | 期望 | 不对说明什么 |
+|---|---|---|
+| 日志 `NOVELTY stop=…` | 每步都有一行；`node_limit` / `time_limit` / `open_exhausted` 都算正常 | 完全没有这行 = 新 jar 没生效 |
+| 日志 `PORTFOLIO … adopted=…` | `135` / `135+base` / `135+band` 混合出现 | 永远是 `135` = 精炼成员全被准入门挡了（看 `skip(...)` 的原因） |
+| 日志 `SEARCH slow:` | 第二章起陆续出现（>2 s 才算） | 第一章就频繁出现 = 预算档位太高或某处退化 |
+| 面板 `planning… N.Ns` | 等待时秒数在涨 | 一直 `waiting for combat…` 且不出牌 = 搜索没被提交 |
+| 面板第一行 | `135+base / 26k / 642ms   …` | 只有回合摘要 = 没读到搜索形状 |
+| `DIFF SUMMARY a match / b mismatch` | 失配率 ≤ 25%，且不出现新的成簇失配 | 出现成簇 = 又一张牌的世界模型错了（按牌名归并看） |
+| `background search failed` | 0 | 有就是崩溃，把栈贴出来 |
+
+跑完一场之后跑一次 `tools/watch-solver.ps1` 出汇总（新增 `portfolio` 采纳分布、
+`novelty` 停止原因分布、`slow(>2s)` 计数）。
+
+**质量基线（离线可复现，同一批种子）**：第一章 6 场连环战，单趟 Beam 是 93 毛 / 余 17，
+真机默认配置是 **37 毛 / 余 61**（`ActOneGauntletTest.portfolioAndNoveltyDoNotMakeActOneWorse`，
+上限 50）。真机上如果第二章战损明显不如第一章的手感，先怀疑失配率而不是搜索体量。

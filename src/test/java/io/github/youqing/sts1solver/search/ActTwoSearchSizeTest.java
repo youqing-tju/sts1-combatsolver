@@ -146,7 +146,7 @@ class ActTwoSearchSizeTest {
         }
     }
 
-    /** 第一章不该被新颖度通道拖慢：同一批第一章遭遇，开/关各跑一次比耗时。 */
+    /** 第一章：真机默认配置（组合 + 新颖度）要多花多少时间 —— 用户对「早期 <1s」有明确预期。 */
     @Test
     void reportActOneNoveltyOverhead() {
         Encounter[] actOne = {
@@ -154,18 +154,20 @@ class ActTwoSearchSizeTest {
                 new Encounter("大颚虫", "JawWorm:44"),
                 new Encounter("地精大块头（精英）", "GremlinNob:85"),
         };
-        System.out.println("\n=== 第一章：新颖度通道的额外开销 ===");
-        System.out.println(String.format("%-24s %8s %8s | %8s %8s %s",
-                "遭遇", "毫秒", "节点", "毫秒+新", "节点+新", "新颖度停止"));
+        System.out.println("\n=== 第一章：真机默认配置的开销 ===");
+        System.out.println(String.format("%-24s %7s | %7s %7s | %9s %7s",
+                "遭遇", "纯Beam", "节点新", "毫秒", "节点全", "毫秒"));
         for (Encounter e : actOne) {
             BeamSolver plain = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72);
             plain.bestFirstAction(open(e), 300_000L);
-            BeamSolver withNovelty = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72)
-                    .withNovelty();
-            withNovelty.bestFirstAction(open(e), 300_000L);
-            System.out.println(String.format("%-24s %8d %8d | %8d %8d %s",
-                    e.name, plain.lastMillis, plain.lastNodes,
-                    withNovelty.lastMillis, withNovelty.lastNodes, withNovelty.lastNoveltyStop));
+            BeamSolver novel = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72).withNovelty();
+            novel.bestFirstAction(open(e), 300_000L);
+            BeamSolver both = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72)
+                    .withNovelty().withPortfolio();
+            both.bestFirstAction(open(e), 300_000L);
+            System.out.println(String.format("%-24s %7d | %7d %7d | %9d %7d",
+                    e.name, plain.lastMillis, novel.lastNodes, novel.lastMillis,
+                    both.lastNodes, both.lastMillis));
             System.out.flush();
         }
     }

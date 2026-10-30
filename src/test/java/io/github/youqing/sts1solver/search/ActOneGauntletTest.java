@@ -42,6 +42,14 @@ class ActOneGauntletTest {
      */
     private static final int MAX_TOTAL_HP_LOSS = 105;
 
+    /**
+     * 真机默认配置（宽 4 的迷你档 + 宽度组合 + 新颖度）的毛战损上限。
+     *
+     * <p>2026-10-30 实测 **37 血 / 6 场全胜 / 余 61**（同一份牌组、同一批种子，单趟 Beam 是 93 / 余 17）。
+     * 留 ~35% 余量：涨过 50 就说明组合或探索的选路退化了。
+     */
+    private static final int MAX_TOTAL_HP_LOSS_PORTFOLIO = 50;
+
     /** 起手 80 血。 */
     private static final int START_HP = 80;
 
@@ -180,11 +188,38 @@ class ActOneGauntletTest {
     @Test
     void sixActOneCombatsStayWithinTheHpLossBaseline() {
         BeamSolver solver = new BeamSolver(ENERGY, HAND_SIZE, 4, 3, 4000, 0);
+        StringBuilder report = new StringBuilder("\n[单趟 Beam]\n");
+        int totalLost = runGauntlet(solver, report);
+        System.out.println(report);
+        assertTrue(totalLost <= MAX_TOTAL_HP_LOSS,
+                "总战损 " + totalLost + " 超过基线 " + MAX_TOTAL_HP_LOSS + "：" + report);
+    }
+
+    /**
+     * 真机默认那条路（宽度组合 + 新颖度探索）跑同一份连环战。
+     *
+     * <p>为什么要它：组合与探索都会**改变选路**，而第一章的战损基线是「单趟 Beam」量出来的。
+     * 上线前必须确认换成真机默认配置后第一章不会变差 —— 否则算得再多也是负收益。
+     * 判据比单趟宽 3 血（同分时组合保留基线，理论上不该变差，留一点噪声余量）。
+     */
+    @Test
+    void portfolioAndNoveltyDoNotMakeActOneWorse() {
+        BeamSolver solver = new BeamSolver(ENERGY, HAND_SIZE, 4, 3, 4000, 0)
+                .withNovelty()
+                .withPortfolio();
+        StringBuilder report = new StringBuilder("\n[真机默认：beam portfolio + novelty]\n");
+        int totalLost = runGauntlet(solver, report);
+        System.out.println(report);
+        assertTrue(totalLost <= MAX_TOTAL_HP_LOSS_PORTFOLIO,
+                "开组合/新颖度后第一章战损 " + totalLost + " 超过 " + MAX_TOTAL_HP_LOSS_PORTFOLIO
+                        + "（实测基线 37）：" + report);
+    }
+
+    /** 跑一遍连环战，返回毛战损；{@code report} 里逐场写一行。 */
+    private static int runGauntlet(BeamSolver solver, StringBuilder report) {
         int hp = START_HP;
         int totalLost = 0;
         int won = 0;
-        StringBuilder report = new StringBuilder("\n");
-
         for (Encounter encounter : GAUNTLET) {
             int hpBefore = hp;
             SimState s = open(encounter.name, encounter, hp);
@@ -204,7 +239,7 @@ class ActOneGauntletTest {
             int healed = 0;
             if (win) {
                 won++;
-                // 燃烧之血：每场胜利后回 6（`PostCombatRelicHeal.of` 读遗物表）
+                // 燃烧之血：每场战斗胜利后回 6（`PostCombatRelicHeal.of` 读遗物表）
                 healed = POST_COMBAT_HEAL.healFor(hp, START_HP);
                 hp = Math.min(START_HP, hp + healed);
             }
@@ -214,15 +249,10 @@ class ActOneGauntletTest {
                 break;
             }
         }
-
         report.append("合计：").append(won).append('/').append(GAUNTLET.length)
                 .append(" 场获胜，毛战损 ").append(totalLost).append(" 血（战后回血已扣除），余 ")
                 .append(hp).append('/').append(START_HP).append(" 血\n");
-
-        // 先看数字，再判据：赢下全部是第一幕牌组的下限，战损是回归基线
         assertTrue(won == GAUNTLET.length, "第一幕 6 场没打完：" + report);
-        assertTrue(totalLost <= MAX_TOTAL_HP_LOSS,
-                "总战损 " + totalLost + " 超过基线 " + MAX_TOTAL_HP_LOSS + "：" + report);
-        System.out.println(report);
+        return totalLost;
     }
 }

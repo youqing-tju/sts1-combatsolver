@@ -120,6 +120,7 @@ public final class AutoPilot {
         blockedThisTurn.clear();
         blockedTurn = Integer.MIN_VALUE;
         stuckStreak = 0;
+        searchStartedAt = 0;
         rejectStreak = 0;
         lastRejectSignature = null;
         droppedStepsThisTurn = 0;
@@ -320,6 +321,15 @@ public final class AutoPilot {
     /** 等规划结果的帧数；超时就退回逐张兜底，避免整场卡在等搜索上。 */
     private static int framesWaitingForPlan;
     private static final int PLAN_WAIT_LIMIT = 1800;   // 30 秒
+    /**
+     * 本次搜索是什么时候提交的（{@code System.currentTimeMillis()}）。
+     *
+     * <p>用途只有一个：面板上把「正在算 3.2 秒」显示出来。开了宽度组合 + 新颖度之后
+     * 单步要算 1~5 秒，只写 "planning…" 会被当成卡死（用户 2026-10-30 就报过一次「是不是卡住了」）。
+     */
+    private static long searchStartedAt;
+    /** 上一次搜索的形状，给面板和日志用：{@code 135+band / 26.7k / 642ms}。 */
+    private static String lastSearchShape = "";
 
     /**
      * 已经报过「没有镜像」的牌名（每场战斗清空）。
@@ -413,10 +423,17 @@ public final class AutoPilot {
         }
 
         searchCount++;
+        searchStartedAt = 0;
         searchNodesTotal += result.nodes;
-        if (result.millis > 5000) {
-            Trace.warn("SEARCH slow: " + result.millis + " ms, " + result.nodes + " nodes");
-        } else if (searchCount % 5 == 0) {
+        lastSearchShape = (result.portfolioAdopted.isEmpty() ? "beam" : result.portfolioAdopted)
+                + " / " + (result.nodes / 1000) + "k / " + result.millis + "ms"
+                + (result.noveltyStop == null || "off".equals(result.noveltyStop)
+                        ? "" : " / nov " + result.noveltyStop);
+        if (result.millis > 2000) {
+            Trace.warn("SEARCH slow: " + result.millis + " ms, " + result.nodes + " nodes, "
+                    + "port=" + result.portfolioAdopted + " novelty=" + result.noveltyStop);
+        }
+        if (searchCount % 5 == 0) {
             Trace.info("SEARCH #" + searchCount + " avgNodes=" + (searchNodesTotal / searchCount)
                     + " depth=" + result.depth + " lines=" + result.lines
                     + " ms=" + result.millis + " plan=" + result.steps.size() + " steps"
@@ -433,6 +450,10 @@ public final class AutoPilot {
                 result.steps);
         planTurn = turnNow;
         planSummary = summarizePlan(result);
+        if (!lastSearchShape.isEmpty()) {
+            // 面板第一行留一格「刚刚怎么算出来的」：135+base / 26k / 642ms
+            planSummary = lastSearchShape + "   " + planSummary;
+        }
         // 预算用量一并打出来：树被搜完了（exhausted）再加预算也没用，
         // 只有 hitNodeLimit=true 才说明「是预算把它掐断的」。
         Trace.info("PLAN ready: " + result.steps.size() + " steps, depth " + result.depth
@@ -440,7 +461,9 @@ public final class AutoPilot {
                 + (result.nodeLimit <= 0 ? "unlimited"
                     : (result.nodes * 100 / Math.max(1, result.nodeLimit)) + "%")
                 + ", " + (result.hitNodeLimit ? "node limit hit" : "tree exhausted")
-                + ") / " + result.states + " states, " + result.millis + " ms");
+                + ") / " + result.states + " states, " + result.millis + " ms"
+                + "  port=" + (result.portfolioAdopted.isEmpty() ? "off" : result.portfolioAdopted)
+                + " novelty=" + result.noveltyStop);
         int outcome = executePlannedStep(player, attackTarget);
         return outcome == OUTCOME_REPLAN ? OUTCOME_WAITING : outcome;
     }
@@ -669,6 +692,19 @@ public final class AutoPilot {
         return planSummary;
     }
 
+    /** 正在等搜索结果就返回已等的毫秒数，否则 -1（面板用来区分「在算」和「卡死」）。 */
+    public static long searchElapsedMillis() {
+        if (searchStartedAt <= 0) {
+            return -1L;
+        }
+        return System.currentTimeMillis() - searchStartedAt;
+    }
+
+    /** 上一次搜索的形状，例如 {@code 135+band / 26k / 642ms}。 */
+    public static String lastSearchShape() {
+        return lastSearchShape;
+    }
+
 
     /**
      * 当前计划的摘要（按回合分组），给面板显示用。
@@ -724,6 +760,7 @@ public final class AutoPilot {
 
     /** 把当前局面丢给后台线程去搜。 */
     private static void submitSearch(AbstractPlayer player) {
+        searchStartedAt = System.currentTimeMillis();
         try {
             io.github.youqing.sts1solver.sim.SimState snapshot =
                     io.github.youqing.sts1solver.sim.SimState.capture();
