@@ -38,9 +38,24 @@ public final class AsyncSearch {
         public final int nodeLimit;
         /** 是不是被节点上限截断的。false = 树被搜完了，再加预算也没用。 */
         public final boolean hitNodeLimit;
+        /**
+         * 搜索本身**崩了**（抛异常），不是「没找到路」。
+         *
+         * <p>🔴 两者必须分开：空计划只说明这一步不该动，主线程会结束回合；
+         * 崩了的正确反应是**别相信这次结果**、退回逐张兜底，否则就会出现
+         * 「满手牌满能量空过一回合」（2026-10-30 真机实测两次）。
+         */
+        public final boolean failed;
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit) {
+            this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
+                    hitNodeLimit, false);
+        }
+
+        Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
+               int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
+               boolean failed) {
             this.fingerprint = fingerprint;
             this.action = action;
             this.nodes = nodes;
@@ -51,6 +66,7 @@ public final class AsyncSearch {
             this.steps = steps;
             this.nodeLimit = nodeLimit;
             this.hitNodeLimit = hitNodeLimit;
+            this.failed = failed;
         }
     }
 
@@ -131,7 +147,7 @@ public final class AsyncSearch {
             } catch (Throwable t) {
                 Trace.error("background search failed", t);
                 result = new Result(fingerprint, null, 0, 0, 0, 0, 0,
-                        java.util.Collections.<RouteStep>emptyList(), nodeLimit, false);
+                        java.util.Collections.<RouteStep>emptyList(), nodeLimit, false, true);
             }
             running = false;
             ready = result;

@@ -263,7 +263,15 @@ public final class AutoPilot {
                 return;      // 后台还在算，这一帧什么都不做
             }
             if (outcome == OUTCOME_END_TURN) {
-                Trace.info("AUTO end turn (search says end)  " + describeHand(player));
+                // 留了能量还结束回合 = 「白白挨打」的直接来源。正常收尾（能量打光）不报，
+                // 只有还剩能量才报，方便下次拿日志判断是搜索判断失误还是又被拒了。
+                int leftover = EnergyPanel.totalCount;
+                if (leftover > 0) {
+                    Trace.warn("AUTO end turn with " + leftover + " energy left  "
+                            + describeHand(player));
+                } else {
+                    Trace.info("AUTO end turn (search says end)  " + describeHand(player));
+                }
                 requestEndTurn(player);
                 cooldown = 30;
                 return;
@@ -395,6 +403,14 @@ public final class AutoPilot {
             return OUTCOME_WAITING;
         }
         framesWaitingForPlan = 0;
+
+        if (result.failed) {
+            // 🔴 搜索崩了 ≠ 这一回合没事可做。以前两种都当「空计划」处理，
+            // 结果就是满手牌满能量直接结束回合、白挨一轮打（2026-10-30 实测两次：
+            // Mayhem 在回合初自动打牌时目标取了 -1，异常穿透整个后台搜索）。
+            Trace.warn("SEARCH failed -> per-card fallback (not ending the turn)");
+            return fallbackPlay(player, attackTarget);
+        }
 
         searchCount++;
         searchNodesTotal += result.nodes;

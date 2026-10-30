@@ -235,6 +235,13 @@ public final class PowerHooks {
             public void fire(SimState state, int amount, HookContext ctx) {
                 for (int i = 0; i < amount; i++) {
                     int target = pickRandomAliveMonster(state);
+                    if (target < 0) {
+                        // 没有活着的怪 = 这场已经结束了（原版 getRandomMonster 返回 null，
+                        // PlayTopCardAction 也就无从下手）。以前这里照样往下走，
+                        // 拿 -1 当目标 -> "effect needs a valid monster target" 直接抛穿
+                        // 整个后台搜索，主线程只看到「空计划」，于是满能量空过一回合。
+                        break;
+                    }
                     if (state.draw.isEmpty()) {
                         continue;
                     }

@@ -817,10 +817,27 @@ public final class BeamSolver {
         }
     }
 
-    /** 结束回合并推进到下一回合（蓝本 {@code BuildAcceptedEndTurnNodes} 的简化版）。 */
+    /**
+     * 结束回合并推进到下一回合（蓝本 {@code BuildAcceptedEndTurnNodes} 的简化版）。
+     *
+     * <p>🔴 回合末/回合初的钩子（Mayhem 自动打牌、能力结算）也可能抛
+     * {@link ActionRejected}。那时候异常会从 {@code CombatFlow.endTurn} 一路穿透到后台线程，
+     * 整个搜索直接死掉 —— 主线程只看到「空计划」，于是满手牌满能量空过一回合
+     * （2026-10-30 真机实测两次）。所以这里把「这条世界线走不通」降级成「不产出这个子节点」。
+     *
+     * @return 新节点；这条路线走不通时返回 {@code null}
+     */
     private SearchNode endTurnOf(SearchNode node) {
         SimState afterTurn = node.state.copy();
-        CombatFlow.endTurn(afterTurn, energyPerTurn, handSize);
+        try {
+            CombatFlow.endTurn(afterTurn, energyPerTurn, handSize);
+        } catch (ActionRejected rejected) {
+            String message = rejected.getMessage();
+            if (message != null && reportedRejects.add("END_TURN -> " + message)) {
+                Trace.warn("SEARCH END_TURN REJECT: " + message);
+            }
+            return null;
+        }
         return nodeOf(afterTurn, PlanAction.endTurn(), node, node.depth + 1, null);
     }
 
@@ -1169,8 +1186,12 @@ public final class BeamSolver {
             produced += expandPotion(state, slot, node, plays, ended, produced, branchLimit);
         }
 
-        // 「结束回合」永远是合法动作（蓝本 PlanActionKind.EndTurn）
-        ended.add(endTurnOf(node));
+        // 「结束回合」永远是合法动作（蓝本 PlanActionKind.EndTurn）；
+        // 只有钩子在这条世界线上抛拒绝时才会缺这个子节点（见 endTurnOf）。
+        SearchNode endedNode = endTurnOf(node);
+        if (endedNode != null) {
+            ended.add(endedNode);
+        }
     }
 
     /**

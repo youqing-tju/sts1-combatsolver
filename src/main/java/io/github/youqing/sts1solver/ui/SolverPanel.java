@@ -82,6 +82,11 @@ public final class SolverPanel {
     private static float buttonsTotal;
 
     private static BitmapFont cachedBodyFont;
+    /** 面板字体相对原字号的缩放（原版字体太大，见 {@link #uiFont()}）。 */
+    private static float uiScale = 1f;
+    private static boolean baseScaleCaptured;
+    private static float baseScaleX = 1f;
+    private static float baseScaleY = 1f;
     private static final GlyphLayout MEASURE = new GlyphLayout();
 
     private SolverPanel() {
@@ -142,6 +147,10 @@ public final class SolverPanel {
      * 正文 / 按钮用的字体：在几个候选里挑行高最接近 {@code 30 * Settings.scale} 的。
      *
      * <p>{@code Settings.scale} 在第一次渲染前是 0，这时退回 1。
+     *
+     * <p>⚠️ 原版所有字体在 1440p 下行高都 ≥ 52（卡面字体 56），挑最近的也还是「海报字」。
+     * 所以选中之后按 {@link #uiScale} 把字体的 data 缩下来用 —— 只在我们的绘制窗口内生效，
+     * 画完立刻还原（见 {@link #applyFontScale()} / {@link #restoreFontScale()}）。
      */
     private static BitmapFont uiFont() {
         if (cachedBodyFont != null) {
@@ -170,14 +179,40 @@ public final class SolverPanel {
         }
         cachedBodyFont = best;
         if (best != null) {
-            Trace.info("panel font lineHeight=" + best.getLineHeight()
-                    + " (target " + Math.round(target) + ")");
+            float lineHeight = best.getLineHeight();
+            uiScale = Math.min(1f, Math.max(0.4f, target / lineHeight));
+            Trace.info("panel font lineHeight=" + lineHeight
+                    + " (target " + Math.round(target) + ", scale " + uiScale + ")");
         }
         // Settings.scale 还没定下来时先不缓存，等真正的视口建好再挑一次
         if (Settings.scale <= 0f) {
             cachedBodyFont = null;
         }
         return best;
+    }
+
+    /** 把面板字体的 data 缩到 {@link #uiScale}（原版字体太大，不缩就装不下几个字）。 */
+    private static void applyFontScale() {
+        BitmapFont font = uiFont();
+        if (font == null) {
+            return;
+        }
+        BitmapFont.BitmapFontData data = font.getData();
+        if (!baseScaleCaptured) {
+            baseScaleX = data.scaleX;
+            baseScaleY = data.scaleY;
+            baseScaleCaptured = true;
+        }
+        data.setScale(baseScaleX * uiScale, baseScaleY * uiScale);
+    }
+
+    /** 画完必须还原：这是游戏自己的字体对象，别的界面也在用。 */
+    private static void restoreFontScale() {
+        BitmapFont font = cachedBodyFont;
+        if (font == null || !baseScaleCaptured) {
+            return;
+        }
+        font.getData().setScale(baseScaleX, baseScaleY);
     }
 
     // ------------------------------------------------------------------- 内容
@@ -336,6 +371,7 @@ public final class SolverPanel {
         if (!isInDungeon()) {
             return;
         }
+        applyFontScale();
         try {
             ensurePlaced();
             refreshDynamicState();
@@ -387,6 +423,8 @@ public final class SolverPanel {
             sb.setColor(Color.WHITE);
         } catch (Throwable t) {
             Trace.error("panel render failed", t);
+        } finally {
+            restoreFontScale();
         }
     }
 
@@ -404,6 +442,7 @@ public final class SolverPanel {
         if (!isInDungeon()) {
             return;
         }
+        applyFontScale();
         try {
             ensurePlaced();
             ensureLayout();
@@ -437,6 +476,8 @@ public final class SolverPanel {
             }
         } catch (Throwable t) {
             Trace.error("panel update failed", t);
+        } finally {
+            restoreFontScale();
         }
     }
 
