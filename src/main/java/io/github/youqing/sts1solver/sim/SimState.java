@@ -749,7 +749,16 @@ public final class SimState {
             if (i > 0) {
                 sb.append(',');
             }
-            sb.append('"').append(cards.get(i).key()).append('"');
+            SimCard card = cards.get(i);
+            // 只写 id 会丢掉 cost / baseDamage / type，读回来只能猜 —— 金标准局面库要能原样重放，
+            // 所以这里写成对象（老格式是纯字符串，没有别的地方解析它，改了不影响）。
+            sb.append("{\"id\":\"").append(card.id)
+              .append("\",\"up\":").append(card.upgraded)
+              .append(",\"cost\":").append(card.cost)
+              .append(",\"costForTurn\":").append(card.costForTurn)
+              .append(",\"dmg\":").append(card.baseDamage)
+              .append(",\"type\":\"").append(card.type == null ? "" : card.type)
+              .append("\"}");
         }
         return sb.append(']').toString();
     }
@@ -795,6 +804,9 @@ public final class SimState {
               .append("\",\"hp\":").append(m.hp)
               .append(",\"maxHp\":").append(m.maxHp)
               .append(",\"block\":").append(m.block)
+              .append(",\"intentDmg\":").append(m.intentDmg)
+              .append(",\"intentAttack\":").append(m.intentAttack)
+              .append(",\"pendingMoveId\":").append(m.pendingMoveId)
               .append(",\"powers\":").append(mapJson(m.powers)).append('}');
         }
         return sb.append(']').toString();

@@ -1,0 +1,12 @@
+{
+  "meta":{"act":1,"floor":1,"ascension":0},
+  "player":{"hp":80,"maxHp":80,"block":0,"energy":3,"deathSaveUsed":false,"deathSaveUseCount":0,"deathSaveHpRestored":0,"powers":{},"powerAux":{}},
+  "hand":[{"id":"Uppercut","up":false,"cost":2,"costForTurn":-1,"dmg":13,"type":"ATTACK"},{"id":"Iron Wave","up":false,"cost":1,"costForTurn":-1,"dmg":5,"type":"ATTACK"},{"id":"Shrug It Off","up":false,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"},{"id":"Pommel Strike","up":false,"cost":1,"costForTurn":-1,"dmg":9,"type":"ATTACK"},{"id":"Bash","up":false,"cost":2,"costForTurn":-1,"dmg":8,"type":"ATTACK"}],
+  "draw":[{"id":"Strike_R","up":false,"cost":1,"costForTurn":-1,"dmg":6,"type":"ATTACK"},{"id":"Strike_R","up":false,"cost":1,"costForTurn":-1,"dmg":6,"type":"ATTACK"},{"id":"Strike_R","up":false,"cost":1,"costForTurn":-1,"dmg":6,"type":"ATTACK"},{"id":"Strike_R","up":false,"cost":1,"costForTurn":-1,"dmg":6,"type":"ATTACK"},{"id":"Strike_R","up":false,"cost":1,"costForTurn":-1,"dmg":6,"type":"ATTACK"},{"id":"Defend_R","up":false,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"},{"id":"Defend_R","up":false,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"},{"id":"Defend_R","up":false,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"},{"id":"Defend_R","up":false,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"}],
+  "discard":[],
+  "exhaust":[],
+  "relics":{"Burning Blood":-1},
+  "potions":[],
+  "monsters":[{"type":"Cultist","hp":50,"maxHp":50,"block":0,"intentDmg":0,"intentAttack":false,"pendingMoveId":3,"powers":{}}],
+  "rng":{"card":{"counter":0,"s0":20261030,"s1":22},"monster":{"counter":0,"s0":20261030,"s1":55},"monster_hp":{"counter":0,"s0":20261030,"s1":66},"ai":{"counter":1,"s0":11,"s1":169960974254519},"shuffle":{"counter":0,"s0":20261030,"s1":33},"misc":{"counter":0,"s0":20261030,"s1":44}}
+}
