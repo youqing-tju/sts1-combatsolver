@@ -62,6 +62,38 @@ public final class BeamSolver {
     public long lastMillis;
     /** 实际完整推进的**回合层数**（蓝本面板的 turn_layer）。 */
     public int lastDepth;
+    /**
+     * 新颖度探索通道（蓝本 {@code NoveltyPortfolio}）的诊断口径。
+     *
+     * <p>这些数只用于「这一趟到底算了什么」，不参与选路 —— 选路还是 {@link #better}。
+     */
+    public int lastNoveltyNodes;
+    public int lastNoveltyOpen;
+    public long lastNoveltyEntries;
+    public int lastNoveltyTurns;
+    public long lastNoveltyMillis;
+    public boolean lastNoveltyAdopted;
+    /** {@code open_exhausted} / {@code node_limit} / {@code time_limit} / {@code novelty_limit} / {@code off}。 */
+    public String lastNoveltyStop = "off";
+    private boolean noveltyEnabled;
+    private NoveltySearch.Options noveltyOptions = new NoveltySearch.Options();
+
+    /** 蓝本 {@code NoveltyPortfolioBudget}：探索的时间帽 = min(5s, 总预算 / 2)，Boss 再除以 4。 */
+    static long noveltyBudgetMillis(long totalMillis, boolean boss) {
+        if (totalMillis == Long.MAX_VALUE) {
+            return NOVELTY_MAX_MILLIS;
+        }
+        long divisor = boss ? 4 : 2;
+        return Math.min(NOVELTY_MAX_MILLIS, totalMillis / divisor);
+    }
+
+    /** 蓝本 {@code NoveltyPortfolioBudget}：探索的节点帽 = min(2500, 总节点 / 4)。 */
+    static int noveltyBudgetNodes(int totalNodes) {
+        if (totalNodes <= 0) {
+            return NOVELTY_MAX_NODES;
+        }
+        return Math.min(NOVELTY_MAX_NODES, Math.max(1, totalNodes / 4));
+    }
     /** Beam 宽度（蓝本按档位固定；我们不再按预算加宽）。 */
     public int lastWidth;
     /**
@@ -233,6 +265,11 @@ public final class BeamSolver {
     /** 分支上限也要一起放大（蓝本 {@code MaximumEscalatedBranchesPerAction}）。 */
     public static final int MAX_ESCALATED_BRANCHES = 100;
 
+    /** 蓝本 {@code NoveltyPortfolioBudget.Default.MaximumMilliseconds}。 */
+    public static final long NOVELTY_MAX_MILLIS = 5_000L;
+    /** 蓝本 {@code NoveltyPortfolioBudget.Default.MaximumExpandedNodes}。 */
+    public static final int NOVELTY_MAX_NODES = 2_500;
+
     /** 本轮搜索起点的血量 / 最大生命 / 回合数——估值的「已损血量」「最大生命成长」要靠它。 */
     private int rootHp;
     private int rootMaxHp;
@@ -268,6 +305,23 @@ public final class BeamSolver {
     /** 设「这条路线最多喝几瓶药水」（蓝本 {@code maximumPotionUses}）；{@code -1} = 不限。 */
     public BeamSolver withMaxPotionUses(int maximum) {
         this.maxPotionUses = maximum < 0 ? -1 : maximum;
+        return this;
+    }
+
+    /**
+     * 打开 BFWS 新颖度探索通道（蓝本 {@code NoveltyPortfolio}）。
+     *
+     * <p>打开后每次搜索先花**独立预算**跑一趟新颖度搜索，剩下的预算再交给 Beam，
+     * 最后二选一。失败/收益不明确都不影响 Beam 的结果 —— 所以它对第一章是安全的。
+     */
+    public BeamSolver withNovelty() {
+        this.noveltyEnabled = true;
+        return this;
+    }
+
+    /** 蓝本 {@code NoveltySearchOptions}（测试要调参时用）。 */
+    public BeamSolver withNoveltyOptions(NoveltySearch.Options options) {
+        this.noveltyOptions = options == null ? new NoveltySearch.Options() : options;
         return this;
     }
 
@@ -401,14 +455,36 @@ public final class BeamSolver {
             }
         }
 
+        // 蓝本 RunNoveltyPortfolioPass：先用**独立预算**跑一趟新颖度探索，再把剩下的预算交给 Beam。
+        // 顺序与蓝本一致（探索在前、Beam 在后），选哪条由 better() 决定 —— 所以第一章那条
+        // 「几毫秒算完」的结果不会被这趟探索改差，第二章则会真的把预算算掉。
+        SearchNode noveltySelected = null;
+        long beamBudgetMillis = budgetMillis;
+        int beamNodeLimit = nodeLimit;
+        if (noveltyEnabled && fixedPrefix.isEmpty()) {
+            long noveltyMillis = noveltyBudgetMillis(budgetMillis, root.boss);
+            int noveltyNodes = noveltyBudgetNodes(nodeLimit);
+            if (noveltyMillis > 0 && noveltyNodes > 0) {
+                noveltySelected = searchNovelty(root, noveltyMillis, noveltyNodes, startedAt);
+                lastNodes += lastNoveltyNodes;
+            }
+        }
+        if (beamNodeLimit > 0) {
+            beamNodeLimit = Math.max(1, beamNodeLimit - lastNoveltyNodes);
+        }
+        if (beamBudgetMillis != Long.MAX_VALUE) {
+            long spent = (System.nanoTime() - startedAt) / 1_000_000L;
+            beamBudgetMillis = Math.max(1L, beamBudgetMillis - spent);
+        }
+
         // 每次搜索独立计时：长时间预算（面板「标准」档 120 秒）只在这里生效
-        long deadline = budgetMillis == Long.MAX_VALUE
+        long deadline = beamBudgetMillis == Long.MAX_VALUE
                 ? Long.MAX_VALUE
-                : startedAt + budgetMillis * 1_000_000L;
+                : System.nanoTime() + beamBudgetMillis * 1_000_000L;
 
         int maxTurns = Math.max(1, depth);
         SearchNode selected = searchToDepth(root, maxTurns, Math.max(1, beamWidth),
-                cardBranchLimit, nodeLimit, deadline);
+                cardBranchLimit, beamNodeLimit, deadline);
         long lastPassMillis = (System.nanoTime() - startedAt) / 1_000_000L;
 
         // 蓝本 CombatSearchCoordinator.EscalateSearchWhenNoVictory：
@@ -433,7 +509,7 @@ public final class BeamSolver {
             SearchNode candidate = searchToDepth(root, maxTurns,
                     scale(beamWidth, multiple, MAX_ESCALATED_WIDTH),
                     scale(cardBranchLimit, multiple, MAX_ESCALATED_BRANCHES),
-                    nodeLimit <= 0 ? 0 : nodeLimit * multiple,
+                    beamNodeLimit <= 0 ? 0 : beamNodeLimit * multiple,
                     deadline);
             lastPassMillis = (System.nanoTime() - startedAt) / 1_000_000L;
             if (!isStrictlyBetter(candidate, selected)) {
@@ -454,6 +530,16 @@ public final class BeamSolver {
             selected = zeroCostOpeningRescue(root, selected, deadline);
         }
 
+        // 蓝本 RunNoveltyPortfolioPass 的最后一步：探索 vs Beam 二选一。
+        // 判据直接用已有的 better()（胜利 > 存活 > 战略掉血少 > …），不另造一套。
+        if (noveltySelected != null && (selected == null || better(noveltySelected, selected))) {
+            selected = noveltySelected;
+            lastNoveltyAdopted = true;
+            // 面板的「depth N turns」是「这条计划铺到第几回合」，只许变大不许变小：
+            // 新颖度那条常常是「本回合内的节点」（turn 不变），直接赋值会显示成 0 回合。
+            lastDepth = Math.max(lastDepth, lastNoveltyTurns);
+        }
+
         lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
         if (selected != null) {
             // 补搜可能会换掉主搜索的答案，路线要跟着换（AUTO 执行的是 lastSteps）
@@ -463,9 +549,177 @@ public final class BeamSolver {
         return selected == null ? null : selected.firstAction();
     }
 
+    /**
+     * BFWS 新颖度搜索（蓝本 {@code CombatBeamSolver.RunNoveltyOpen}，{@code NoveltySearch.cs:57-200}）。
+     *
+     * <p>和 Beam 的区别只有两点，但正是「算不动」与「算得动」的区别：
+     * <ol>
+     *   <li>**不按束宽剪枝**：每个展开出来的子状态都按「新颖度」排队，只要它还带来没见过的事实组合
+     *       就留在 open 里（容量 {@code MaxOpen=2048}，满了丢最差）；</li>
+     *   <li>**按动作数/回合数限深**（{@code MaxActions=128 / MaxTurns=32}），而不是「打完这一回合就收」。</li>
+     * </ol>
+     *
+     * @param millis    这一趟的时间帽（{@link #noveltyBudgetMillis}）
+     * @param nodeLimit 这一趟最多展开几个父节点（{@link #noveltyBudgetNodes}）
+     * @param startedAt 整次请求的起点（用来算诊断耗时）
+     * @return 这一趟找到的最好节点；什么都没找到就是 null
+     */
+    private SearchNode searchNovelty(SimState root, long millis, int nodeLimit, long startedAt) {
+        NoveltySearch.Options options = noveltyOptions;
+        options.validate();
+        long deadline = millis == Long.MAX_VALUE
+                ? Long.MAX_VALUE
+                : System.nanoTime() + millis * 1_000_000L;
+        bindRoot(root);
+        reportedRejects.clear();
+
+        NoveltySearch.BoundedOpen open = new NoveltySearch.BoundedOpen(options.maxOpen);
+        NoveltySearch.PackedNovelty novelty = new NoveltySearch.PackedNovelty(
+                options.width, options.maxNoveltyEntries);
+        long sequence = 0;
+        int expanded = 0;
+        int horizonLeaves = 0;
+        int nonNovelPruned = 0;
+        int openDropped = 0;
+        int peakOpen = 0;
+        int startTurn = root.turn;
+        int maxTurnSeen = startTurn;
+        String stop = "open_exhausted";
+
+        SearchNode fallback = null;
+        SearchNode bestTerminal = null;
+        SearchNode currentTurnCandidate = null;
+        int bestTurnSeen = startTurn;
+
+        SearchNode seed = nodeOf(root.copy(), null, null, 0, null);
+        if (seed.terminal()) {
+            lastNoveltyStop = "root_terminal";
+            return null;
+        }
+        // 种子不吃「熟悉」判据（蓝本 initialSeed: true）
+        int seedNovelty = novelty.evaluate(
+                NoveltySearch.partitionOf(seed.state, seed.potionsUsed),
+                NoveltySearch.factsOf(seed.state));
+        open.enqueue(seed, seedNovelty, seed.score, sequence++);
+        peakOpen = open.size();
+
+        while (!open.isEmpty()) {
+            if (nodeLimit > 0 && expanded >= nodeLimit) {
+                stop = "node_limit";
+                break;
+            }
+            if (expired(deadline)) {
+                stop = "time_limit";
+                break;
+            }
+            SearchNode parent = open.dequeue();
+            // 蓝本：动作数 / 回合数超界 = 地平线上的叶子，不再展开
+            if (parent.depth >= options.maxActions
+                    || parent.state.turn >= startTurn + options.maxTurns) {
+                horizonLeaves++;
+                continue;
+            }
+            novelty.prepareParent(
+                    NoveltySearch.partitionOf(parent.state, parent.potionsUsed),
+                    NoveltySearch.factsOf(parent.state));
+
+            // 展开：和 Beam 完全同一套（每张牌 × 每个目标 × 选牌分支，外加结束回合）
+            List<SearchNode> plays = new ArrayList<SearchNode>();
+            List<SearchNode> ended = new ArrayList<SearchNode>();
+            expandTurnLayer(parent, plays, ended, cardBranchLimit);
+            expanded++;
+            lastStates += plays.size() + ended.size();
+
+            List<SearchNode> children = new ArrayList<SearchNode>(plays.size() + ended.size());
+            children.addAll(plays);
+            children.addAll(ended);
+            for (SearchNode child : children) {
+                maxTurnSeen = Math.max(maxTurnSeen, child.state.turn);
+                if (fallback == null || child.score > fallback.score) {
+                    fallback = child;
+                }
+                if (child.terminal()) {
+                    // 终局不进 open：直接进 completed（蓝本 completed.Add(child)）
+                    if (bestTerminal == null || better(child, bestTerminal)) {
+                        bestTerminal = child;
+                    }
+                    continue;
+                }
+                int width = novelty.evaluate(
+                        NoveltySearch.partitionOf(child.state, child.potionsUsed),
+                        NoveltySearch.factsOf(child.state));
+                if (width > options.width) {
+                    // 「熟悉」= 所有一元组/二元组都见过。蓝本默认额度 0，一个都不放。
+                    nonNovelPruned++;
+                    continue;
+                }
+                SearchNode evicted = open.enqueue(child, width, child.score, sequence++);
+                if (evicted != null) {
+                    openDropped++;
+                }
+                if (open.size() > peakOpen) {
+                    peakOpen = open.size();
+                }
+            }
+            // 蓝本 ConsiderCurrentTurnCandidate：只在**起点回合**登记「走到回合边界」的最好那条
+            for (SearchNode endedNode : ended) {
+                SearchNode boundary = endedNode.parent;
+                if (boundary == null || boundary.depth == 0) {
+                    continue;
+                }
+                if (boundary.state.turn != startTurn) {
+                    continue;
+                }
+                if (boundary.state.hp <= 0 || Score.projectedHpOf(boundary.state) <= 0) {
+                    continue;
+                }
+                if (currentTurnCandidate == null || better(boundary, currentTurnCandidate)) {
+                    currentTurnCandidate = boundary;
+                }
+            }
+            if (novelty.limitReached) {
+                stop = "novelty_limit";
+                break;
+            }
+            if (bestTerminal != null && isCompleteVictory(bestTerminal)
+                    && rootHp - bestTerminal.state.hp <= 0) {
+                stop = "hp_target";          // 零伤完胜，不用再找了
+                break;
+            }
+        }
+
+        lastNoveltyNodes = expanded;
+        lastNoveltyOpen = Math.max(peakOpen, open.size());
+        lastNoveltyEntries = novelty.entries;
+        // 选中的那条路线走到第几回合（不是「见到的最远回合」—— 那个只说明搜索铺得开）
+        lastNoveltyTurns = Math.max(0, bestTurnSeen - startTurn);
+        lastNoveltyMillis = (System.nanoTime() - startedAt) / 1_000_000L;
+        lastNoveltyStop = stop;
+        Trace.info("NOVELTY stop=" + stop + " expanded=" + expanded + " states=" + lastStates
+                + " open_peak=" + lastNoveltyOpen + " open_dropped=" + openDropped
+                + " familiar_pruned=" + nonNovelPruned + " horizon_leaves=" + horizonLeaves
+                + " entries=" + novelty.entries + " atoms=" + novelty.atomCount()
+                + " unary=" + novelty.unary + " binary=" + novelty.binary
+                + " chosen_turn=" + lastNoveltyTurns + " max_turn=" + (maxTurnSeen - startTurn)
+                + " ms=" + (System.nanoTime() - startedAt) / 1_000_000L);
+
+        // 蓝本 adoptedNode = currentBestNode ?? currentTurnCandidateNode
+        SearchNode best = bestTerminal;
+        if (currentTurnCandidate != null && (best == null || better(currentTurnCandidate, best))) {
+            best = currentTurnCandidate;
+        }
+        if (best == null) {
+            best = fallback;
+        }
+        if (best != null) {
+            bestTurnSeen = best.state.turn;
+            lastNoveltyTurns = Math.max(0, bestTurnSeen - startTurn);
+        }
+        return best;
+    }
+
     /** 蓝本的 {@code Scale}：按倍数放大并封顶。 */
-    private static int scale(int value, int multiple, int cap) {
-        if (value <= 0) {
+    private static int scale(int value, int multiple, int cap) {        if (value <= 0) {
             return value;               // 0 = 不限，不参与放大
         }
         long scaled = (long) value * multiple;

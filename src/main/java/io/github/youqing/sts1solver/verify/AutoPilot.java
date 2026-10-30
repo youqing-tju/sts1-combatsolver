@@ -421,7 +421,8 @@ public final class AutoPilot {
                     + " depth=" + result.depth + " lines=" + result.lines
                     + " ms=" + result.millis + " plan=" + result.steps.size() + " steps"
                     + " states=" + result.states
-                    + " budget=" + (result.hitNodeLimit ? "hit" : "exhausted"));
+                    + " budget=" + (result.hitNodeLimit ? "hit" : "exhausted")
+                    + " novelty=" + result.noveltyStop);
         }
         if (result.steps == null || result.steps.isEmpty()) {
             Trace.info("SEARCH -> empty plan, end turn");
@@ -740,7 +741,8 @@ public final class AutoPilot {
             io.github.youqing.sts1solver.search.AsyncSearch.submit(snapshot,
                     snapshot.fingerprint(), CombatCapture.baseEnergy(), player.gameHandSize,
                     budget.beamWidth, io.github.youqing.sts1solver.search.BeamSolver.SAFETY_MAX_TURN_LAYERS,
-                    budget.timeMillis, budget.nodeLimit, budget.cardBranches);
+                    budget.timeMillis, budget.nodeLimit, budget.cardBranches,
+                    io.github.youqing.sts1solver.config.SolverConfig.novelty());
         } catch (Throwable t) {
             Trace.warn("submit search failed: " + t);
         }

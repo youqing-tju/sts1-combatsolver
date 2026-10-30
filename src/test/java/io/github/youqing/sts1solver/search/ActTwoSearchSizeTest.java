@@ -115,21 +115,49 @@ class ActTwoSearchSizeTest {
         return s;
     }
 
-    /** 用运行时的「极高」档参数：宽 135 / 节点 50 万 / 每节点 72 分支。 */
+    /** 用运行时的「极高」档参数：宽 135 / 节点 50 万 / 每节点 72 分支；两档（关/开新颖度）对照。 */
     @Test
     void reportActTwoSearchVolume() {
-        StringBuilder out = new StringBuilder("\n=== 第二章搜索体量（宽 135，节点帽 500k，分支 72）===\n");
-        out.append(String.format("%-26s %8s %8s %6s %8s %s%n",
-                "遭遇", "节点", "状态", "回合", "毫秒", "撞帽"));
+        System.out.println("\n=== 第二章搜索体量（宽 135，节点帽 500k，分支 72）===");
+        System.out.println(String.format("%-26s %8s %6s %8s | %8s %6s %8s %-12s %s",
+                "遭遇", "节点", "回合", "毫秒", "节点+新", "回合", "毫秒+新", "新颖度停止", "被采纳"));
         for (Encounter e : ACT_TWO) {
-            SimState s = open(e);
-            BeamSolver solver = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72);
-            solver.bestFirstAction(s, 300_000L);
-            out.append(String.format("%-26s %8d %8d %6d %8d %s%n",
-                    e.name, solver.lastNodes, solver.lastStates, solver.lastDepth,
-                    solver.lastMillis, solver.hitNodeLimit ? "是" : "否(树耗尽)"));
+            BeamSolver plain = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72);
+            plain.bestFirstAction(open(e), 300_000L);
+            BeamSolver withNovelty = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72)
+                    .withNovelty();
+            withNovelty.bestFirstAction(open(e), 300_000L);
+            System.out.println(String.format("%-26s %8d %6d %8d | %8d %6d %8d %-12s %s",
+                    e.name, plain.lastNodes, plain.lastDepth, plain.lastMillis,
+                    withNovelty.lastNodes, withNovelty.lastDepth, withNovelty.lastMillis,
+                    withNovelty.lastNoveltyStop,
+                    withNovelty.lastNoveltyAdopted ? "是" : "否"));
+            System.out.flush();
         }
-        System.out.println(out);
+    }
+
+    /** 第一章不该被新颖度通道拖慢：同一批第一章遭遇，开/关各跑一次比耗时。 */
+    @Test
+    void reportActOneNoveltyOverhead() {
+        Encounter[] actOne = {
+                new Encounter("邪教徒", "Cultist:50"),
+                new Encounter("大颚虫", "JawWorm:44"),
+                new Encounter("地精大块头（精英）", "GremlinNob:85"),
+        };
+        System.out.println("\n=== 第一章：新颖度通道的额外开销 ===");
+        System.out.println(String.format("%-24s %8s %8s | %8s %8s %s",
+                "遭遇", "毫秒", "节点", "毫秒+新", "节点+新", "新颖度停止"));
+        for (Encounter e : actOne) {
+            BeamSolver plain = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72);
+            plain.bestFirstAction(open(e), 300_000L);
+            BeamSolver withNovelty = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72)
+                    .withNovelty();
+            withNovelty.bestFirstAction(open(e), 300_000L);
+            System.out.println(String.format("%-24s %8d %8d | %8d %8d %s",
+                    e.name, plain.lastMillis, plain.lastNodes,
+                    withNovelty.lastMillis, withNovelty.lastNodes, withNovelty.lastNoveltyStop));
+            System.out.flush();
+        }
     }
 
     /**
@@ -140,8 +168,7 @@ class ActTwoSearchSizeTest {
      */
     @org.junit.jupiter.api.Disabled("诊断用，会拖慢全量测试")
     @Test
-    void reportBeamCeiling() {
-        int[] widths = {135, 512, 2000};
+    void reportBeamCeiling() {        int[] widths = {135, 512, 2000};
         System.out.println("\n=== 束宽探顶（书呆子精英 / 冠军 Boss）===");
         System.out.println(String.format("%-22s %8s %10s %8s %6s %8s",
                 "遭遇", "宽度", "节点", "毫秒", "回合", "撞帽"));

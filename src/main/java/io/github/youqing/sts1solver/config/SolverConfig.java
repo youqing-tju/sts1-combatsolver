@@ -62,10 +62,13 @@ public final class SolverConfig {
     private static final String FILE = "config";
     private static final String KEY_BUDGET = "budget";
     private static final String KEY_AUTO_START = "autoStart";
+    private static final String KEY_NOVELTY = "novelty";
 
     private static SpireConfig config;
     private static Budget budget = Budget.MEDIUM;
     private static boolean autoStart;
+    /** 新颖度探索通道（蓝本 NoveltyPortfolio）；默认开，可在 config.properties 里关掉做对照。 */
+    private static boolean novelty = true;
 
     private SolverConfig() {
     }
@@ -74,6 +77,7 @@ public final class SolverConfig {
         Properties defaults = new Properties();
         defaults.setProperty(KEY_BUDGET, Budget.MEDIUM.name());
         defaults.setProperty(KEY_AUTO_START, "false");
+        defaults.setProperty(KEY_NOVELTY, "true");
         try {
             config = new SpireConfig(MOD_ID, FILE, defaults);
             String name = config.getString(KEY_BUDGET);
@@ -83,10 +87,11 @@ public final class SolverConfig {
                 }
             }
             autoStart = config.getBool(KEY_AUTO_START);
+            novelty = config.getBool(KEY_NOVELTY);
             Trace.info("config loaded: budget=" + budget.label
                     + " (width " + budget.beamWidth + ", nodes " + budget.nodeLimit
                     + ", time " + budget.timeMillis + "ms)"
-                    + " autoStart=" + autoStart);
+                    + " autoStart=" + autoStart + " novelty=" + novelty);
         } catch (Throwable t) {
             // 配置坏了也要能玩：全部走默认值
             config = null;
@@ -100,6 +105,11 @@ public final class SolverConfig {
 
     public static boolean autoStart() {
         return autoStart;
+    }
+
+    /** 新颖度探索通道开关（蓝本 NoveltyPortfolio）：关掉只会少算，不会算错。 */
+    public static boolean novelty() {
+        return novelty;
     }
 
     /** 循环切档：快 → 标准 → 深 → 快，并立刻落盘。 */

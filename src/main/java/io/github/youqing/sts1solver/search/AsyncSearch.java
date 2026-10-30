@@ -46,16 +46,37 @@ public final class AsyncSearch {
          * 「满手牌满能量空过一回合」（2026-10-30 真机实测两次）。
          */
         public final boolean failed;
+        /**
+         * 新颖度探索通道（蓝本 NoveltyPortfolio）的停止原因；没开就是 {@code "off"}。
+         *
+         * <p>判读：{@code open_exhausted} = 它把能想到的「没见过的事实组合」都走完了；
+         * {@code node_limit}/{@code time_limit} = 被这一趟的帽子截断（正常，蓝本也这样）。
+         */
+        public final String noveltyStop;
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
-                    hitNodeLimit, false);
+                    hitNodeLimit, false, "off");
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
                boolean failed) {
+            this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
+                    hitNodeLimit, failed, "off");
+        }
+
+        Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
+               int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
+               String noveltyStop) {
+            this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
+                    hitNodeLimit, false, noveltyStop == null ? "off" : noveltyStop);
+        }
+
+        Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
+               int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
+               boolean failed, String noveltyStop) {
             this.fingerprint = fingerprint;
             this.action = action;
             this.nodes = nodes;
@@ -67,6 +88,7 @@ public final class AsyncSearch {
             this.nodeLimit = nodeLimit;
             this.hitNodeLimit = hitNodeLimit;
             this.failed = failed;
+            this.noveltyStop = noveltyStop;
         }
     }
 
@@ -82,6 +104,7 @@ public final class AsyncSearch {
     private static int requestDepth;
     private static int requestNodeLimit;
     private static int requestCardBranches;
+    private static boolean requestNovelty;
     private static boolean running;
 
     private static volatile Result ready;
@@ -114,6 +137,7 @@ public final class AsyncSearch {
             int depth;
             int nodeLimit;
             int cardBranches;
+            boolean novelty;
             String fingerprint;
             synchronized (LOCK) {
                 while (request == null) {
@@ -131,6 +155,7 @@ public final class AsyncSearch {
                 depth = requestDepth;
                 nodeLimit = requestNodeLimit;
                 cardBranches = requestCardBranches;
+                novelty = requestNovelty;
                 fingerprint = requestFingerprint;
                 request = null;
                 requestFingerprint = null;
@@ -140,10 +165,13 @@ public final class AsyncSearch {
             try {
                 BeamSolver solver = new BeamSolver(energy, hand, width, depth,
                         nodeLimit, cardBranches);
+                if (novelty) {
+                    solver.withNovelty();
+                }
                 PlanAction action = solver.bestFirstAction(root, budget);
                 result = new Result(fingerprint, action, solver.lastNodes, solver.lastStates,
                         solver.lastDepth, solver.lastMillis, solver.lastLeaves,
-                        solver.lastSteps, nodeLimit, solver.hitNodeLimit);
+                        solver.lastSteps, nodeLimit, solver.hitNodeLimit, solver.lastNoveltyStop);
             } catch (Throwable t) {
                 Trace.error("background search failed", t);
                 result = new Result(fingerprint, null, 0, 0, 0, 0, 0,
@@ -158,6 +186,18 @@ public final class AsyncSearch {
     public static void submit(SimState root, String fingerprint, int energy, int hand,
                               int width, int depth, long budgetMillis,
                               int nodeLimit, int cardBranches) {
+        submit(root, fingerprint, energy, hand, width, depth, budgetMillis,
+                nodeLimit, cardBranches, true);
+    }
+
+    /**
+     * 同上，额外指定要不要开新颖度探索通道（蓝本 NoveltyPortfolio）。
+     *
+     * <p>默认开：它对 Beam 是「多跑一趟、二选一」，不会把结果改差；关掉只用于对照实验。
+     */
+    public static void submit(SimState root, String fingerprint, int energy, int hand,
+                              int width, int depth, long budgetMillis,
+                              int nodeLimit, int cardBranches, boolean novelty) {
         start();
         synchronized (LOCK) {
             request = root;
@@ -169,6 +209,7 @@ public final class AsyncSearch {
             requestBudget = budgetMillis;
             requestNodeLimit = nodeLimit;
             requestCardBranches = cardBranches;
+            requestNovelty = novelty;
             LOCK.notifyAll();
         }
     }
