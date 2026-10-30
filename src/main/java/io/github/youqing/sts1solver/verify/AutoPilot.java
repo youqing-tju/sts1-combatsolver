@@ -627,11 +627,21 @@ public final class AutoPilot {
 
     private static void enqueue(AbstractCard chosen, AbstractMonster target) {
         boolean mirrored = MirrorRegistry.supports(key(chosen));
-        AbstractDungeon.actionManager.cardQueue.add(new CardQueueItem(chosen, target, chosen.cost));
+        // 🔴 X 费牌（旋风斩 cost = -1）必须显式传「当前能量」而不是 -1。
+        // 传 -1 时全靠 AbstractPlayer.useCard 里那句
+        //   if (cost == -1 && energyOnUse < EnergyPanel.totalCount) energyOnUse = totalCount
+        // 兜底；一旦 ignoreEnergyOnUse 被置位（自动打出过的牌对象会带这个标记），
+        // 这句就跳过 -> WhirlwindAction 收到 -1/0 -> 一次伤害都不结算、能量也不扣。
+        int energyOnUse = chosen.cost < 0
+                ? Math.max(0, EnergyPanel.totalCount) : chosen.cost;
+        AbstractDungeon.actionManager.cardQueue.add(
+                new CardQueueItem(chosen, target, energyOnUse));
         queuedCard = chosen;
         queuedFrames = 0;
         noProgressEndTurns = 0;
         Trace.info("AUTO play " + key(chosen) + (target == null ? "" : " -> " + target.name)
+                + (chosen.cost < 0 ? "  [X cost: energyOnUse=" + energyOnUse
+                    + " total=" + EnergyPanel.totalCount + "]" : "")
                 + (mirrored ? "  (mirrored, diff)" : "  (unmirrored, record)"));
         cooldown = 6;
     }
