@@ -78,6 +78,18 @@ public final class BeamSolver {
     private boolean noveltyEnabled;
     private NoveltySearch.Options noveltyOptions = new NoveltySearch.Options();
 
+    /** Beam 宽度组合（蓝本 {@code UseBeamWidthPortfolio}，默认开）。 */
+    private boolean portfolioEnabled;
+    /** 这一个成员是不是「次段席位」（蓝本 {@code SecondRankBand}）。 */
+    private boolean secondRankBand;
+    /** 这一个成员是不是「只用基础分排序」（蓝本 {@code BaseScoreOnly}）。 */
+    private boolean baseScoreOnly;
+
+    /** 组合里每个成员一行：{@code 成员=节点/毫秒/采纳}，面板与日志用。 */
+    public final java.util.List<String> lastPortfolioMembers = new ArrayList<String>();
+    /** 最后采纳的是哪个成员（{@code "135"} / {@code "90"} / {@code "135+band"} …）。 */
+    public String lastPortfolioAdopted = "";
+
     /** 蓝本 {@code NoveltyPortfolioBudget}：探索的时间帽 = min(5s, 总预算 / 2)，Boss 再除以 4。 */
     static long noveltyBudgetMillis(long totalMillis, boolean boss) {
         if (totalMillis == Long.MAX_VALUE) {
@@ -319,6 +331,19 @@ public final class BeamSolver {
         return this;
     }
 
+    /** 打开 Beam 宽度组合（蓝本 {@code UseBeamWidthPortfolio} 默认就是开的）。 */
+    public BeamSolver withPortfolio() {
+        this.portfolioEnabled = true;
+        return this;
+    }
+
+    /** 设定这一个成员的剪枝策略（组合里每个成员各设一次）。 */
+    BeamSolver withBeamPolicy(boolean secondRankBand, boolean baseScoreOnly) {
+        this.secondRankBand = secondRankBand;
+        this.baseScoreOnly = baseScoreOnly;
+        return this;
+    }
+
     /** 蓝本 {@code NoveltySearchOptions}（测试要调参时用）。 */
     public BeamSolver withNoveltyOptions(NoveltySearch.Options options) {
         this.noveltyOptions = options == null ? new NoveltySearch.Options() : options;
@@ -477,45 +502,18 @@ public final class BeamSolver {
             beamBudgetMillis = Math.max(1L, beamBudgetMillis - spent);
         }
 
-        // 每次搜索独立计时：长时间预算（面板「标准」档 120 秒）只在这里生效
+        int maxTurns = Math.max(1, depth);
+        // 后处理（药水对账 / 0 费补搜）共用这条截止线：Beam 那份预算剩下的时间
         long deadline = beamBudgetMillis == Long.MAX_VALUE
                 ? Long.MAX_VALUE
                 : System.nanoTime() + beamBudgetMillis * 1_000_000L;
-
-        int maxTurns = Math.max(1, depth);
-        SearchNode selected = searchToDepth(root, maxTurns, Math.max(1, beamWidth),
-                cardBranchLimit, beamNodeLimit, deadline);
-        long lastPassMillis = (System.nanoTime() - startedAt) / 1_000_000L;
-
-        // 蓝本 CombatSearchCoordinator.EscalateSearchWhenNoVictory：
-        // **只在一场都没打赢时**才加宽补搜，并且「Beam 与节点帽一起翻倍」。
-        // 触发条件、倍数、上限、耗时预估、以及「没严格改善就停」全部照抄。
-        for (int completed = 0; ; completed++) {
-            if (isCompleteVictory(selected) || lastPassCutShort || expired(deadline)) {
-                break;
-            }
-            if (completed >= MAX_ESCALATIONS) {
-                break;
-            }
-            long remaining = budgetMillis == Long.MAX_VALUE
-                    ? Long.MAX_VALUE
-                    : budgetMillis - (System.nanoTime() - startedAt) / 1_000_000L;
-            // 按扩展倍数估下一轮耗时；估出来超过剩余预算就不启动（蓝本同款防超时）
-            long projected = Math.max(1, lastPassMillis) * ESCALATION_FACTOR;
-            if (remaining != Long.MAX_VALUE && (remaining <= 0 || remaining < projected)) {
-                break;
-            }
-            int multiple = 1 << (completed + 1);        // 2倍、4倍
-            SearchNode candidate = searchToDepth(root, maxTurns,
-                    scale(beamWidth, multiple, MAX_ESCALATED_WIDTH),
-                    scale(cardBranchLimit, multiple, MAX_ESCALATED_BRANCHES),
-                    beamNodeLimit <= 0 ? 0 : beamNodeLimit * multiple,
-                    deadline);
-            lastPassMillis = (System.nanoTime() - startedAt) / 1_000_000L;
-            if (!isStrictlyBetter(candidate, selected)) {
-                break;                                  // 没严格改善就停，继续扩预算没意义
-            }
-            selected = candidate;
+        SearchNode selected;
+        if (portfolioEnabled && fixedPrefix.isEmpty()) {
+            // 蓝本 RunBeamWidthPortfolioPass：五个成员共享同一份节点/时间预算，取最好的一条
+            selected = runPortfolio(root, maxTurns, beamNodeLimit, beamBudgetMillis, startedAt);
+        } else {
+            selected = beamPass(root, maxTurns, Math.max(1, beamWidth), cardBranchLimit,
+                    beamNodeLimit, deadline);
         }
 
         // 蓝本 RunZeroCostOpeningRescue（PostSearch.cs:352-392，后处理第 4 趟）：
@@ -715,6 +713,153 @@ public final class BeamSolver {
             bestTurnSeen = best.state.turn;
             lastNoveltyTurns = Math.max(0, bestTurnSeen - startTurn);
         }
+        return best;
+    }
+
+    /**
+     * 一趟 Beam（含蓝本 {@code EscalateSearchWhenNoVictory} 的「没打赢就加宽」补搜）。
+     *
+     * <p>组合里每个成员各跑一次；单成员模式下就是原来那条唯一的路。
+     */
+    private SearchNode beamPass(SimState root, int maxTurns, int width, int branchLimit,
+                                int nodeLimit, long deadline) {
+        long passStart = System.nanoTime();
+        SearchNode selected = searchToDepth(root, maxTurns, Math.max(1, width), branchLimit,
+                nodeLimit, deadline);
+        long lastPassMillis = (System.nanoTime() - passStart) / 1_000_000L;
+
+        // 蓝本 CombatSearchCoordinator.EscalateSearchWhenNoVictory：
+        // **只在一场都没打赢时**才加宽补搜，并且「Beam 与节点帽一起翻倍」。
+        // 触发条件、倍数、上限、耗时预估、以及「没严格改善就停」全部照抄。
+        for (int completed = 0; ; completed++) {
+            if (isCompleteVictory(selected) || lastPassCutShort || expired(deadline)) {
+                break;
+            }
+            if (completed >= MAX_ESCALATIONS) {
+                break;
+            }
+            long remaining = deadline == Long.MAX_VALUE
+                    ? Long.MAX_VALUE
+                    : (deadline - System.nanoTime()) / 1_000_000L;
+            // 按扩展倍数估下一轮耗时；估出来超过剩余预算就不启动（蓝本同款防超时）
+            long projected = Math.max(1, lastPassMillis) * ESCALATION_FACTOR;
+            if (remaining != Long.MAX_VALUE && (remaining <= 0 || remaining < projected)) {
+                break;
+            }
+            int multiple = 1 << (completed + 1);        // 2倍、4倍
+            SearchNode candidate = searchToDepth(root, maxTurns,
+                    scale(width, multiple, MAX_ESCALATED_WIDTH),
+                    scale(branchLimit, multiple, MAX_ESCALATED_BRANCHES),
+                    nodeLimit <= 0 ? 0 : nodeLimit * multiple,
+                    deadline);
+            lastPassMillis = (System.nanoTime() - passStart) / 1_000_000L;
+            if (!isStrictlyBetter(candidate, selected)) {
+                break;                                  // 没严格改善就停，继续扩预算没意义
+            }
+            selected = candidate;
+        }
+        return selected;
+    }
+
+    /**
+     * Beam 宽度组合（蓝本 {@code RunBeamWidthPortfolioPass} + {@code BeamWidthPortfolioGate}）。
+     *
+     * <p>成员清单见 {@link BeamWidthPortfolio#productionMembers}。规则照抄蓝本：
+     * <ul>
+     *   <li>首个成员永远是基线宽度，且**逐位等于单成员搜索**；</li>
+     *   <li>其余成员先过准入门（{@link BeamWidthPortfolio#rejectRefinement}）：
+     *       基线没搜干净 / 基线已经证明零伤 / 基线自己吃掉超过 1/4 时间 / 节点或时间余量不够，
+     *       就不启动，原因记进诊断；</li>
+     *   <li>节点与时间都是**共享**的：每个成员只拿剩余的那一份；</li>
+     *   <li>比较用既有的 {@link #better}，同分保留先出现的（= 基线），所以「组合不会比单趟差」；</li>
+     *   <li>撞节点帽且没打到终局的成员不参与比较（蓝本 {@code SkippedNodeLimitNotTerminal}）。</li>
+     * </ul>
+     */
+    private SearchNode runPortfolio(SimState root, int maxTurns, int nodeLimit,
+                                    long budgetMillis, long startedAt) {
+        java.util.List<BeamWidthPortfolio.Member> members =
+                BeamWidthPortfolio.productionMembers(Math.max(1, beamWidth));
+        lastPortfolioMembers.clear();
+        lastPortfolioAdopted = "";
+
+        SearchNode best = null;
+        String bestLabel = "";
+        boolean baselineObserved = false;
+        boolean baselineExhausted = false;
+        boolean baselineZeroDamage = false;
+        long baselineMillis = 0L;
+        int baselineExpanded = 0;
+        int baselineWidth = members.get(0).beamWidth;
+        int expandedShared = 0;
+
+        for (int i = 0; i < members.size(); i++) {
+            BeamWidthPortfolio.Member member = members.get(i);
+            long remainingMillis = budgetMillis == Long.MAX_VALUE
+                    ? Long.MAX_VALUE
+                    : budgetMillis - (System.nanoTime() - startedAt) / 1_000_000L;
+            long remainingNodes = nodeLimit <= 0 ? 0 : Math.max(0, nodeLimit - expandedShared);
+
+            String label = member.toString();
+            String skip = null;
+            if (remainingMillis != Long.MAX_VALUE && remainingMillis <= 0) {
+                skip = "BudgetExhausted";
+            } else if (i > 0) {
+                skip = BeamWidthPortfolio.rejectRefinement(baselineExhausted, baselineZeroDamage,
+                        baselineMillis, baselineWidth, member.beamWidth,
+                        nodeLimit <= 0 ? -1 : remainingNodes, remainingMillis, budgetMillis,
+                        baselineExpanded);
+            }
+            if (skip != null) {
+                lastPortfolioMembers.add(label + "=skip(" + skip + ")");
+                continue;
+            }
+
+            long memberDeadline = remainingMillis == Long.MAX_VALUE
+                    ? Long.MAX_VALUE
+                    : System.nanoTime() + remainingMillis * 1_000_000L;
+            int memberNodeLimit = nodeLimit <= 0 ? 0
+                    : (i == 0 ? nodeLimit : (int) Math.max(1, remainingNodes));
+
+            long memberStart = System.nanoTime();
+            int nodesBefore = lastNodes;
+            boolean hitBefore = hitNodeLimit;
+            SearchNode candidate = withBeamPolicy(member.secondRankBand, member.baseScoreOnly)
+                    .beamPass(root, maxTurns, member.beamWidth, cardBranchLimit,
+                            memberNodeLimit, memberDeadline);
+            long memberMillis = (System.nanoTime() - memberStart) / 1_000_000L;
+            int memberExpanded = lastNodes - nodesBefore;
+            expandedShared += memberExpanded;
+
+            // 成员之间互不影响：把「这一趟被截断了吗」换成这一趟自己的口径
+            boolean memberHitLimit = hitNodeLimit;
+            hitNodeLimit = hitBefore || memberHitLimit;
+
+            if (i == 0) {
+                baselineObserved = true;
+                baselineMillis = memberMillis;
+                baselineExpanded = memberExpanded;
+                baselineWidth = member.beamWidth;
+                baselineExhausted = !memberHitLimit && !lastPassCutShort;
+                baselineZeroDamage = candidate != null && isCompleteVictory(candidate)
+                        && candidate.state.hp >= rootHp && candidate.potionsUsed == 0;
+                if (candidate != null) {
+                    best = candidate;
+                    bestLabel = label;
+                }
+            } else if (candidate != null) {
+                boolean terminal = isCompleteVictory(candidate) || SearchNode.noAliveMonster(candidate.state);
+                boolean comparable = !memberHitLimit || terminal;
+                if (comparable && (best == null || better(candidate, best))) {
+                    best = candidate;
+                    bestLabel = label;
+                }
+            }
+            lastPortfolioMembers.add(label + "=" + memberExpanded + "n/" + memberMillis + "ms");
+        }
+
+        lastPortfolioAdopted = bestLabel;
+        Trace.info("PORTFOLIO baseline_w=" + baselineWidth + " members=" + lastPortfolioMembers
+                + " adopted=" + (bestLabel.isEmpty() ? "none" : bestLabel));
         return best;
     }
 
@@ -1621,7 +1766,10 @@ public final class BeamSolver {
         unique.sort(new java.util.Comparator<SearchNode>() {
             @Override
             public int compare(SearchNode a, SearchNode b) {
-                int c = Long.compare(b.rank, a.rank);
+                // 基础分成员（蓝本 BaseScoreOnly）：中途排序只看 score，不看带资源项的 rank
+                int c = baseScoreOnly
+                        ? Long.compare(b.score, a.score)
+                        : Long.compare(b.rank, a.rank);
                 if (c != 0) {
                     return c;
                 }
@@ -1633,9 +1781,18 @@ public final class BeamSolver {
         // 截断之后，在「主键（rank+actionCount）并列」的边界段里按药水数分桶、
         // 按攻击推进量分组轮转占位 —— 防止 beam 尾部被同质路线占满（多样性塌掉搜索会卡死）。
         // required（策略强制保留）与 finalQualityFirst 我们还没有，传空集 / false。
-        List<SearchNode> selected = unique.size() <= width
-                ? unique
-                : new ArrayList<SearchNode>(unique.subList(0, width));
+        // 次段成员（蓝本 SecondRankBand）：普通席位取「第 W+1 至 2W 位」，
+        // 专挑那些在第一轮裁掉、但其实还不错的中段路线。
+        List<SearchNode> selected;
+        if (unique.size() <= width) {
+            selected = unique;
+        } else if (secondRankBand && unique.size() > 2 * width) {
+            selected = new ArrayList<SearchNode>(unique.subList(width, 2 * width));
+        } else if (secondRankBand) {
+            selected = new ArrayList<SearchNode>(unique.subList(width, unique.size()));
+        } else {
+            selected = new ArrayList<SearchNode>(unique.subList(0, width));
+        }
         diversifyOrdinaryBeamBoundary(unique, selected,
                 java.util.Collections.<SearchNode>emptySet(), false);
         return selected;

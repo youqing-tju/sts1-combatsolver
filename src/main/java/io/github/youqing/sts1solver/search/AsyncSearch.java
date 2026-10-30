@@ -53,6 +53,8 @@ public final class AsyncSearch {
          * {@code node_limit}/{@code time_limit} = 被这一趟的帽子截断（正常，蓝本也这样）。
          */
         public final String noveltyStop;
+        /** 宽度组合最后采纳的成员（{@code "135"} / {@code "90"} / {@code "135+band"}）；没开就是空串。 */
+        public final String portfolioAdopted;
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit) {
@@ -77,6 +79,13 @@ public final class AsyncSearch {
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
                boolean failed, String noveltyStop) {
+            this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
+                    hitNodeLimit, failed, noveltyStop, "");
+        }
+
+        Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
+               int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
+               boolean failed, String noveltyStop, String portfolioAdopted) {
             this.fingerprint = fingerprint;
             this.action = action;
             this.nodes = nodes;
@@ -89,6 +98,7 @@ public final class AsyncSearch {
             this.hitNodeLimit = hitNodeLimit;
             this.failed = failed;
             this.noveltyStop = noveltyStop;
+            this.portfolioAdopted = portfolioAdopted == null ? "" : portfolioAdopted;
         }
     }
 
@@ -105,6 +115,7 @@ public final class AsyncSearch {
     private static int requestNodeLimit;
     private static int requestCardBranches;
     private static boolean requestNovelty;
+    private static boolean requestPortfolio;
     private static boolean running;
 
     private static volatile Result ready;
@@ -138,6 +149,7 @@ public final class AsyncSearch {
             int nodeLimit;
             int cardBranches;
             boolean novelty;
+            boolean portfolio;
             String fingerprint;
             synchronized (LOCK) {
                 while (request == null) {
@@ -156,6 +168,7 @@ public final class AsyncSearch {
                 nodeLimit = requestNodeLimit;
                 cardBranches = requestCardBranches;
                 novelty = requestNovelty;
+                portfolio = requestPortfolio;
                 fingerprint = requestFingerprint;
                 request = null;
                 requestFingerprint = null;
@@ -168,10 +181,14 @@ public final class AsyncSearch {
                 if (novelty) {
                     solver.withNovelty();
                 }
+                if (portfolio) {
+                    solver.withPortfolio();
+                }
                 PlanAction action = solver.bestFirstAction(root, budget);
                 result = new Result(fingerprint, action, solver.lastNodes, solver.lastStates,
                         solver.lastDepth, solver.lastMillis, solver.lastLeaves,
-                        solver.lastSteps, nodeLimit, solver.hitNodeLimit, solver.lastNoveltyStop);
+                        solver.lastSteps, nodeLimit, solver.hitNodeLimit, false,
+                        solver.lastNoveltyStop, solver.lastPortfolioAdopted);
             } catch (Throwable t) {
                 Trace.error("background search failed", t);
                 result = new Result(fingerprint, null, 0, 0, 0, 0, 0,
@@ -187,7 +204,7 @@ public final class AsyncSearch {
                               int width, int depth, long budgetMillis,
                               int nodeLimit, int cardBranches) {
         submit(root, fingerprint, energy, hand, width, depth, budgetMillis,
-                nodeLimit, cardBranches, true);
+                nodeLimit, cardBranches, true, true);
     }
 
     /**
@@ -198,6 +215,19 @@ public final class AsyncSearch {
     public static void submit(SimState root, String fingerprint, int energy, int hand,
                               int width, int depth, long budgetMillis,
                               int nodeLimit, int cardBranches, boolean novelty) {
+        submit(root, fingerprint, energy, hand, width, depth, budgetMillis,
+                nodeLimit, cardBranches, novelty, true);
+    }
+
+    /**
+     * 同上，额外指定要不要开 Beam 宽度组合（蓝本 {@code UseBeamWidthPortfolio}，默认开）。
+     *
+     * <p>组合 = 五个成员共享一份预算取最好的那条，同分保留基线，所以结果不会比单趟差。
+     */
+    public static void submit(SimState root, String fingerprint, int energy, int hand,
+                              int width, int depth, long budgetMillis,
+                              int nodeLimit, int cardBranches, boolean novelty,
+                              boolean portfolio) {
         start();
         synchronized (LOCK) {
             request = root;
@@ -210,6 +240,7 @@ public final class AsyncSearch {
             requestNodeLimit = nodeLimit;
             requestCardBranches = cardBranches;
             requestNovelty = novelty;
+            requestPortfolio = portfolio;
             LOCK.notifyAll();
         }
     }

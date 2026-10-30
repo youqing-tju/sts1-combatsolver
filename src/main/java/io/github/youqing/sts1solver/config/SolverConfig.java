@@ -63,12 +63,15 @@ public final class SolverConfig {
     private static final String KEY_BUDGET = "budget";
     private static final String KEY_AUTO_START = "autoStart";
     private static final String KEY_NOVELTY = "novelty";
+    private static final String KEY_PORTFOLIO = "portfolio";
 
     private static SpireConfig config;
     private static Budget budget = Budget.MEDIUM;
     private static boolean autoStart;
     /** 新颖度探索通道（蓝本 NoveltyPortfolio）；默认开，可在 config.properties 里关掉做对照。 */
     private static boolean novelty = true;
+    /** Beam 宽度组合（蓝本 UseBeamWidthPortfolio，默认开）。 */
+    private static boolean portfolio = true;
 
     private SolverConfig() {
     }
@@ -78,6 +81,7 @@ public final class SolverConfig {
         defaults.setProperty(KEY_BUDGET, Budget.MEDIUM.name());
         defaults.setProperty(KEY_AUTO_START, "false");
         defaults.setProperty(KEY_NOVELTY, "true");
+        defaults.setProperty(KEY_PORTFOLIO, "true");
         try {
             config = new SpireConfig(MOD_ID, FILE, defaults);
             String name = config.getString(KEY_BUDGET);
@@ -88,10 +92,12 @@ public final class SolverConfig {
             }
             autoStart = config.getBool(KEY_AUTO_START);
             novelty = config.getBool(KEY_NOVELTY);
+            portfolio = config.getBool(KEY_PORTFOLIO);
             Trace.info("config loaded: budget=" + budget.label
                     + " (width " + budget.beamWidth + ", nodes " + budget.nodeLimit
                     + ", time " + budget.timeMillis + "ms)"
-                    + " autoStart=" + autoStart + " novelty=" + novelty);
+                    + " autoStart=" + autoStart + " novelty=" + novelty
+                    + " portfolio=" + portfolio);
         } catch (Throwable t) {
             // 配置坏了也要能玩：全部走默认值
             config = null;
@@ -110,6 +116,11 @@ public final class SolverConfig {
     /** 新颖度探索通道开关（蓝本 NoveltyPortfolio）：关掉只会少算，不会算错。 */
     public static boolean novelty() {
         return novelty;
+    }
+
+    /** Beam 宽度组合开关（蓝本 UseBeamWidthPortfolio，默认开）。 */
+    public static boolean portfolio() {
+        return portfolio;
     }
 
     /** 循环切档：快 → 标准 → 深 → 快，并立刻落盘。 */

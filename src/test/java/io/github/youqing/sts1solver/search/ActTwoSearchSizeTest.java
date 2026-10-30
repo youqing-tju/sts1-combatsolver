@@ -115,23 +115,33 @@ class ActTwoSearchSizeTest {
         return s;
     }
 
-    /** 用运行时的「极高」档参数：宽 135 / 节点 50 万 / 每节点 72 分支；两档（关/开新颖度）对照。 */
+    /**
+     * 四档对照：纯 Beam / +新颖度 / +宽度组合 / 两者都开（真机默认）。
+     *
+     * <p>默认关掉：40 次搜索、Boss 一座就 5 秒 × 4 档，会把全量测试从 30 秒拖到 70 秒。
+     * 要量体量时手动打开（`--tests '*ActTwoSearchSizeTest.reportActTwoSearchVolume*'`）。
+     */
+    @org.junit.jupiter.api.Disabled("诊断用：40 次搜索，全量跑太慢")
     @Test
     void reportActTwoSearchVolume() {
-        System.out.println("\n=== 第二章搜索体量（宽 135，节点帽 500k，分支 72）===");
-        System.out.println(String.format("%-26s %8s %6s %8s | %8s %6s %8s %-12s %s",
-                "遭遇", "节点", "回合", "毫秒", "节点+新", "回合", "毫秒+新", "新颖度停止", "被采纳"));
+        System.out.println("\n=== 第二章搜索体量（宽 135 / 节点帽 500k / 分支 72）===");
+        System.out.println(String.format("%-24s %7s %6s %7s | %7s %7s | %7s %7s | %7s %7s %s",
+                "遭遇", "节点", "回合", "毫秒", "节点新", "毫秒", "节点组", "毫秒", "节点全", "毫秒", "采纳成员"));
         for (Encounter e : ACT_TWO) {
             BeamSolver plain = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72);
             plain.bestFirstAction(open(e), 300_000L);
-            BeamSolver withNovelty = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72)
-                    .withNovelty();
-            withNovelty.bestFirstAction(open(e), 300_000L);
-            System.out.println(String.format("%-26s %8d %6d %8d | %8d %6d %8d %-12s %s",
+            BeamSolver novel = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72).withNovelty();
+            novel.bestFirstAction(open(e), 300_000L);
+            BeamSolver port = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72).withPortfolio();
+            port.bestFirstAction(open(e), 300_000L);
+            BeamSolver both = new BeamSolver(ENERGY, HAND_SIZE, 135, 500, 500_000, 72)
+                    .withNovelty().withPortfolio();
+            both.bestFirstAction(open(e), 300_000L);
+            System.out.println(String.format("%-24s %7d %6d %7d | %7d %7d | %7d %7d | %7d %7d %s",
                     e.name, plain.lastNodes, plain.lastDepth, plain.lastMillis,
-                    withNovelty.lastNodes, withNovelty.lastDepth, withNovelty.lastMillis,
-                    withNovelty.lastNoveltyStop,
-                    withNovelty.lastNoveltyAdopted ? "是" : "否"));
+                    novel.lastNodes, novel.lastMillis,
+                    port.lastNodes, port.lastMillis,
+                    both.lastNodes, both.lastMillis, both.lastPortfolioAdopted));
             System.out.flush();
         }
     }
