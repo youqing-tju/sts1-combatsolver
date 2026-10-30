@@ -19,34 +19,41 @@ import io.github.youqing.sts1solver.verify.ShadowTracker;
  * 求解器面板。
  *
  * <p>版式照蓝本（{@code reference/sts2-combatsolver/src/UI/SolverOverlay.cs}）的分区思路：
- * <b>标题 / 状态 / 路线 / 操作</b> 四段，段与段之间留白，数字右对齐在同一列。
- * 但视觉沿用我们原来的「半透明黑底 + 细描边」风格，不搬它的贴图。
+ * <b>标题 / 状态 / 路线 / 操作</b> 四段，段与段之间留白，按钮固定在底部一行。
+ * 视觉沿用我们原来的「半透明黑底 + 细描边」风格，不搬它的贴图。
  *
- * <p>三条硬约束（都是踩过的坑）：
+ * <p>四条硬约束（都是踩过的坑）：
  * <ol>
- *   <li><b>宽度不能被内容撑爆</b>：早先按最长文本算宽度、又用 {@code MAX_W} 截断，
- *       长行会直接画到面板外面去。现在先定宽度，再把文本截断成省略号。</li>
- *   <li><b>按钮不能互相压</b>：按固定宽度从右往左排，间距固定，且面板宽度保证装得下。</li>
+ *   <li><b>宽度不能被内容撑爆</b>：长行按面板宽度截断成省略号。
+ *       反过来说宽度也要够：{@link #MAX_W} 是上限，正常宽度由「最宽的一行」决定。</li>
+ *   <li><b>按钮不能互相压</b>：按钮宽度 = <b>实测文字宽 + 内边距</b>，从右往左排，
+ *       间距固定。以前写死 96/130/150 —— 在 2560×1440 下字体行高 56，
+ *       「auto-start ON」有 260px 宽，画进 130px 的框里就直接压到隔壁按钮的文字上
+ *       （2026-10-30 用户截图反馈「字样混在一起」）。</li>
+ *   <li><b>字体按分辨率选</b>：{@code cardDescFont_N} 是卡面说明字体（行高 56），
+ *       拿来画面板相当于用海报字写便签。现在按 {@code 30 * Settings.scale}
+ *       在候选字体里挑最接近的。</li>
  *   <li><b>位置延迟到第一帧</b>：{@code Settings.WIDTH/HEIGHT} 在 initialize 时还是 0。</li>
  * </ol>
  */
 public final class SolverPanel {
 
     private static final float PAD = 14f;
-    private static final float ROW_GAP = 8f;
+    private static final float ROW_GAP = 6f;
     private static final float BUTTON_H = 34f;
     private static final float BUTTON_GAP = 8f;
+    private static final float BUTTON_TEXT_PAD = 13f;
     private static final float TITLE_BAR = 34f;
-    private static final float MIN_W = 470f;
-    private static final float MAX_W = 760f;
+    private static final float MIN_W = 360f;
+    private static final float MAX_W = 820f;
     private static final float TOP_MARGIN = 190f;
     private static final int MAX_PLAN_ROWS = 3;
+    /** 面板正文目标字号（1080p 下），实际按 {@link Settings#scale} 放大。 */
+    private static final float BODY_TARGET_PX = 27f;
 
-    private static final float AUTO_BUTTON_W = 96f;
-    private static final float BUDGET_BUTTON_W = 150f;
-    private static final float AUTOSTART_BUTTON_W = 130f;
-    private static final float BUTTONS_W = AUTO_BUTTON_W + BUDGET_BUTTON_W
-            + AUTOSTART_BUTTON_W + BUTTON_GAP * 2f;
+    private static final String TITLE = "STS1 Combat Solver";
+    private static final String BUILD = "build "
+            + io.github.youqing.sts1solver.BuildStamp.VALUE;
 
     private static float x = 40f;
     private static float topY = Float.NaN;
@@ -69,6 +76,12 @@ public final class SolverPanel {
     private static String lastBudget;
     private static int lastPlanSize = -1;
 
+    /** 三个按钮的实测宽度：{AUTO, budget, auto-start}（下标 0 是最右边那个）。 */
+    private static final float[] buttonW = new float[3];
+    private static final float[] BUTTON_MIN_W = {72f, 96f, 104f};
+    private static float buttonsTotal;
+
+    private static BitmapFont cachedBodyFont;
     private static final GlyphLayout MEASURE = new GlyphLayout();
 
     private SolverPanel() {
@@ -83,6 +96,12 @@ public final class SolverPanel {
         combatLine = "combat: " + summary;
         layoutDirty = true;
         Trace.info("panel sees combat start: " + summary);
+    }
+
+    /** 战斗结束：面板别一直挂着上一场的战况（用户会以为还在打）。 */
+    public static void onCombatEnd() {
+        combatLine = "combat: (none)";
+        layoutDirty = true;
     }
 
     /** Diff counters / 计划 / 档位变化时都要重排。 */
@@ -119,11 +138,46 @@ public final class SolverPanel {
         Trace.info("panel placed at x=" + x + " top=" + topY + " (viewport " + vw + "x" + vh + ")");
     }
 
+    /**
+     * 正文 / 按钮用的字体：在几个候选里挑行高最接近 {@code 30 * Settings.scale} 的。
+     *
+     * <p>{@code Settings.scale} 在第一次渲染前是 0，这时退回 1。
+     */
     private static BitmapFont uiFont() {
-        if (FontHelper.cardDescFont_N != null) {
-            return FontHelper.cardDescFont_N;
+        if (cachedBodyFont != null) {
+            return cachedBodyFont;
         }
-        return FontHelper.charDescFont;
+        float scale = Settings.scale > 0f ? Settings.scale : 1f;
+        float target = BODY_TARGET_PX * scale;
+        BitmapFont[] candidates = {
+                FontHelper.tipBodyFont,
+                FontHelper.buttonLabelFont,
+                FontHelper.healthInfoFont,
+                FontHelper.cardDescFont_N,
+                FontHelper.charDescFont
+        };
+        BitmapFont best = null;
+        float bestDelta = Float.MAX_VALUE;
+        for (BitmapFont font : candidates) {
+            if (font == null || font.getLineHeight() <= 0f) {
+                continue;
+            }
+            float delta = Math.abs(font.getLineHeight() - target);
+            if (delta < bestDelta) {
+                bestDelta = delta;
+                best = font;
+            }
+        }
+        cachedBodyFont = best;
+        if (best != null) {
+            Trace.info("panel font lineHeight=" + best.getLineHeight()
+                    + " (target " + Math.round(target) + ")");
+        }
+        // Settings.scale 还没定下来时先不缓存，等真正的视口建好再挑一次
+        if (Settings.scale <= 0f) {
+            cachedBodyFont = null;
+        }
+        return best;
     }
 
     // ------------------------------------------------------------------- 内容
@@ -131,9 +185,7 @@ public final class SolverPanel {
     /** 面板的全部行，按 [标题, 状态, 战斗, 路线头, 计划…] 的顺序。 */
     private static Row[] rows() {
         java.util.List<Row> out = new java.util.ArrayList<Row>();
-        out.add(new Row("STS1 Combat Solver   build "
-                + io.github.youqing.sts1solver.BuildStamp.VALUE,
-                Color.WHITE, true));
+        out.add(new Row(TITLE, Color.WHITE, true));
         out.add(new Row("diff " + ShadowTracker.matches() + "/"
                 + (ShadowTracker.matches() + ShadowTracker.mismatches())
                 + "      AUTO " + (AutoPilot.enabled() ? "ON" : "OFF"),
@@ -154,6 +206,15 @@ public final class SolverPanel {
         return out.toArray(new Row[0]);
     }
 
+    /** 底部三个按钮的文字（下标 0 在最右）。 */
+    private static String[] buttonLabels() {
+        return new String[]{
+                AutoPilot.enabled() ? "AUTO ON" : "AUTO",
+                "budget " + SolverConfig.budget().label,
+                "auto-start " + (SolverConfig.autoStart() ? "ON" : "OFF")
+        };
+    }
+
     private static final class Row {
         final String text;
         final Color color;
@@ -167,9 +228,7 @@ public final class SolverPanel {
     }
 
     /**
-     * 按面板宽度把文本裁成省略号。
-     *
-     * <p>之前没有这一步：长行会一路画到面板外面（截图里那段 "click AUTO …" 就是）。
+     * 按面板宽度把文本裁成省略号（只有超长行才会触发）。
      */
     private static String fit(BitmapFont font, String text, float maxWidth) {
         MEASURE.setText(font, text);
@@ -191,6 +250,14 @@ public final class SolverPanel {
         return text.substring(0, Math.max(0, lo)) + ellipsis;
     }
 
+    private static float textWidth(BitmapFont font, String text) {
+        if (text == null || text.isEmpty()) {
+            return 0f;
+        }
+        MEASURE.setText(font, text);
+        return MEASURE.width;
+    }
+
     private static void ensureLayout() {
         if (!layoutDirty) {
             return;
@@ -199,17 +266,36 @@ public final class SolverPanel {
         if (font == null) {
             return;
         }
-        rowPitch = Math.max(font.getLineHeight(), font.getCapHeight()) + ROW_GAP;
+        rowPitch = font.getLineHeight() + ROW_GAP;
 
-        // 🔴 先定宽度：不按内容撑，固定区间；按钮总宽是下限
+        // ① 按钮宽度按实测文字算，绝不写死 —— 写死就会「文字压到隔壁按钮上」
+        String[] labels = buttonLabels();
+        buttonsTotal = 0f;
+        for (int i = 0; i < labels.length; i++) {
+            float w = textWidth(font, labels[i]) + BUTTON_TEXT_PAD * 2f;
+            buttonW[i] = Math.max(BUTTON_MIN_W[i], w);
+            buttonsTotal += buttonW[i];
+            if (i > 0) {
+                buttonsTotal += BUTTON_GAP;
+            }
+        }
+
+        // ② 面板宽度 = max(最宽一行, 按钮总宽)，落在 [MIN_W, MAX_W]
         Row[] rows = rows();
-        panelW = Math.min(MAX_W, Math.max(MIN_W, BUTTONS_W + PAD * 2f + 8f));
-        int lineCount = rows.length;
-        panelH = PAD + lineCount * rowPitch + 12f + BUTTON_H + PAD;
+        float widest = textWidth(font, TITLE) + 24f + textWidth(font, BUILD);
+        for (Row row : rows) {
+            widest = Math.max(widest, textWidth(font, row.text));
+        }
+        panelW = Math.min(MAX_W, Math.max(MIN_W,
+                Math.max(widest + PAD * 2f, buttonsTotal + PAD * 2f)));
+
+        panelH = PAD + rows.length * rowPitch + ROW_GAP + BUTTON_H + PAD;
 
         layoutDirty = false;
         Trace.info("panel layout " + Math.round(panelW) + "x" + Math.round(panelH)
-                + " rows=" + lineCount + " fontLineHeight=" + font.getLineHeight());
+                + " rows=" + rows.length + " fontLineHeight=" + font.getLineHeight()
+                + " buttons=" + Math.round(buttonW[0]) + "/" + Math.round(buttonW[1])
+                + "/" + Math.round(buttonW[2]));
     }
 
     private static float bottom() {
@@ -226,16 +312,17 @@ public final class SolverPanel {
 
     // ---------------------------------------------------------------- 按钮几何
 
+    /** 最右边的按钮（AUTO）左边线。 */
     private static float autoButtonX() {
-        return x + panelW - PAD - AUTO_BUTTON_W;
+        return x + panelW - PAD - buttonW[0];
     }
 
     private static float budgetButtonX() {
-        return autoButtonX() - BUTTON_GAP - BUDGET_BUTTON_W;
+        return autoButtonX() - BUTTON_GAP - buttonW[1];
     }
 
     private static float autoStartButtonX() {
-        return budgetButtonX() - BUTTON_GAP - AUTOSTART_BUTTON_W;
+        return budgetButtonX() - BUTTON_GAP - buttonW[2];
     }
 
     private static boolean inRect(float bx, float by, float bw, float bh) {
@@ -270,24 +357,29 @@ public final class SolverPanel {
             sb.draw(ImageMaster.WHITE_SQUARE_IMG, x, y, panelW, 2f);
 
             Row[] rows = rows();
-            for (int i = 0; i < rows.length; i++) {
+            for (int i = 1; i < rows.length; i++) {
                 FontHelper.renderFontLeftTopAligned(sb, font, fit(font, rows[i].text, textMax),
                         x + PAD, rowTop(i), rows[i].color);
             }
+
+            // 标题行：左边标题，右边 build（以前把 build 拼在标题后面，宽度不够就被截成 "…"）
+            FontHelper.renderFontLeftTopAligned(sb, font, rows[0].text, x + PAD, rowTop(0),
+                    Color.WHITE);
+            String build = fit(font, BUILD, textMax - textWidth(font, rows[0].text) - 24f);
+            FontHelper.renderFontRightTopAligned(sb, font, build, x + panelW - PAD, rowTop(0),
+                    new Color(0.6f, 0.63f, 0.68f, 1f));
 
             // 标题下的一条分隔线（蓝本也是这么分段的）
             float sepY = rowTop(0) - rowPitch * 0.55f;
             sb.setColor(new Color(1f, 1f, 1f, 0.12f));
             sb.draw(ImageMaster.WHITE_SQUARE_IMG, x + PAD, sepY, panelW - PAD * 2f, 1.5f);
 
-            drawButton(sb, font, autoStartButtonX(), buttonY(), AUTOSTART_BUTTON_W,
-                    "auto-start " + (SolverConfig.autoStart() ? "ON" : "OFF"),
+            String[] labels = buttonLabels();
+            drawButton(sb, font, autoStartButtonX(), buttonY(), buttonW[2], labels[2],
                     new Color(0.24f, 0.30f, 0.26f, 0.95f));
-            drawButton(sb, font, budgetButtonX(), buttonY(), BUDGET_BUTTON_W,
-                    "budget " + SolverConfig.budget().label,
+            drawButton(sb, font, budgetButtonX(), buttonY(), buttonW[1], labels[1],
                     new Color(0.24f, 0.28f, 0.36f, 0.95f));
-            drawButton(sb, font, autoButtonX(), buttonY(), AUTO_BUTTON_W,
-                    AutoPilot.enabled() ? "AUTO ON" : "AUTO",
+            drawButton(sb, font, autoButtonX(), buttonY(), buttonW[0], labels[0],
                     AutoPilot.enabled()
                             ? new Color(0.20f, 0.42f, 0.28f, 0.95f)
                             : new Color(0.20f, 0.30f, 0.48f, 0.95f));
@@ -302,7 +394,7 @@ public final class SolverPanel {
                                    float bw, String label, Color color) {
         sb.setColor(color);
         sb.draw(ImageMaster.WHITE_SQUARE_IMG, bx, by, bw, BUTTON_H);
-        FontHelper.renderFontCentered(sb, font, label, bx + bw / 2f, by + BUTTON_H / 2f + 6f,
+        FontHelper.renderFontCentered(sb, font, label, bx + bw / 2f, by + BUTTON_H / 2f,
                 Color.WHITE);
     }
 
@@ -317,13 +409,13 @@ public final class SolverPanel {
             ensureLayout();
             if (InputHelper.justClickedLeft) {
                 float by = buttonY();
-                if (inRect(autoStartButtonX(), by, AUTOSTART_BUTTON_W, BUTTON_H)) {
+                if (inRect(autoStartButtonX(), by, buttonW[2], BUTTON_H)) {
                     SolverConfig.toggleAutoStart();
                     layoutDirty = true;
-                } else if (inRect(budgetButtonX(), by, BUDGET_BUTTON_W, BUTTON_H)) {
+                } else if (inRect(budgetButtonX(), by, buttonW[1], BUTTON_H)) {
                     SolverConfig.cycleBudget();
                     layoutDirty = true;
-                } else if (inRect(autoButtonX(), by, AUTO_BUTTON_W, BUTTON_H)) {
+                } else if (inRect(autoButtonX(), by, buttonW[0], BUTTON_H)) {
                     AutoPilot.toggle();
                     layoutDirty = true;
                 } else if (inRect(x, topY - TITLE_BAR, panelW, TITLE_BAR)) {

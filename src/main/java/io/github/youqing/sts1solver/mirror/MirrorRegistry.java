@@ -567,7 +567,15 @@ public final class MirrorRegistry {
                 "AscendersBane", "Clumsy", "Decay", "Doubt", "Injury", "Normality",
                 "Pain", "Parasite", "Regret", "Shame", "Writhe",
                 "Necronomicurse", "CurseOfTheBell"}) {
-            register(inert);
+            // 🔴 必须用 registerExhaust：蓝蜡烛（诅咒）/ 医疗包（状态）的牌面就是
+            // 「打出的诅咒/状态**消耗**」，黏液本身也是 Exhaust。
+            // 以前这里用 register()，把上面那条 registerExhaust("Slimed") 覆盖掉了，
+            // 结果黏液打出去进弃牌堆 —— 影子与实机当场分叉。
+            registerExhaust(inert, Effects.nothing());
+            // 军备（Armaments）能把手里的状态/诅咒敲成 "+" 版（费用变 0）。
+            // 少了这条，真实牌名 "Slimed+" 查不到镜像 → 搜索当它打不出、
+            // 日志里刷 "no mirror for card Slimed+"（2026-10-30 实测）。
+            registerExhaust(inert + "+", Effects.nothing());
         }
     }
 

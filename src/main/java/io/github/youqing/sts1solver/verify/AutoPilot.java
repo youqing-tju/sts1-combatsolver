@@ -16,6 +16,7 @@ import io.github.youqing.sts1solver.diag.Trace;
 import io.github.youqing.sts1solver.mirror.MirrorRegistry;
 import io.github.youqing.sts1solver.search.BeamSolver;
 import io.github.youqing.sts1solver.search.PlanAction;
+import io.github.youqing.sts1solver.search.RouteStep;
 import io.github.youqing.sts1solver.search.SearchNode;
 import io.github.youqing.sts1solver.sim.SimState;
 
@@ -65,6 +66,14 @@ public final class AutoPilot {
     private static int stuckStreak;
     private static final int STUCK_STREAK_LIMIT = 3;
 
+    /** 同一步连续被拒的指纹与次数（见 {@link #rejectStep}）。 */
+    private static String lastRejectSignature;
+    private static int rejectStreak;
+    private static final int REJECT_STREAK_LIMIT = 3;
+    /** 本回合从计划里剔掉了几步；剔太多说明计划整体跑不动。 */
+    private static int droppedStepsThisTurn;
+    private static final int DROPPED_STEPS_LIMIT = 3;
+
     /** 回合切换的两段式等待：1=等敌方阶段开始，2=等它结束并回到玩家回合。 */
     private static int endPhase;
     private static int endPhaseFrames;
@@ -111,6 +120,9 @@ public final class AutoPilot {
         blockedThisTurn.clear();
         blockedTurn = Integer.MIN_VALUE;
         stuckStreak = 0;
+        rejectStreak = 0;
+        lastRejectSignature = null;
+        droppedStepsThisTurn = 0;
         io.github.youqing.sts1solver.search.AsyncSearch.reset();
         plan = null;
         planTurn = -1;
@@ -145,6 +157,9 @@ public final class AutoPilot {
             blockedTurn = turnNow;
             blockedThisTurn.clear();
             stuckStreak = 0;
+            rejectStreak = 0;
+            lastRejectSignature = null;
+            droppedStepsThisTurn = 0;
         }
         if (cooldown > 0) {
             cooldown--;
@@ -278,6 +293,8 @@ public final class AutoPilot {
     private static final int OUTCOME_END_TURN = 3;
     /** 计划里的这一步执行不了（手牌对不上/被禁）→ 丢掉计划重算。 */
     private static final int OUTCOME_REPLAN = 4;
+    /** 这一步已经被剔出计划，但计划本身还能继续走 → 等下一帧，别重算。 */
+    private static final int OUTCOME_SKIP = 5;
 
     /**
      * 当前正在执行的计划（蓝本的「路线」）。
@@ -344,7 +361,17 @@ public final class AutoPilot {
         }
         // ② 有计划就照计划走（蓝本的「冻结路线 / 执行本回合」）
         if (plan != null && !plan.isEmpty()) {
+            if (droppedStepsThisTurn >= DROPPED_STEPS_LIMIT) {
+                // 剔掉这么多次说明这条路线在本回合根本跑不动（药水槽对不上、
+                // 手牌被复制成同名多张……）。别再来回重算，退回逐张兜底。
+                Trace.info("PLAN unusable this turn (" + droppedStepsThisTurn
+                        + " steps dropped) -> per-card fallback");
+                return fallbackPlay(player, attackTarget);
+            }
             int outcome = executePlannedStep(player, attackTarget);
+            if (outcome == OUTCOME_SKIP) {
+                return OUTCOME_WAITING;   // 这一步已剔除，下一帧按剩下的计划走
+            }
             if (outcome != OUTCOME_REPLAN) {
                 return outcome;
             }
@@ -415,25 +442,112 @@ public final class AutoPilot {
             plan.poll();
             return OUTCOME_END_TURN;
         }
+        if (step.potion) {
+            return executePotionStep(player, step, attackTarget);
+        }
         AbstractCard chosen = firstByKey(player, step.cardKey);
         if (chosen == null) {
-            Trace.info("PLAN step " + step.cardKey + " is not in hand -> replan");
-            return OUTCOME_REPLAN;
+            return rejectStep(step, "is not in hand");
         }
         if (blockedThisTurn.contains(step.cardKey)) {
-            Trace.info("PLAN step " + step.cardKey + " is blocked this turn -> replan");
-            return OUTCOME_REPLAN;
+            return rejectStep(step, "is blocked this turn");
         }
         AbstractMonster target = monsterAt(step.targetIndex, attackTarget);
         if (!chosen.canUse(player, target)) {
-            Trace.info("PLAN step " + step.cardKey + " not playable now -> replan");
-            return OUTCOME_REPLAN;
+            return rejectStep(step, "not playable now");
         }
         chosenTargetIndex = step.targetIndex;
         pendingChoiceIndex = step.choiceIndex;
         enqueue(chosen, target);
         plan.poll();
         return OUTCOME_PLAYED;
+    }
+
+    /**
+     * 执行计划里的「喝药」一步。
+     *
+     * <p>药水不是手牌，必须走 {@code AbstractPotion.use(target)}（游戏自己的入口，
+     * 和药水弹窗点「使用」是同一条路），随后 {@code removePotion} 把槽位换回空槽。
+     * 缺了这段的话搜索给出的「先喝火药水」这类路线永远执行不了。
+     */
+    private static int executePotionStep(AbstractPlayer player, RouteStep step,
+                                         AbstractMonster attackTarget) {
+        if (player.potions == null) {
+            return rejectStep(step, "has no potion belt");
+        }
+        com.megacrit.cardcrawl.potions.AbstractPotion potion = null;
+        for (com.megacrit.cardcrawl.potions.AbstractPotion p : player.potions) {
+            if (p != null && step.cardKey != null && step.cardKey.equals(p.ID)) {
+                potion = p;
+                break;
+            }
+        }
+        if (potion == null) {
+            return rejectStep(step, "is not in the belt");
+        }
+        if (!potion.canUse()) {
+            return rejectStep(step, "cannot be used now");
+        }
+        AbstractMonster target = potion.targetRequired
+                ? monsterAt(step.targetIndex, attackTarget) : null;
+        if (potion.targetRequired && target == null) {
+            return rejectStep(step, "has no valid target");
+        }
+        // 药水引发的选牌（液态记忆 / 三选一发现）先记下搜索挑的下标，
+        // 网格驱动会用它，而不是自己挑第一张。
+        pendingChoiceIndex = step.choiceIndex;
+        int slot = potion.slot;
+        try {
+            potion.use(target);
+        } catch (Throwable t) {
+            Trace.error("AUTO potion " + step.cardKey + " failed", t);
+            return rejectStep(step, "threw on use");
+        }
+        player.removePotion(potion);
+        player.adjustPotionPositions();
+        plan.poll();
+        noProgressEndTurns = 0;
+        queuedCard = null;
+        queuedFrames = 0;
+        Trace.info("AUTO potion " + step.cardKey + " (slot " + slot + ")"
+                + (target == null ? " -> self" : " -> " + target.name));
+        cooldown = 24;
+        return OUTCOME_PLAYED;
+    }
+
+    /**
+     * 计划里这一步执行不了。
+     *
+     * <p>只返回 REPLAN 是不够的：搜索是确定性的，同一局面重算必然得到同一条路线，
+     * 于是「拒绝 → 重算 → 再拒绝」无限循环（2026-10-30 Boss 战实测空转 100 秒、548 次）。
+     * 所以同一步连续被拒 {@value #REJECT_STREAK_LIMIT} 次就把它从计划里剔掉继续走，
+     * 剔够 {@value #DROPPED_STEPS_LIMIT} 步说明这条计划整体跑不动，本回合退回逐张兜底。
+     */
+    private static int rejectStep(RouteStep step, String why) {
+        Trace.info("PLAN step " + step.cardKey + " " + why + " -> replan");
+        String signature = (step.endTurn ? "E" : step.potion ? "P" : "C") + ":" + step.cardKey;
+        if (signature.equals(lastRejectSignature)) {
+            rejectStreak++;
+        } else {
+            lastRejectSignature = signature;
+            rejectStreak = 1;
+        }
+        if (rejectStreak < REJECT_STREAK_LIMIT) {
+            return OUTCOME_REPLAN;
+        }
+        rejectStreak = 0;
+        lastRejectSignature = null;
+        if (plan != null && !plan.isEmpty()) {
+            plan.poll();
+            droppedStepsThisTurn++;
+            if (!step.endTurn && !step.potion && step.cardKey != null) {
+                blockedThisTurn.add(step.cardKey);
+            }
+            Trace.warn("PLAN step " + step.cardKey + " rejected " + REJECT_STREAK_LIMIT
+                    + " times in a row -> dropped from plan ("
+                    + droppedStepsThisTurn + "/" + DROPPED_STEPS_LIMIT + " this turn)");
+        }
+        return OUTCOME_SKIP;
     }
 
     /** 后台结果的取用：指纹对不上就作废（局面已经被别的东西改过）。 */
@@ -551,7 +665,7 @@ public final class AutoPilot {
                 if (sb.length() > 0) {
                     sb.append("  ");
                 }
-                sb.append(shortName(step.cardKey));
+                sb.append(step.potion ? "药·" + shortName(step.cardKey) : shortName(step.cardKey));
             }
         }
         if (sb.length() > 0 && out.size() < maxLines) {

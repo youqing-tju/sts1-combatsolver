@@ -62,6 +62,12 @@ public final class CardPlayer {
             throw new ActionRejected("hand index out of range: " + handIndex);
         }
         SimCard card = state.hand.get(handIndex);
+        // 🔴 可打出性先判、镜像后查：
+        // 反过来的话「打不出的诅咒/状态」（cost = -2）会先撞上 "no mirror"，
+        // 日志于是刷成「Pain+ 没有镜像」这种误导性告警，而不是真正的原因。
+        if (!playableAtAll(state, card)) {
+            throw new ActionRejected("unplayable card without a relic: " + card.key());
+        }
         CardMirror mirror = MirrorRegistry.lookup(card.key());
         if (mirror == null) {
             throw new ActionRejected("no mirror for card " + card.key());
@@ -83,7 +89,8 @@ public final class CardPlayer {
         }
 
         // 蓝蜡烛 / 医疗包：把 cost = -2（打不出）的诅咒 / 状态牌变成可打，费用按 0 算
-        // （原版 AbstractCard.canUse 放行，AbstractPlayer.useCard 用 Math.max(costForTurn, 0) 扣费）
+        // （原版 AbstractCard.canUse 放行，AbstractPlayer.useCard 用 Math.max(costForTurn, 0) 扣费）。
+        // 「能不能打」已由开头的 {@link #playableAtAll} 判过，这里只留两个布尔给后面的消耗/放逐逻辑用。
         boolean blueCandle = "CURSE".equals(card.type)
                 && state.relics.containsKey(
                         io.github.youqing.sts1solver.mirror.hooks.RelicHooks.BLUE_CANDLE);
@@ -94,9 +101,7 @@ public final class CardPlayer {
         // cost == -1 是 X 费：出牌时消耗全部能量，效果按 X 结算（旋风斩）
         int xValue = 0;
         if (card.cost == -2) {
-            if (!blueCandle && !medicalKit) {
-                throw new ActionRejected("unplayable card without a relic: " + card.key());
-            }
+            // 蓝蜡烛 / 医疗包放行的情况：按 0 费打（上面已判过没有这两件遗物就拒绝）
         } else if (card.cost < 0) {
             if (card.cost != -1) {
                 throw new ActionRejected("unsupported cost " + card.cost + " on " + card.key());
@@ -225,6 +230,31 @@ public final class CardPlayer {
             }
         }
         throw new ActionRejected("card not in hand: " + cardKey);
+    }
+
+    /**
+     * 这张牌现在**根本能不能**打出来（原版 {@code AbstractCard.canUse} 的最粗一层）：
+     * {@code cost == -2} 的诅咒 / 状态默认打不出，只有蓝蜡烛（诅咒）或医疗包（状态）放行。
+     *
+     * <p>搜索展开分支前先过这一层，省得给「打不出的牌」白开一条分支、
+     * 再在日志里刷一行误导性的 "no mirror"。
+     */
+    public static boolean playableAtAll(SimState state, SimCard card) {
+        if (card == null) {
+            return false;
+        }
+        if (card.cost != -2) {
+            return true;
+        }
+        if ("CURSE".equals(card.type)) {
+            return state.relics.containsKey(
+                    io.github.youqing.sts1solver.mirror.hooks.RelicHooks.BLUE_CANDLE);
+        }
+        if ("STATUS".equals(card.type)) {
+            return state.relics.containsKey(
+                    io.github.youqing.sts1solver.mirror.hooks.RelicHooks.MEDICAL_KIT);
+        }
+        return false;
     }
 
     /**

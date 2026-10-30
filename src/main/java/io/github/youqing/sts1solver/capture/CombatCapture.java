@@ -67,6 +67,7 @@ public final class CombatCapture {
                     // 复刻蓝本的 CombatEndedEvent -> SolverController.Reset("combat_ended")
                     Trace.info("combat ended, state cleared");
                     AutoPilot.reset();
+                    io.github.youqing.sts1solver.ui.SolverPanel.onCombatEnd();
                 }
                 armed = false;
                 captured = false;

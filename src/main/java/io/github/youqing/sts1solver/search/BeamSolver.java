@@ -690,6 +690,7 @@ public final class BeamSolver {
         for (SearchNode n = best; n != null && n.action != null; n = n.parent) {
             reversed.addFirst(new RouteStep(
                     n.action.kind == PlanAction.Kind.END_TURN,
+                    n.action.kind == PlanAction.Kind.USE_POTION,
                     n.cardKey, n.action.targetIndex, n.action.choiceIndex));
         }
         return new java.util.ArrayList<RouteStep>(reversed);
@@ -1106,6 +1107,11 @@ public final class BeamSolver {
                 break;      // 蓝本的 MaxCardBranchesPerNode：分支太散就截断
             }
             SimCard card = state.hand.get(i);
+            // 打不出的诅咒/状态（cost = -2，且没有蓝蜡烛/医疗包）不占分支：
+            // 以前每条都开一条分支再被 ActionRejected 丢掉，日志刷 "no mirror for card Pain+"。
+            if (!io.github.youqing.sts1solver.mirror.CardPlayer.playableAtAll(state, card)) {
+                continue;
+            }
             io.github.youqing.sts1solver.mirror.CardMirror mirror =
                     io.github.youqing.sts1solver.mirror.MirrorRegistry.lookup(
                             card.id + (card.upgraded ? "+" : ""));

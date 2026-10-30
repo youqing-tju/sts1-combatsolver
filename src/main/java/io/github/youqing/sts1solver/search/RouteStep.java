@@ -10,13 +10,26 @@ package io.github.youqing.sts1solver.search;
 public final class RouteStep {
 
     public final boolean endTurn;
-    /** 要打的牌（{@code id+}）；{@code endTurn} 时为 null。 */
+    /**
+     * 这一步是**喝药**（{@link PlanAction.Kind#USE_POTION}），此时 {@link #cardKey} 是药水 ID。
+     *
+     * <p>🔴 缺这个标记时执行层只会「按牌名去手里找」，喝药步骤永远找不到 → 返回
+     * REPLAN → 重算得到同一条路线 → 再拒，实测在 Boss 战原地空转 100 秒一张牌没出。
+     */
+    public final boolean potion;
+    /** 要打的牌（{@code id+}）/ 药水 ID；{@code endTurn} 时为 null。 */
     public final String cardKey;
     public final int targetIndex;
     public final int choiceIndex;
 
     public RouteStep(boolean endTurn, String cardKey, int targetIndex, int choiceIndex) {
+        this(endTurn, false, cardKey, targetIndex, choiceIndex);
+    }
+
+    public RouteStep(boolean endTurn, boolean potion, String cardKey, int targetIndex,
+                     int choiceIndex) {
         this.endTurn = endTurn;
+        this.potion = potion;
         this.cardKey = cardKey;
         this.targetIndex = targetIndex;
         this.choiceIndex = choiceIndex;
@@ -24,6 +37,9 @@ public final class RouteStep {
 
     @Override
     public String toString() {
-        return endTurn ? "END_TURN" : cardKey;
+        if (endTurn) {
+            return "END_TURN";
+        }
+        return potion ? "POTION " + cardKey : cardKey;
     }
 }
