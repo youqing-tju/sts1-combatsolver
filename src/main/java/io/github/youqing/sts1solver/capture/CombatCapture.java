@@ -30,6 +30,9 @@ public final class CombatCapture {
     /** 兜底：遗物/地形让手牌永远发不满时，等 3 秒也要抓一次，但要留下告警。 */
     private static final int MAX_WAIT_FRAMES = 180;
 
+    /** 本场战斗开始时的血量，收尾时用来报「这一场到底掉了多少」。 */
+    private static int hpAtStart = -1;
+
     private CombatCapture() {
     }
 
@@ -40,6 +43,7 @@ public final class CombatCapture {
         armed = true;
         captured = false;
         framesWaited = 0;
+        hpAtStart = AbstractDungeon.player == null ? -1 : AbstractDungeon.player.currentHealth;
         ShadowTracker.reset();
         AutoPilot.reset();
         Trace.info("combat entry detected, waiting for deal");
@@ -65,6 +69,13 @@ public final class CombatCapture {
             if (room.phase != AbstractRoom.RoomPhase.COMBAT) {
                 if (armed) {
                     // 复刻蓝本的 CombatEndedEvent -> SolverController.Reset("combat_ended")
+                    // 一场战斗一行「掉血账」：用户关心的「白吃多少战损」就是这一行
+                    Trace.info("COMBAT END  hp " + (AbstractDungeon.player == null ? "?"
+                            : AbstractDungeon.player.currentHealth + "/" + AbstractDungeon.player.maxHealth)
+                            + "  (started " + hpAtStart + ")"
+                            + "  lost " + (hpAtStart < 0 || AbstractDungeon.player == null
+                                    ? "?" : (hpAtStart - AbstractDungeon.player.currentHealth))
+                            + "  diff " + ShadowTracker.stats());
                     Trace.info("combat ended, state cleared");
                     AutoPilot.reset();
                     io.github.youqing.sts1solver.ui.SolverPanel.onCombatEnd();

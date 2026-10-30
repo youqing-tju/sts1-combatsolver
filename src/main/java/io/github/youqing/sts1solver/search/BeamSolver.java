@@ -1438,6 +1438,8 @@ public final class BeamSolver {
         if (candidateSaves != incumbentSaves) {
             return candidateSaves < incumbentSaves;
         }
+        // 掉血优先于回合数：2026-10-30 试过把两者换序（先比几回合结束），
+        // 第一章连环战 37 → 45 血，更差，所以顺序维持蓝本原样。
         int candidateDeficit = strategicHpDeficit(candidate);
         int incumbentDeficit = strategicHpDeficit(incumbent);
         if (candidateDeficit != incumbentDeficit) {

@@ -374,6 +374,11 @@ public final class AutoPilot {
         int turnNow = AbstractDungeon.actionManager == null
                 ? planTurn : AbstractDungeon.actionManager.turn;
         if (plan != null && !plan.isEmpty() && turnNow != planTurn) {
+            // 🔴 每回合一行「剩多少血」：没有这行，「白吃多少战损」既不可量化也不可归因 ——
+            // 2026-10-30 用户两次抱怨「白吃战损」，我们能拿出的只有出牌记录，拼不出血量曲线。
+            Trace.info("TURN " + turnNow + " start  hp " + player.currentHealth + "/"
+                    + player.maxHealth + "  e" + player.energy.energy + "  hand "
+                    + player.hand.size() + "  foes " + aliveMonsters());
             Trace.info("PLAN dropped: turn " + planTurn + " -> " + turnNow + ", replanning");
             plan = null;
         }
@@ -464,6 +469,26 @@ public final class AutoPilot {
                 + ") / " + result.states + " states, " + result.millis + " ms"
                 + "  port=" + (result.portfolioAdopted.isEmpty() ? "off" : result.portfolioAdopted)
                 + " novelty=" + result.noveltyStop);
+        // 完整步骤：日志里唯一能解释「为什么先格挡/为什么结束回合」的证据。
+        // 只打前 40 步，避免长路线把日志刷爆。
+        StringBuilder planText = new StringBuilder();
+        int shown = 0;
+        for (io.github.youqing.sts1solver.search.RouteStep step : result.steps) {
+            if (shown++ >= 40) {
+                planText.append(" ...");
+                break;
+            }
+            if (step.potion) {
+                planText.append("POTION:").append(step.cardKey);
+            } else {
+                planText.append(step.cardKey == null ? "END_TURN" : shortName(step.cardKey));
+            }
+            if (shown < result.steps.size() && shown < 40) {
+                planText.append(" | ");
+            }
+        }
+        Trace.info("PLAN steps: " + planText);
+
         int outcome = executePlannedStep(player, attackTarget);
         return outcome == OUTCOME_REPLAN ? OUTCOME_WAITING : outcome;
     }
@@ -690,6 +715,20 @@ public final class AutoPilot {
     /** 面板用的路线统计行；还没规划时返回 null。 */
     public static String planSummaryLine() {
         return planSummary;
+    }
+
+    /** 场上还活着的敌人数（日志用）。 */
+    private static int aliveMonsters() {
+        if (AbstractDungeon.getCurrRoom() == null || AbstractDungeon.getCurrRoom().monsters == null) {
+            return 0;
+        }
+        int alive = 0;
+        for (AbstractMonster m : AbstractDungeon.getCurrRoom().monsters.monsters) {
+            if (m != null && !m.isDead && !m.escaped) {
+                alive++;
+            }
+        }
+        return alive;
     }
 
     /** 正在等搜索结果就返回已等的毫秒数，否则 -1（面板用来区分「在算」和「卡死」）。 */
