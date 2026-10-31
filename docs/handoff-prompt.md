@@ -2,8 +2,9 @@
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：测试 **547 条全绿**（0 fail / 0 err），HEAD = `6ea8014`
-> （`fix(exec): AUTO 结束回合改走 EndTurnButton.disable(true)`），未 push。
+> **当前状态**：测试 **547 条全绿**（0 fail / 0 err），代码 HEAD = `6ea8014`
+> （`fix(exec): AUTO 结束回合改走 EndTurnButton.disable(true)`；后续文档提交见 Git 历史），未 push。
+> UI 十条真机验收与回合末候选修复真机验证均未完成，不得视为验收闭环。
 
 ---
 
@@ -18,10 +19,14 @@ STS1（杀戮尖塔）**进程内**战斗求解器，Java 8 ModTheSpire mod。
 
 1. **先看蓝本怎么写，照着复刻**。①蓝本找实现 → ②理解 → ③翻译到 STS1 API → ④才许自创。
    找不到就明说「蓝本没有这块」。
-2. **改代码前先报备**（改哪里 / 为什么 / 副作用 / 回退），等用户说「可以」再动手。用通俗语言。
+2. **默认直接执行，不等逐条确认**（2026-10-31 23:19 用户明确反馈「事事等确认效率很低」）：
+   已确定目标内的代码、测试、诊断、重构、构建、安装、真机验证和本地 commit 都自主完成；
+   修 bug 可以边查边改。只有产品语义存在多种不兼容取舍、需要不可逆/外部操作（push、删除等）、
+   或必须违反既有硬规则时才问。**事后用短报告交代改动、证据、风险、回退；请示不算进度。**
 3. **本项目「绝对不嫌慢」，只嫌牌打得臭**（用户 2026-10-30 亲口）。
    不许为了耗时砍搜索预算/宽度/深度/关机制；评估只看「牌是不是打得更好」。
-4. **不自行量化/出结论**：以 `docs/research/blueprint-parity.md` 为准，一次只搬一项，搬完改状态。
+4. **蓝本复刻以 `docs/research/blueprint-parity.md` 为准**，一次只搬一项并记证据；
+   诊断与 bugfix 不必逐项等批准；先建立可检验假设并保留证据，再用测试/真机逐步闭环，不得把假设写成已证实结论。
 5. **游戏语义必须 javap 核实**（`lib/desktop-1.0.jar`），不凭记忆。
    卡牌文本查 jar 内 `localization/eng/cards.json`；升级数值查 `UPGRADE_DESCRIPTION` / `upgrade()` 字节码。
 6. **未知语义显式拒绝**（`ActionRejected`），不许静默算错。
@@ -47,15 +52,15 @@ STS1（杀戮尖塔）**进程内**战斗求解器，Java 8 ModTheSpire mod。
 | `4538091` | 文档状态 |
 | `42a0791` | 修：空药水槽不再显示成 `Potion Slot` 假药水 |
 | `7d12e9a` | `patches/EndTurnProbe` 回合结束状态机**只读探针**（每帧打 flags/hp/block/手牌，仅变化时落盘） |
-| `6ea8014` | **修：AUTO 结束回合改走 `EndTurnButton.disable(true)`** —— 回合末触发整批丢失的根因修复 |
+| `6ea8014` | **候选修复：AUTO 结束回合改走 `EndTurnButton.disable(true)`** —— 自动化已过，真机验证未做 |
 
 测试数 533 → **547**。`search/`、`mirror/`、`sim/`、`config/` **一行未改**。
 
-### 3.2 回合末触发整批丢失：根因（本轮最重要的发现）
+### 3.2 回合末触发整批丢失：候选修复（尚未真机闭环）
 
 **症状**：灼烧 / 多层护甲 / 金属化 / 奥利哈刚在 AUTO 下全部不触发；**手点结束回合就正常**。
 
-**根因**（`javap` 逐条核实，勿凭记忆）：
+**已核实的原生调用链**（`javap` 逐条核实，勿凭记忆）：
 
 ```
 GameActionManager.getNextAction()，cardQueue 非空时：
@@ -80,11 +85,12 @@ private void callEndOfTurnActions() {
 4. `player.endTurnQueued = true` ← **以前我们只做了这一件**
 5. `player.releaseCard()` ← 清 `justClickedLeft / isMouseDown / inSingleTargetMode`
 
-少 2、5 → `cardQueue` 状态和手点不同 → 哨兵项漏掉 → **这一回合所有回合末效果一起静默消失**，
-而回合照常推进（所以从表面看「战斗在正常进行，只是效果没了」）。
+**当前最强假设**：少 2、5 使 `cardQueue` 状态与手点不同，从而导致回合末效果丢失。
+这与三类机制同时失效、手点正常相符；但探针已表明 `endTurn()` 入口确实启动，尚未直接证明
+“哨兵项丢失”。因此真机验证前只能叫候选修复，不得写成根因已闭环。
 
-**修法**：`AutoPilot.requestEndTurn()` 直接调 `AbstractDungeon.overlayMenu.endTurnButton.disable(true)`，
-与手点逐字节一致；按钮不可用时退回 `endTurnQueued = true` 并 warn。
+**候选修法**：`AutoPilot.requestEndTurn()` 直接调 `AbstractDungeon.overlayMenu.endTurnButton.disable(true)`，
+与手点共用同一原生入口；按钮不可用时退回 `endTurnQueued = true` 并 warn。是否消除症状仍待真机验证。
 ⚠️ 仍**不能**调 `actionManager.endTurn()`（那是 `EndTurnAction` 干的事，会跳过玩家侧整段：
 战斗专注的「禁止抽牌」永不消失、怪物完全不行动）。
 
@@ -142,7 +148,7 @@ private void callEndOfTurnActions() {
 `Burn+` 在影子按 2 点算，实机 4（`Burn.upgrade → upgradeMagicNumber(2)`）；`Decay+` 同理 2→3。
 位置 `sim/CombatFlow.java:255`，写死常量、未读 `upgraded`。
 
-> P1/P2/P4/P5 都要改 `search/` 或 `sim/`，**先出设计再动手**（用户要求报备）。
+> P1/P2 先写根因设计与验收判据，然后按新授权直接实施，不等逐条批准；P4/P5 属小范围镜像 bug，直接 TDD 修复并真机/回放验证。任何假设都必须与已证实事实分开写。
 
 ---
 
@@ -174,13 +180,17 @@ private void callEndOfTurnActions() {
 
 ---
 
-## 七、下一步建议顺序
+## 七、已拍板决策与下一步顺序
 
-1. **验证 §3.2 的修复**（一轮真机，确认 block 增量）。
-2. **P3 对拍噪声**（先让验收数据可信，否则 P1 无法量）。
-3. **P1 搜索穷尽**（出设计：open 表为什么清空；要不要按蓝本重做 frontier）。
-4. **P2 能力牌排序**（与 P1 一起看，多半同源）。
-5. P4 / P5 的小修（各 1 行级，可顺手做）。
+- **D1**：接受 `EndTurnButton.disable(true)` 作为候选修复方向；真机逐项通过前，回合末问题保持未闭环。
+- **D2**：`EndTurnProbe` 保留到本轮真机验证结束；先修正“队列非空 = 永远不会启动”等误导措辞，验证后移除或明确关闭。
+- **D3**：先闭环 UI 与回合末真机验收，再修 P3 让验收数据可信，随后把 P1/P2 作为同一搜索问题推进；P4/P5 是独立小修，可直接 TDD，不必排在所有大项之后。
+- **D4**：交接结构沿用，但所有条目必须区分已证实事实、当前假设、候选修复与已验证结果。
+
+1. **构建、安装并完成 UI 十条真机验收与 §3.2 回合末 A/B 验证**，记录实际日志，不只跑自动化。
+2. **P3 对拍噪声**：先让验收数据可信，否则不用污染数据评价 P1/P2。
+3. **P1/P2 搜索与能力牌排序**：先写根因设计和验收判据，再直接实施；查 open 表为何清空，不靠加预算掩盖。
+4. **P4/P5 数据与镜像小修**：独立 TDD，可提前完成并单独 commit。
 
 ---
 
