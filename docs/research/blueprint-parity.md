@@ -68,8 +68,8 @@ read_when:
 | `SearchTakeoverKind.ApplyCurrentTurn`（搜到本回合候选就停，下回合重搜） | `AutoPilot` 每回合重规划 | ✅ 同构于蓝本 **FullAuto 模式**（`SolverController.cs:1485 SetFullAuto` → 每回合 `AutoTurnStart` 自动重搜 → `StartDeployment`（:2799）的 `DeployCurrentTurn` **只部署 `action.Turn == StartTurnNumber` 的动作**）；漂移重搜对应我们的指纹校验丢弃（`DeploymentDrift` / `PlanExhausted`）。⚠️ 蓝本后续回合若精确 `ContinuationStamp` 命中会**复用** continuation，未命中才重搜（`SolverController.cs:1078-1157`），不能笼统写成“蓝本每回合必定从头重搜”；本项目当前仍是每回合重算。手动面板的早停不搬（判定见 §2 `ConsiderCurrentTurnCandidate` 行） |
 | `SearchTakeoverKind.AdoptRoute` + 独立 `RouteFrozen` | — | ❌ 均未做。注意两者不是同一状态：`AdoptCurrentRoute` 物化当前渲染候选；`RouteFrozen` 另管是否禁止后续自动搜索（`SolverController.cs:128-158,1701-1744`）。不得把 AdoptRoute 简写成“冻结路线” |
 | `SolverProgress`（面板进度：世界线 / 回合层 / play_depth） | `SolverPanel` | 🔶 部分：有节点/深度/路线，没有 play_depth 与分阶段进度 |
-| `SolverPotionStrategyPanel` / `SolverRelicStrategyPanel` / `SolverGrowthStrategyPanel` | 只读策略现状区（已设计，未实施） | ❌ **控制器未复刻**：蓝本会编辑并持久化策略、使旧结果失效并改变后续搜索；只读快照不冒充 parity。实施计划：`docs/plans/2026-10-31-ui-parity.md` |
-| （蓝本无对应；`SolverRouteRow.cs:28` 鼠标忽略，源码及历史无 `ApplyRoute`） | 点击路线行 = AUTO 至目标回合末（已设计，未实施） | 📝 **项目自定义扩展**：只设绝对停止回合，每回合按真局面重算；Tn 的 END_TURN 与敌方阶段完成后，在 Tn+1 玩家行动前停止。不是 `AdoptRoute`，不冻结旧路线 |
+| `SolverPotionStrategyPanel` / `SolverRelicStrategyPanel` / `SolverGrowthStrategyPanel` | 只读策略现状区（`ui/StrategyStatusSnapshot` + `SolverPanel` 折叠区） | ❌ **控制器未复刻；本轮只有只读现状适配**（2026-10-31）：药水按槽位列形态 + 战略 HP 门槛（被动药不显示默认 9）、遗物 `id=counter` 原样 + 未镜像告警、成长 `hp/max` + 正向关键层数。无 setter、无假控件、不改变搜索。蓝本那三个面板会**编辑并持久化**策略、使旧结果失效并改变后续搜索 —— 这部分仍全未做（见设计 §10 的独立立项清单） |
+| （蓝本无对应；`SolverRouteRow.cs:28` 鼠标忽略，源码及历史无 `ApplyRoute`） | 点击路线行 = AUTO 至目标回合末（`verify/BoundedAutoTarget` + `verify/RoutePreview`） | 📝 **项目自定义扩展，已实施（2026-10-31）**：只设**绝对停止回合**（`AutoPilot.runUntil`），每回合按真局面重算（`RoutePreview` 保留完整 steps，行号是 `originTurn` 起的绝对 T4/T5，不冻结路线）。Tn 的 END_TURN 与敌方阶段完成后，在 Tn+1 **任何搜索/出牌之前**停。停止目标只属于本次运行意图，不入 `SolverConfig`、不跨战斗继承。**不是** `AdoptRoute` |
 
 ## 4. 下一步该按什么顺序做
 
