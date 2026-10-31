@@ -93,27 +93,18 @@ public final class Effects {
         };
     }
 
-    /** 抽牌。手牌满 10 张不再抽；需要洗牌时显式拒绝（洗牌算法尚未镜像）。 */
+    /**
+     * 抽牌 —— **转交给 {@link io.github.youqing.sts1solver.sim.CombatFlow#drawCards}**。
+     *
+     * <p>以前这里自己搬牌，绕过了混乱（Snecko Eye）的费用重掷 / 虚空扣能量 / Evolve 连锁 /
+     * No Draw —— 真机上每抽一张牌都差一次 cardRandomRng（2026-10-31 一轮 13 次失配）。
+     * 抽牌逻辑只允许有一份。
+     */
     public static Effect draw(final int count) {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
-                for (int i = 0; i < count; i++) {
-                    if (state.hand.size() >= HAND_LIMIT) {
-                        return;
-                    }
-                    if (state.draw.isEmpty()) {
-                        // DrawCardAction 在抽牌堆空时会先排一个 EmptyDeckShuffleAction：
-                        //   discardPile.shuffle(shuffleRng) → 逐张搬进抽牌堆
-                        // 洗牌只消耗 1 次 shuffleRng（见 Shuffle：randomLong 当种子）。
-                        reshuffleDiscardIntoDraw(state);
-                        if (state.draw.isEmpty()) {
-                            return;
-                        }
-                    }
-                    // 抽牌堆的「顶」是列表末尾：CardGroup.getTopCard() 取的是 group.get(size-1)
-                    state.hand.add(state.draw.remove(state.draw.size() - 1));
-                }
+                io.github.youqing.sts1solver.sim.CombatFlow.drawCards(state, count);
             }
 
             @Override

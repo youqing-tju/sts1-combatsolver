@@ -783,9 +783,16 @@ public final class CombatFlow {
         drawCards(state, count);
     }
 
-    /** 公开抽牌：遗物（符文立方 / 百夫长谜题）与药水共用同一套语义。 */
+    /**
+     * 公开抽牌入口：**技能牌 / 药水 / 遗物共用同一套语义**（回合开始的 {@link #draw} 也是它）。
+     *
+     * <p>🔴 2026-10-31：`Effects.draw` 以前自己写了一个 for 循环直接搬牌 —— 于是
+     * **混乱（Snecko Eye）的费用重掷、虚空扣能量、Evolve 连锁、No Draw 全被绕过**。
+     * 真机上表现为：战斗专注+ 抽 4 张，实机 cardRandomRng 走了 4 步、我们 0 步，
+     * 手牌费用整片对不上（一轮里 13 次 `rng.CARD` 失配）。抽牌只能有一个实现。
+     */
     public static void drawCards(SimState state, int count) {
-        draw(state, count);
+        draw(state, count, 0);
     }
 
     private static void draw(SimState state, int count) {
