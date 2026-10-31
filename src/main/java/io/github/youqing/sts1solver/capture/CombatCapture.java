@@ -124,7 +124,8 @@ public final class CombatCapture {
             }
 
             SimState state = SimState.capture();
-            baseEnergy = Math.max(1, state.energy);   // 首回合能量 = 每回合基础能量
+            // 每回合回能走 energyMaster，不是「首回合当前能量」——提灯那 1 点只在首回合有
+            baseEnergy = Math.max(1, state.energyPerTurnOrEnergy());
             Trace.info("STATE " + state.shortLine() + "  fp=" + state.fingerprint());
             Trace.info("STATE file " + state.save());
 

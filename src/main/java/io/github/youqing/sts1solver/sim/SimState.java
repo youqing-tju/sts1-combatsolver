@@ -83,6 +83,24 @@ public final class SimState {
     public int energy;
 
     /**
+     * 每回合回能（原版 {@code EnergyManager.energyMaster}）；{@code 0} = 没捕获到。
+     *
+     * <p>🔴 必须和 {@link #energy} 分开：{@code energy} 是**当前**能量，第一回合会带上
+     * 「只在首回合生效」的加成（提灯 {@code Lantern} 的 {@code atPreBattle} +1 就是典型）。
+     * 而后续回合的充值量是 {@code energyMaster} —— 拿首回合能量当每回合回能，
+     * 会让仿真从第二回合起每回合**多**算一点能量（2026-10-31 发现）。
+     */
+    public int energyPerTurn;
+
+    /**
+     * 每回合实际该回多少能量：优先 {@link #energyPerTurn}，没捕获到时退回当前能量
+     * （老快照 / 不在战斗里时至少不会变成 0）。
+     */
+    public int energyPerTurnOrEnergy() {
+        return energyPerTurn > 0 ? energyPerTurn : energy;
+    }
+
+    /**
      * 本回合被**外力提前结束**（{@code TimeWarpPower.onAfterUseCard}：玩家打出第 12 张牌
      * → {@code callEndTurnEarlySequence()}）。
      *
@@ -129,6 +147,23 @@ public final class SimState {
     /** 药水槽上限（原版 {@code PotionSlot}）。 */
     public int potionSlots = io.github.youqing.sts1solver.mirror.Potions.DEFAULT_POTION_SLOTS;
 
+    /**
+     * 原版**空槽**占位对象的 ID 字面量（{@code PotionSlot.POTION_ID}，javap 核实）。
+     *
+     * <p>{@code AbstractPlayer.potions} 是定长列表，空格不是 {@code null} 而是
+     * {@code PotionSlot} 实例。捕获时必须把它折成 {@code null}，否则搜索会以为
+     * 槽里躺着一瓶叫 {@code "Potion Slot"} 的药水。
+     */
+    public static final String EMPTY_POTION_ID = "Potion Slot";
+
+    /** 把原版药水 ID 折成「药水 ID 或 null（空槽）」；{@code PotionSlot} 视为空槽。 */
+    static String normalizePotionId(String id) {
+        if (id == null) {
+            return null;
+        }
+        return EMPTY_POTION_ID.equals(id) ? null : id;
+    }
+
     public final List<SimMonster> monsters = new ArrayList<SimMonster>();
     public final EnumMap<RngKind, RngStream> rng = new EnumMap<RngKind, RngStream>(RngKind.class);
 
@@ -161,6 +196,13 @@ public final class SimState {
         s.maxHp = p.maxHealth;
         s.block = p.currentBlock;
         s.energy = EnergyPanel.totalCount;
+        try {
+            // energyMaster = 每回合回能（能量遗物在 onEquip 里 ++，javap 核实 CoffeeDripper）。
+            // 首回合的临时加成（提灯）只在 EnergyPanel 里，不在 energyMaster 里。
+            s.energyPerTurn = p.energy == null ? 0 : p.energy.energyMaster;
+        } catch (Throwable ignored) {
+            s.energyPerTurn = 0;
+        }
         capturePowers(p.powers, s.playerPowers, s.powerAux);
 
         addCards(p.hand, s.hand);
@@ -205,14 +247,19 @@ public final class SimState {
             }
         }
 
-        // 药水槽：p.potions 是固定长度列表，空格是 null（原版 destroyPotion 会置 null）。
+        // 药水槽：p.potions 是固定长度列表，空格是 PotionSlot 实例（**不是 null**）。
         // 只认 ID，不记 potency —— 4 张里的 potency 全是常量，记了反而是重复信息。
         try {
             java.util.ArrayList<com.megacrit.cardcrawl.potions.AbstractPotion> potions = p.potions;
             if (potions != null) {
                 s.potionSlots = potions.size();
                 for (com.megacrit.cardcrawl.potions.AbstractPotion potion : potions) {
-                    s.potions.add(potion == null ? null : potion.ID);
+                    if (potion == null
+                            || potion instanceof com.megacrit.cardcrawl.potions.PotionSlot) {
+                        s.potions.add(null);
+                    } else {
+                        s.potions.add(normalizePotionId(potion.ID));
+                    }
                 }
             }
         } catch (Throwable ignored) {
@@ -393,6 +440,7 @@ public final class SimState {
         c.deathSaveUseCount = deathSaveUseCount;
         c.deathSaveHpRestored = deathSaveHpRestored;
         c.energy = energy;
+        c.energyPerTurn = energyPerTurn;
         c.turnForcedEnd = turnForcedEnd;
 
         c.playerPowers.putAll(playerPowers);
@@ -748,6 +796,7 @@ public final class SimState {
           .append(",\"maxHp\":").append(maxHp)
           .append(",\"block\":").append(block)
           .append(",\"energy\":").append(energy)
+          .append(",\"energyPerTurn\":").append(energyPerTurn)
           .append(",\"deathSaveUsed\":").append(deathSaveUsed)
           .append(",\"deathSaveUseCount\":").append(deathSaveUseCount)
           .append(",\"deathSaveHpRestored\":").append(deathSaveHpRestored)

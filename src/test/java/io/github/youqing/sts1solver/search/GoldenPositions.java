@@ -126,6 +126,8 @@ final class GoldenPositions {
         s.maxHp = intOf(p, "maxHp");
         s.block = intOf(p, "block");
         s.energy = intOf(p, "energy");
+        // 老快照没有这个字段（读到 0 = 没捕获到，endTurn 会退回 energy）
+        s.energyPerTurn = p.containsKey("energyPerTurn") ? intOf(p, "energyPerTurn") : 0;
         s.deathSaveUsed = boolOf(p, "deathSaveUsed");
         s.deathSaveUseCount = intOf(p, "deathSaveUseCount");
         s.deathSaveHpRestored = intOf(p, "deathSaveHpRestored");
