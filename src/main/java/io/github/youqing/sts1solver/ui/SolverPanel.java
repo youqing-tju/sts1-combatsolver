@@ -71,14 +71,29 @@ public final class SolverPanel {
      * 由 {@code AutoPilot} 在回合开头落快照时顺手推一次（每回合一次，成本可忽略）。
      */
     private static String turnLine = "";
-    /** 药水对账闸的最近结论（蓝本 PotionStrategicCost 的可读版），没有就不占行。 */
-    private static String strategyLine = "";
+    /**
+     * 「策略现状（只读）」区的缓存快照（{@code AutoPilot} 在主线程动作稳定后推来）。
+     *
+     * <p>🔴 渲染路径<b>只读这份缓存</b>：{@code SimState.capture()} 要扫四个牌堆 + 能力 + 遗物，
+     * 放到 {@link #render} / {@link #rows()} 里每帧调用会直接吃掉帧率。
+     */
+    private static StrategyStatusSnapshot strategyStatus;
+    /** 折叠状态：默认收起，只活在本次进程里，不写 {@code SolverConfig}。 */
+    private static boolean strategyExpanded;
 
     // 版面缓存：只在文本变化时重算，避免每帧分配 GlyphLayout
     private static float panelW = MIN_W;
     private static float panelH = 180f;
     private static float rowPitch = 30f;
     private static boolean layoutDirty = true;
+    /**
+     * 本次布局用的行数组。
+     *
+     * <p>🔴 以前 {@link #rows()} 在 {@code ensureLayout()} 和 {@code render()} 里各建一次。
+     * 两边内容一旦不同（行数变化的那一刻就会），画出来的行和点击命中的行就不是同一行 ——
+     * 典型症状是「点第 3 行却触发了第 2 行」。现在只算一次，布局/渲染/命中都读这份。
+     */
+    private static Row[] laidOutRows;
     private static int lastMatches = -1;
     private static int lastMismatches = -1;
     private static boolean lastAuto;
@@ -121,12 +136,19 @@ public final class SolverPanel {
         layoutDirty = true;
     }
 
-    /** 药水/遗物/成长的结论行（没有就传空串，面板不占行）。 */
-    public static void setStrategyLine(String line) {
-        if (line == null ? strategyLine == null : line.equals(strategyLine)) {
+    /**
+     * 「策略现状（只读）」区的快照（没有就传 {@code null}，只留折叠标题）。
+     *
+     * <p>由 {@code AutoPilot} 在回合边界与动作稳定后各推一次；面板不自己捕获局面。
+     */
+    public static void setStrategyStatus(StrategyStatusSnapshot status) {
+        boolean same = status == null
+                ? strategyStatus == null
+                : strategyStatus != null && status.lines().equals(strategyStatus.lines());
+        if (same) {
             return;
         }
-        strategyLine = line;
+        strategyStatus = status;
         layoutDirty = true;
     }
 
@@ -134,7 +156,9 @@ public final class SolverPanel {
     public static void onCombatEnd() {
         combatLine = "combat: (none)";
         turnLine = "";
-        strategyLine = "";
+        // 🔴 静态 UI 状态跨战斗会残留：不清的话下一场开局会先显示上一场的药水和遗物计数。
+        // 折叠偏好（strategyExpanded）属于使用习惯，保留。
+        strategyStatus = null;
         layoutDirty = true;
     }
 
@@ -246,7 +270,7 @@ public final class SolverPanel {
 
     // ------------------------------------------------------------------- 内容
 
-    /** 面板的全部行，按 [标题, 状态, 战斗, 路线头, 计划…] 的顺序。 */
+    /** 面板的全部行，按 [标题, 状态, 战斗, 策略现状, 路线头, 计划…] 的顺序。 */
     private static Row[] rows() {
         java.util.List<Row> out = new java.util.ArrayList<Row>();
         out.add(new Row(TITLE, Color.WHITE, true));
@@ -257,9 +281,7 @@ public final class SolverPanel {
         // 状态条：这一回合的真局面（AutoPilot 每回合推一次）
         out.add(new Row(turnLine.isEmpty() ? combatLine : turnLine,
                 new Color(0.72f, 0.9f, 0.72f, 1f), false));
-        if (!strategyLine.isEmpty()) {
-            out.add(new Row(strategyLine, new Color(0.86f, 0.78f, 0.62f, 1f), false));
-        }
+        appendStrategyRows(out);
 
         String route = AutoPilot.planSummaryLine();
         if (route != null && !route.isEmpty()) {
@@ -289,6 +311,33 @@ public final class SolverPanel {
         return out.toArray(new Row[0]);
     }
 
+    /**
+     * 「策略现状（只读）」折叠区：标题恒在，展开才按快照顺序铺行。
+     *
+     * <p>⚠️ 这里是**只读现状适配**，不是蓝本 {@code SolverPotionStrategyPanel} 那种控制器复刻
+     * （详见 {@code docs/plans/2026-10-31-ui-parity-design.md} §1.1）。标题文案已经把
+     * 「只读」「不会修改搜索」写在脸上，避免用户以为点一下就能改策略。
+     */
+    private static void appendStrategyRows(java.util.List<Row> out) {
+        out.add(new Row(strategyExpanded
+                ? "策略现状（只读，不会修改搜索） [-]"
+                : "策略现状（只读） [+]",
+                new Color(0.86f, 0.78f, 0.62f, 1f), false,
+                Row.Kind.STRATEGY_TOGGLE, -1, true));
+        if (!strategyExpanded) {
+            return;
+        }
+        if (strategyStatus == null || strategyStatus.lines().isEmpty()) {
+            // 没有快照就说没有：留一个空标题会让人以为「点了没反应」
+            out.add(new Row("（暂无快照：本回合局面还没抓取）",
+                    new Color(0.55f, 0.55f, 0.60f, 1f), false));
+            return;
+        }
+        for (String line : strategyStatus.lines()) {
+            out.add(new Row(line, new Color(0.70f, 0.70f, 0.76f, 1f), false));
+        }
+    }
+
     /** 底部三个按钮的文字（下标 0 在最右）。 */
     private static String[] buttonLabels() {
         return new String[]{
@@ -298,15 +347,43 @@ public final class SolverPanel {
         };
     }
 
+    /**
+     * 面板的一行，带**身份**：布局、渲染、命中判定必须认同一份 {@link Row} 数组
+     * （见 {@link #laidOutRows}）。
+     */
     private static final class Row {
+
+        /** 行的种类。{@code TEXT} 只画不点；其余是可点区域。 */
+        enum Kind {
+            /** 纯文本行。 */
+            TEXT,
+            /** 「策略现状（只读）」折叠标题。 */
+            STRATEGY_TOGGLE,
+            /** 路线预览的一行（绝对回合号，下一刀接执行）。 */
+            ROUTE
+        }
+
         final String text;
         final Color color;
         final boolean title;
+        final Kind kind;
+        /** 这行指向的绝对回合号；非 ROUTE 行为 -1。 */
+        final int targetTurn;
+        /** 这一行现在能不能点（没有 END_TURN 的尾行不能承诺「打完此回合」）。 */
+        final boolean clickable;
 
         Row(String text, Color color, boolean title) {
+            this(text, color, title, Kind.TEXT, -1, false);
+        }
+
+        Row(String text, Color color, boolean title, Kind kind, int targetTurn,
+            boolean clickable) {
             this.text = text;
             this.color = color;
             this.title = title;
+            this.kind = kind;
+            this.targetTurn = targetTurn;
+            this.clickable = clickable;
         }
     }
 
@@ -365,6 +442,7 @@ public final class SolverPanel {
 
         // ② 面板宽度 = max(最宽一行, 按钮总宽)，落在 [MIN_W, MAX_W]
         Row[] rows = rows();
+        laidOutRows = rows;
         float widest = textWidth(font, TITLE) + 24f + textWidth(font, BUILD);
         for (Row row : rows) {
             widest = Math.max(widest, textWidth(font, row.text));
@@ -440,7 +518,10 @@ public final class SolverPanel {
             sb.draw(ImageMaster.WHITE_SQUARE_IMG, x, topY - 2f, panelW, 2f);
             sb.draw(ImageMaster.WHITE_SQUARE_IMG, x, y, panelW, 2f);
 
-            Row[] rows = rows();
+            Row[] rows = laidOutRows;
+            if (rows == null || rows.length == 0) {
+                return;
+            }
             for (int i = 1; i < rows.length; i++) {
                 FontHelper.renderFontLeftTopAligned(sb, font, fit(font, rows[i].text, textMax),
                         x + PAD, rowTop(i), rows[i].color);
@@ -493,8 +574,13 @@ public final class SolverPanel {
         applyFontScale();
         try {
             ensurePlaced();
+            refreshDynamicState();
             ensureLayout();
             if (InputHelper.justClickedLeft) {
+                // 行命中优先级最高：同一点击不能既折叠策略区又落到下面的按钮或拖拽标题上
+                if (hitRow()) {
+                    return;
+                }
                 float by = buttonY();
                 if (inRect(autoStartButtonX(), by, buttonW[2], BUTTON_H)) {
                     SolverConfig.toggleAutoStart();
@@ -530,6 +616,45 @@ public final class SolverPanel {
     }
 
     // ------------------------------------------------------------------- utils
+
+    /**
+     * 可点击行的命中判定。
+     *
+     * <p>用 {@link #laidOutRows} 与 {@link #rowTop} —— 和渲染是同一份行、同一套坐标，
+     * 所以「看到的行」= 「点得到的行」。
+     *
+     * @return true 表示这次点击已被某一行消费，调用方不得再当成按钮/拖拽
+     */
+    private static boolean hitRow() {
+        Row[] rows = laidOutRows;
+        if (rows == null) {
+            return false;
+        }
+        float left = x + PAD;
+        float width = panelW - PAD * 2f;
+        for (int i = 0; i < rows.length; i++) {
+            Row row = rows[i];
+            if (row.kind == Row.Kind.TEXT) {
+                continue;
+            }
+            // 文字是 top-aligned 画的，所以这一行的可视带是 [rowTop - rowPitch, rowTop]
+            if (!inRect(left, rowTop(i) - rowPitch, width, rowPitch)) {
+                continue;
+            }
+            if (row.kind == Row.Kind.STRATEGY_TOGGLE) {
+                strategyExpanded = !strategyExpanded;
+                layoutDirty = true;
+                // 展开会让面板变高，可能顶出屏幕；立刻重排并夹取
+                ensureLayout();
+                clampToScreen();
+                Trace.info("panel strategy section "
+                        + (strategyExpanded ? "expanded" : "collapsed")
+                        + " rows=" + (laidOutRows == null ? 0 : laidOutRows.length));
+                return true;
+            }
+        }
+        return false;
+    }
 
     private static boolean isInDungeon() {
         return AbstractDungeon.player != null;

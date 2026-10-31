@@ -130,6 +130,8 @@ public final class AutoPilot {
         planSummary = "";
         framesWaitingForPlan = 0;
         reportedMissingMirrors.clear();
+        strategySnapshotDirty = false;
+        screenWasUp = false;
         Trace.info("AUTO state reset (combat boundary)");
     }
 
@@ -148,6 +150,11 @@ public final class AutoPilot {
     }
 
     public static void tick() {
+        // ① 只展示：把动作落地后的策略现状刷新一遍。即使 AUTO 被手动关闭也要刷完，
+        //    否则关掉 AUTO 之后打的牌都不会反映到面板上。它绝不能触发搜索或执行。
+        trackScreenTransitions();
+        refreshStrategySnapshotIfSettled();
+        // ② 执行：AUTO 关着就到此为止
         if (!enabled) {
             return;
         }
@@ -341,6 +348,16 @@ public final class AutoPilot {
     private static String lastSearchShape = "";
 
     /**
+     * 「策略现状」缓存是否已经过时（打牌 / 喝药 / 选牌完成后置 true）。
+     *
+     * <p>渲染路径不捕获 —— {@code SimState.capture()} 要扫四个牌堆 + 能力 + 遗物，
+     * 每帧调用直接吃帧率。所以用脏标记把刷新收敛到「动作稳定后」一次。
+     */
+    private static boolean strategySnapshotDirty;
+    /** 上一帧是否开着界面：用于在「界面关闭」那一刻把策略快照标脏。 */
+    private static boolean screenWasUp;
+
+    /**
      * 已经报过「没有镜像」的牌名（每场战斗清空）。
      *
      * <p>没镜像的牌在搜索里等于**不存在**：{@code CardPlayer.play} 会抛 {@code ActionRejected}，
@@ -391,11 +408,24 @@ public final class AutoPilot {
             String path = snap.saveAs("turn-A" + snap.act + "F" + snap.floor
                     + "T" + turn + ".json");
             Trace.info("TURN snapshot " + path);
-            io.github.youqing.sts1solver.ui.SolverPanel.setTurnLine(turnLineOf(snap, turn));
-            io.github.youqing.sts1solver.ui.SolverPanel.setStrategyLine(strategyLine());
+            publishTurnSnapshot(snap, turn);
         } catch (Throwable t) {
             Trace.warn("turn snapshot failed: " + t);
         }
+    }
+
+    /**
+     * **一次捕获，两处展示**：状态条 + 策略现状区都读同一份 {@code snap}。
+     *
+     * <p>以前这两行各自 {@code SimState.capture()} 一次，等于每回合开头白扫两遍全场
+     * （四个牌堆 + 能力 + 遗物 + 六个 RNG）。合并之后回合边界只捕获一次；
+     * 面板渲染路径<b>永远</b>不捕获（{@code SolverPanel.render} 只读缓存行）。
+     */
+    private static void publishTurnSnapshot(io.github.youqing.sts1solver.sim.SimState snap,
+                                            int turn) {
+        io.github.youqing.sts1solver.ui.SolverPanel.setTurnLine(turnLineOf(snap, turn));
+        io.github.youqing.sts1solver.ui.SolverPanel.setStrategyStatus(
+                io.github.youqing.sts1solver.ui.StrategyStatusSnapshot.from(snap));
     }
 
     /**
@@ -433,20 +463,73 @@ public final class AutoPilot {
     }
 
     /**
-     * 面板策略行：这一场「数据干不干净」的结论。
+     * 回合内动作落地后，把策略现状刷新的时机判断。
      *
-     * <p>比药水对账更该露出来的是**未镜像遗物**——它们会在战斗里自行触发，
-     * 让后面的每一条 diff 都变成噪声（日志里那条 `RELIC 未镜像的遗物` 就是它）。
-     * 药水对账的明细留在日志，面板只留「这把数据能不能用」。
+     * <p>「只在回合初刷」会让药水和遗物计数整回合陈旧（喝了药、Shuriken 转了 3 次都还显示旧值），
+     * 但「每帧刷」要每帧扫全场。所以折中：<b>只在动作真正稳定后捕获一次</b>。
+     *
+     * <p>⚠️ 这里绝不能做任何决策或执行 —— 即使 AUTO 已被手动关闭，它也只负责把面板
+     * 上的事实刷新一遍（见 {@link #tick()} 的调用顺序）。
      */
-    private static String strategyLine() {
-        java.util.List<String> missing = io.github.youqing.sts1solver.mirror.Coverage
-                .unmirroredRelics(io.github.youqing.sts1solver.sim.SimState.capture());
-        if (missing == null || missing.isEmpty()) {
-            return "数据：遗物全部已镜像";
+    private static void refreshStrategySnapshotIfSettled() {
+        if (!strategySnapshotDirty) {
+            return;
         }
-        return "⚠ 未镜像遗物 " + missing.size() + " 件：" + String.join(" ", missing)
-                + "（这一把的 diff 会带噪声）";
+        try {
+            if (!CombatCapture.isCaptured()) {
+                return;
+            }
+            AbstractRoom room = AbstractDungeon.getCurrRoom();
+            if (room == null || room.phase != AbstractRoom.RoomPhase.COMBAT) {
+                return;
+            }
+            // 回合切换期间（endPhase != 0）真局面还没定下来，等它走完
+            if (endPhase != 0) {
+                return;
+            }
+            if (!ShadowTracker.isIdle() || !drained()) {
+                return;
+            }
+            // 任何界面（选牌网格 / 手牌选择 / 三选一奖励 / 牌堆浏览…）开着都不刷：
+            // 此刻「确定的选择」还没落地，刷出来的是中间态。
+            if (AbstractDungeon.isScreenUp
+                    || AbstractDungeon.screen != AbstractDungeon.CurrentScreen.NONE) {
+                return;
+            }
+            AbstractPlayer player = AbstractDungeon.player;
+            if (player == null || player.isEndingTurn || player.endTurnQueued
+                    || AbstractDungeon.actionManager.turnHasEnded) {
+                return;
+            }
+            // 先清 dirty 再捕获：万一 capture 抛异常，也不能变成每帧重试
+            strategySnapshotDirty = false;
+            io.github.youqing.sts1solver.sim.SimState snap =
+                    io.github.youqing.sts1solver.sim.SimState.capture();
+            io.github.youqing.sts1solver.ui.SolverPanel.setStrategyStatus(
+                    io.github.youqing.sts1solver.ui.StrategyStatusSnapshot.from(snap));
+            Trace.info("STRATEGY snapshot refreshed mid-turn  T" + snap.turn
+                    + " hp " + snap.hp + "/" + snap.maxHp
+                    + " potions " + snap.potions.size() + "/" + snap.potionSlots
+                    + " energy " + snap.energy);
+        } catch (Throwable t) {
+            Trace.warn("strategy snapshot refresh failed: " + t);
+        }
+    }
+
+    /**
+     * 界面开→关 = 一次「选择完成」。在 {@code AutoPilot} 內部检测，不用去改
+     * {@code GridSelector} / {@code HandSelectDriver}（那两个不属本刀改动范围）。
+     *
+     * <p>为什么需要它：选牌完成（军备升级、双持复制、三选一发现）会改手牌和费用，
+     * 但这些动作不是「入队一张牌」，光靠 {@link #enqueue} 那条路捕不到。
+     */
+    private static void trackScreenTransitions() {
+        boolean up = AbstractDungeon.isScreenUp
+                || AbstractDungeon.screen != AbstractDungeon.CurrentScreen.NONE;
+        if (screenWasUp && !up) {
+            strategySnapshotDirty = true;
+        }
+        screenWasUp = up;
     }
 
     private static int playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
@@ -665,6 +748,8 @@ public final class AutoPilot {
         }
         player.removePotion(potion);
         player.adjustPotionPositions();
+        // 药水槽、能力、血量都可能被这一瓶改掉 → 面板的策略现状要重算
+        strategySnapshotDirty = true;
         // 药水效果不在对拍台架的跟踪范围里（台架只跟「打牌」）：作废基线，
         // 否则下一张牌的影子还停在喝药前，差出来的正是药水抽的牌/打的伤害。
         ShadowTracker.invalidateBaseline("potion " + step.cardKey);
@@ -792,6 +877,8 @@ public final class AutoPilot {
         queuedCard = chosen;
         queuedFrames = 0;
         noProgressEndTurns = 0;
+        // 这一手落地后局面就变了（手牌/能量/能力），面板的策略现状要重算
+        strategySnapshotDirty = true;
         Trace.info("AUTO play " + key(chosen) + (target == null ? "" : " -> " + target.name)
                 + (chosen.cost < 0 ? "  [X cost: energyOnUse=" + energyOnUse
                     + " total=" + EnergyPanel.totalCount + "]" : "")
