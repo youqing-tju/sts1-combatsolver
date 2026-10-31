@@ -80,7 +80,13 @@ public final class Coverage {
                     // 第十批（2026-10-27）：伤害侧三件套 + 清手牌
                     "Boot", "Unceasing Top", "Champion Belt", "Strange Spoon",
                     // 死亡豁免（DeathSaveRelic）
-                    "Lizard Tail"
+                    "Lizard Tail",
+                    // 开局 / 局外一次性（2026-11-01）：逐件 javap 核实过，战斗内没有持续触发
+                    //   NeowsBlessing：atBattleStart 把敌人血量设成 1 → 已体现在捕获的怪物 hp
+                    //   Pear         ：onEquip 给 +10 最大生命 → 已体现在捕获的 maxHp
+                    //   Lantern      ：只有第一回合 +1 能量（atPreBattle 置 firstTurn，atTurnStart 用完即清）；
+                    //                  首回合能量由根状态 energy 捕获，后续回合走 energyMaster
+                    "NeowsBlessing", "Pear", "Lantern"
             ));
 
     /**
