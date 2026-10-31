@@ -2,9 +2,11 @@
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：测试 **547 条全绿**（0 fail / 0 err），代码 HEAD = `6ea8014`
-> （`fix(exec): AUTO 结束回合改走 EndTurnButton.disable(true)`；后续文档提交见 Git 历史），未 push。
-> UI 十条真机验收与回合末候选修复真机验证均未完成，不得视为验收闭环。
+> **当前状态**：2026-11-01 01:15，测试 **563 条全绿**（0 fail / 0 err），代码 HEAD = `c95b9c7`，未 push。
+> 已安装 `build 1101-011033`（安装包 md5 与构建产物一致）。
+> 🔴 **真机仍未闭环**：UI 十条验收 **0/10 执行**、回合末候选修复**未验证**。
+> 阻塞点：本机 Steam 未运行、启动游戏失败（2026-11-01 01:12 用户确认），且桌面正被使用，
+> 不能安全地做合成点击。下一轮**第一件事**就是补这两项（步骤见 §九）。
 
 ---
 
@@ -116,39 +118,67 @@ private void callEndOfTurnActions() {
 
 ## 五、🔴 未解决的严重问题（按优先级，下一轮从这里开始）
 
-### P1 · 搜索早早穷尽（最严重，直接影响「牌打得臭」）
+### P1 · 「搜索早早穷尽」——**这个诊断已被推翻**（2026-11-01 用真机快照实测）
 
-- 真机日志里 **475 次规划，475 次都带 `tree exhausted`**；节点预算 50 万，实际只用 **0%~10%**。
-- 典型：`PLAN ready: 2 steps, depth 1 turns, 179/500000 nodes (0%, tree exhausted)`。
-- 190 次收尾原因是 `open_exhausted`（**开放表被清空**），常伴随 `depth 1 turns`。
-- **加预算/加宽度无效** —— 瓶颈是 open 表过早耗尽，要查：剪枝、去重/转置表、每动作展开数、回合层 horizon。
-- 用户的原话：「不管打什么怪都是 1s 内计算完毕，显然搜索做得很烂」。这是**当前第一优先级**。
+上一轮写在这里的结论是：「475/475 次带 `tree exhausted`、节点只用 0~10% → open 表过早耗尽、
+剪枝太狠、加预算无效」。**这是把日志标签读错了**，已被 123 个真机快照的批量回放否掉：
 
-### P2 · 该开的能力牌永远不开
+| 量 | 旧说法 | 实测（`SnapshotBatchProbeTest`，123 个 `turn-*.json`） |
+|---|---|---|
+| 停止原因 | 「树被搜完了/剪枝太狠」 | **123/123 全是 `horizon`** = 把整场战斗推演到了终局 |
+| 赢的局 | 未测 | **115/123 = 93.5%**（`lastSelectedVictory`，不是看分数） |
+| 节点用量 | 0~10% | 平均 **11.8k / 500k ≈ 2.4%**（因为旅程本来就那么长） |
+| 与束宽关系 | 剪枝太狠 | 单例 A1F12T2：w=135→900 结果完全不变（lost，-1e12） |
 
-无惧疼痛（`Feel No Pain`）在手牌出现 **14 次，真正打出仅 2 次**。
-多次计划把它排在 `T4~T6`（`... | END_TURN | ... | Feel No Pain |`），而计划每回合重算 →
-**排在后排的牌结构性永远轮不到**。怀疑与 P1 的浅搜索（只看 1 回合）叠加。
+- `horizon` 是正常终止：搜索把每条线都推演到了「打死 / 被打死」，自然用不到预算。
+- **不是** `open_exhausted`（那是新颖度通道自己的停止词，属于正常）。
+- 真正可疑的漏杀只有 1 例（`A1F12T2`：28 血对 95 血拉格维林，唯一能赢的首手 `Strike_R`
+  只在**强制前缀**下出现 `WIN`）——前缀会改变模拟出来的未来（意图/RNG 相关），
+  属于**模型/估值**问题，不是剪枝问题。下一轮要从 `IntentLearning` / 怪物意图模型入手。
+- 已落地：`BeamSolver.lastStopReason`（victory/horizon/node_limit/time_limit）、
+  `lastSelectedVictory`（修掉「用分数阈值判胜负」这个错），日志改成 `stop=...`。
 
-### P3 · 对拍噪声，污染验收数据
+### P2 · 能力牌时机（部分缓解，未闭环）
 
-一场 122 次比对里 8 次失配，集中在 `Warcry`（手牌/抽牌顺序）、`Sever Soul`（消耗堆顺序）、
-`Secret Technique`（消耗数 + CARD rng），并出现 `DIFF xxx skipped (previous Warcry still pending)`
-—— 比对队列会滞后，后续失配是被污染的。**不修这条，P1/P2 的验收数据不可信。**
+- 旧证据：`Feel No Pain` 在手 14 次、只打出 2 次。
+- 新证据：123 个真机快照里，**首手是能力牌的只有 2 次**（`Dark Embrace`、`Demon Form`，两局都赢）。
+  说明「首手开能力」很少但不为零；`BeamSolverTest.playsAScalingPowerWhenThereIsNoPressure`
+  也保证「无压力时先开成长」。
+- 已补的 parity 缺口：`LatentSetupValue` 的启用条件原本只写了 `enemyCount > 1`，
+  蓝本是 `_isActEndingBoss || _initialEnemyCount > 1` —— **Boss 那一半丢了**，已在
+  `Score.initialBoss` 补上（A/B：123 快照首手变化 0 次，属于「补对了但样本没覆盖」）。
+- 仍缺：**最终排序 `better()` 不看 `persistentBuffValue`**。中途剪枝看 `rank`（含能力价值），
+  最终选路线只看 `score`（不含），所以「先开能力、收益在后面回合」的线在最后一步吃亏。
+  这是下一轮 P2 的**第一嫌疑**，要拿 `A1F12T2` 这种样本做判据。
 
-### P4 · 数据干净度
+### P3 · 对拍队列污染 —— **已修（commit `319bd6e`）**
 
-- `未镜像遗物 3: Lantern, NeowsBlessing, Pear` 是**误报**：都是开局/局外一次性，漏在
-  `mirror/Coverage.java:43` 的 `INERT_RELICS` 白名单外。
-- `SimState.capture()` 把空药水槽存成 `"Potion Slot"`（原版空槽是 `PotionSlot` 实例，ID 字面就是这个），
-  应映射成 `null`，否则搜索以为槽里有一瓶药。**面板显示侧已修（`42a0791`），capture 侧未动。**
+- 根因：`ShadowTracker.onCardPlayed` 在上一张还没结算完（`pending`）时，把**后一张直接 skip**。
+  后果：那张牌既不进 `comparisons`、也不产生属于自己的 MISMATCH，而 `pre` 还停在更早那一手。
+- 修法：新牌到达时先 `resolve(true)` 把上一张当场结算（`resolve` 末尾会把基线重设成实机状态），
+  再开新的一次。日志改为 `DIFF flush <前一张> before <后一张>`。
+- 回归：`ShadowTrackerQueueTest`（2 条，用纯数据 + `ShadowTracker.liveState` 注入）。
+  同一条失配只记 1 次 `mismatchSequence`，第二张不再被连坐。
+- ⚠️ 真机复测未做（见 §九）；「不再出现 pending skip」需要真机日志确认。
 
-### P5 · 影子数值缺口
+### P4 · 数据干净度 —— **已修（commit `f05db61`、`cf09b74`）**
 
-`Burn+` 在影子按 2 点算，实机 4（`Burn.upgrade → upgradeMagicNumber(2)`）；`Decay+` 同理 2→3。
-位置 `sim/CombatFlow.java:255`，写死常量、未读 `upgraded`。
+- `Lantern` / `NeowsBlessing` / `Pear` 进白名单，理由逐件 javap 核实（不是「看起来没事」）。
+  同时补了反向测试：真有未镜像遗物时必须继续告警。
+- `SimState.capture()` 把 `PotionSlot`（空槽）映射成 `null`：`instanceof PotionSlot` +
+  ID 字面量双保险，`normalizePotionId` 有单测。
+- 附带发现（**上一轮记错的一件**）：`Lantern` 只在**第一回合**给 1 点能量，
+  而 `baseEnergy` 取的是首回合当前能量 → 仿真从第二回合起每回合**多算 1 点**。
+  已拆成 `energy` / `energyPerTurn`（`EnergyManager.energyMaster`），有单测。
 
-> P1/P2 先写根因设计与验收判据，然后按新授权直接实施，不等逐条批准；P4/P5 属小范围镜像 bug，直接 TDD 修复并真机/回放验证。任何假设都必须与已证实事实分开写。
+### P5 · 影子数值缺口 —— **已修（commit `90ad057`），且旧结论有一处是错的**
+
+- `Burn+` = **4**（`magicNumber 2` + `upgradeMagicNumber(2)`），已修，未升级仍是 2。
+- ❌ **`Decay+` 不存在**：`Decay.upgrade()` 字节码是 `0: return` 空实现，`use()` 里 `iconst_2` 写死，
+  所以恒为 2。上一轮写的「Decay+ 2→3」是错的，已按实测改。
+
+> 事实 / 假设 / 已实施 / 仍缺验证 四栏必须分开写。真机没跑过的项一律写「未验证」，不得写「已修复」。
+
 
 ---
 
@@ -214,3 +244,31 @@ private void callEndOfTurnActions() {
 | `patches/EndTurnProbe.java` | 回合结束状态机只读探针（排查用，可随时 revert） |
 | `docs/research/blueprint-parity.md` | **蓝本复刻对照表**（施工总纲） |
 | `docs/plans/2026-10-31-ui-parity-design.md` | UI 两刀的已批准设计 |
+
+---
+
+## 九、下一轮开工顺序（真机卡在这里，别绕）
+
+**阻塞事实（2026-11-01 01:12 实测）**：本机 `Steam` 原本未运行；我启动 Steam 后运行
+`jre\bin\java.exe -jar mts-launcher.jar`，**游戏没有起来**（45 秒内无 `java` / `SlayTheSpire` 进程，
+`solver-logs/` 也没有当天新文件）。用户确认「启动失败」，要求次日再做。
+已安装的包是 `build 1101-011033`（md5 `b47c53e4…`，与 `~/.sts1-combatsolver/build/libs/` 完全一致）。
+
+**下一轮第一件事（按顺序，缺一不可）**
+
+1. 用户手动启动 Steam → 在游戏目录运行 `MTS-launch.cmd`（**不要**用
+   `jre\bin\java.exe -jar mts-launcher.jar` 绕过，2026-11-01 用这条路径起不来）。
+2. 进战斗后看面板右上角 build 号 = **`1101-011033`**（不是旧号才说明本次包生效；
+   ModTheSpire 只在启动时读 mods 目录，中途换 jar 不生效）。
+3. 回合末 A/B：身上带金属化 / 多层护甲（有灼烧更好），**先手点一次结束回合**记录
+   `EOT` 两行的 `hp/block` 差值，再 `开 AUTO` 让它自己结束一回合，比同一 turn 的两段差值。
+   判据：两边 block 增量一致 = 修复成立；AUTO 侧为 0 = `6ea8014` 没解决，转 `mirror/` 与执行时序。
+4. UI 十条（`docs/plans/2026-10-31-ui-parity.md` Task 4 Step 2）：只读区、settled 刷新、
+   AUTO off 点 Tn 停、改目标、完整敌方阶段、取消、跨战斗清理、无 END_TURN 尾行不可点、
+   两种分辨率布局与点击穿透、日志含 bounded start/stop。
+5. 对拍复测：连续出牌时日志应出现 `DIFF flush …` 而**不再**出现
+   `skipped (previous … still pending)` —— 这是 P3 修复的真机判据。
+6. 全部通过后再删 `patches/EndTurnProbe.java`（或把它改成显式关闭），并跑一次全量回归。
+
+**不要做**：不要因为「日志里没有 pending skip」就宣布 P3 通过（要先确认那段日志确实跑到过）；
+不要把 `horizon` 再读成「剪枝太狠」；不要用 `lastSelectedScore >= 1e10` 判胜负。

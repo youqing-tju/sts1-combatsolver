@@ -69,6 +69,9 @@ read_when:
 | `SearchTakeoverKind.AdoptRoute` + 独立 `RouteFrozen` | — | ❌ 均未做。注意两者不是同一状态：`AdoptCurrentRoute` 物化当前渲染候选；`RouteFrozen` 另管是否禁止后续自动搜索（`SolverController.cs:128-158,1701-1744`）。不得把 AdoptRoute 简写成“冻结路线” |
 | `SolverProgress`（面板进度：世界线 / 回合层 / play_depth） | `SolverPanel` | 🔶 部分：有节点/深度/路线，没有 play_depth 与分阶段进度 |
 | `SolverPotionStrategyPanel` / `SolverRelicStrategyPanel` / `SolverGrowthStrategyPanel` | 只读策略现状区（`ui/StrategyStatusSnapshot` + `SolverPanel` 折叠区） | ❌ **控制器未复刻；本轮只有只读现状适配**（2026-10-31）：药水按槽位列形态 + 战略 HP 门槛（被动药不显示默认 9）、遗物 `id=counter` 原样 + 未镜像告警、成长 `hp/max` + 正向关键层数。无 setter、无假控件、不改变搜索。蓝本那三个面板会**编辑并持久化**策略、使旧结果失效并改变后续搜索 —— 这部分仍全未做（见设计 §10 的独立立项清单） |
+| `CombatBeamSolver.Phases.cs:2222` `finalPool = [..completed, ..frontier]` | 最终选路线在「所有终局 + 所有前沿」里排序（`BeamSolver.lastFinalPool` + `runPortfolio` 全局池） | ✅ **已复刻（2026-11-01，commit `9536d7d`）**。以前每趟只交出 1 个节点，别处已经打出来的好局面白扔。实测：123 个真机快照的首手变化 **0 次**（因为 `better()` 优先「END_TURN 之前血量最高」的边界节点），属于**补对了口径但样本不敏感**，不要据此宣称变强 |
+| `StateEvaluation` `LatentSetupValue` 启用条件 `_isActEndingBoss \|\| _initialEnemyCount > 1` | `Score.initialBoss` | ✅ **已补齐 Boss 那一半（2026-11-01，`9536d7d`）**。以前只有 `enemyCount > 1`，单只 Boss 房里「手上还没打出去的能力牌」在 beam 排序里等于 0 分。A/B：123 快照首手变化 0 次（快照没有 boss 标志，探针按楼层 16/33/50 推断） |
+| `BeamRetentionPolicy.DiversifyOrdinaryBeamBoundary(required: …)` | 首手保留（`required` 分支） | ❌ **仍未做**。2026-11-01 试做过「每个首手至少留一条后代」，实测首手变化 3/123、胜负 0 变化、节点 +3%，按「不加无证据复杂度」回退，未入库 |
 | （蓝本无对应；`SolverRouteRow.cs:28` 鼠标忽略，源码及历史无 `ApplyRoute`） | 点击路线行 = AUTO 至目标回合末（`verify/BoundedAutoTarget` + `verify/RoutePreview`） | 📝 **项目自定义扩展，已实施（2026-10-31）**：只设**绝对停止回合**（`AutoPilot.runUntil`），每回合按真局面重算（`RoutePreview` 保留完整 steps，行号是 `originTurn` 起的绝对 T4/T5，不冻结路线）。Tn 的 END_TURN 与敌方阶段完成后，在 Tn+1 **任何搜索/出牌之前**停。停止目标只属于本次运行意图，不入 `SolverConfig`、不跨战斗继承。**不是** `AdoptRoute` |
 
 ## 4. 下一步该按什么顺序做
