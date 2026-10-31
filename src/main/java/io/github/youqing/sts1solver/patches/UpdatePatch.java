@@ -25,6 +25,8 @@ public final class UpdatePatch {
         public static void Postfix(AbstractDungeon __instance) {
             CombatCapture.tick();
             ShadowTracker.tick();
+            // 只读探针：记录回合结束状态机的时序（2026-10-31 排查「回合末效果整批不触发」）
+            EndTurnProbe.tick();
             AutoPilot.tick();
             SolverPanel.update();
         }

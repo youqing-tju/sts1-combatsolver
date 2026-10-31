@@ -46,6 +46,7 @@ public final class CombatCapture {
         hpAtStart = AbstractDungeon.player == null ? -1 : AbstractDungeon.player.currentHealth;
         ShadowTracker.reset();
         AutoPilot.reset();
+        io.github.youqing.sts1solver.patches.EndTurnProbe.reset();
         Trace.info("combat entry detected, waiting for deal");
     }
 
