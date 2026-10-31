@@ -355,8 +355,13 @@ class CardPlayerTest {
         s.draw.add(new SimCard("Strike_R", false, 1));
         s.draw.add(new SimCard("Strike_R", false, 1));
         CardPlayer.play(s, 0, 0);
-        // 6 + 2 x 2 张 Strike（手牌里的 Perfected Strike 本身不算）
-        assertEquals(30, s.monsters.get(0).hp);
+        // 6 + 2 x 3 张 Strike —— **算上打出去的这张完美打击本身**。
+        // 旧断言写的是「本身不算」（30 = 6+2x2），已被真机推翻：2026-10-30 小鬼头目那场
+        // 完美打击的 diff 是 `monsters[0].hp: 65 vs 63`，实机多打 2 点。
+        // javap 依据：AbstractPlayer.useCard 先 calculateCardDamage（offset 16）、
+        // 后 hand.removeCard（offset 109），结算时这张牌还在手里，countCards 数得到它。
+        // 卡片带 CardTags.STRIKE（PerfectedStrike 类里 tags.add(STRIKE)）。
+        assertEquals(28, s.monsters.get(0).hp);
     }
 
     // ---- 第五批：随机位置 / 随机目标 ----

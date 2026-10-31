@@ -60,6 +60,11 @@ public final class ShadowTracker {
     private static int comparisons;
     private static int matches;
     private static int mismatches;
+    /**
+     * 失配序号（单调递增，跨战斗不清零）。执行层用它判断「计划还是不是从真局面算出来的」——
+     * 一旦涨了，说明影子和实机已经分叉，后续步骤不能照着旧计划打（蓝本 {@code DeploymentDrift}）。
+     */
+    private static int mismatchSeq;
     /** 本场是否已经比过至少一次（决定结束时要不需要打汇总行）。 */
     private static boolean debugActive;
 
@@ -67,6 +72,9 @@ public final class ShadowTracker {
     /** 兜底：某张牌让 limbo 一直不空时，等 1.5 秒也要出结论，并标记 forced。 */
     private static final int MAX_PENDING_FRAMES = 90;
     private static final int MAX_LOGGED_DIFFS = 6;
+    /** 每场最多落盘多少个失配样本（防刷盘；一场打完一般也就几个）。 */
+    private static final int MAX_MISMATCH_DUMPS = 24;
+    private static int mismatchDumps;
 
     private ShadowTracker() {
     }
@@ -83,6 +91,7 @@ public final class ShadowTracker {
         pending = false;
         pendingKey = null;
         framesAfterPlay = 0;
+        mismatchDumps = 0;
     }
 
     /**
@@ -348,13 +357,79 @@ public final class ShadowTracker {
             Trace.info("DIFF " + pendingKey + " MATCH  (" + matches + "/" + comparisons + ")" + tag);
         } else {
             mismatches++;
+            mismatchSeq++;
             Trace.info("DIFF " + pendingKey + " MISMATCH " + diffs.size()
                     + " field(s) (" + matches + "/" + comparisons + ")"
                     + " limbo=" + liveLimboSize()
                     + " cards=" + sim.totalCards() + "/" + live.totalCards()
                     + tag + ": " + head(diffs));
+            dumpMismatch(before, sim, live, diffs, forced);
         }
         baseline = live;
+    }
+
+    /**
+     * 把一次失配完整落盘：**出牌前 / 影子算的 / 实机变成的** 三份快照 + 打的是哪张牌、
+     * 目标是谁、选牌选了哪几张、差异字段全表。
+     *
+     * <p>为什么必须落盘：日志只打前 6 条差异，而且日志里没有「出牌前」的状态 ——
+     * 复盘时只能猜「大概是某个加成没算」。落盘之后每一次失配都是一条**可离线重放**的用例：
+     * 直接塞进 {@code src/test/resources/golden/} 就能跑，修一处就能当场验证。
+     * 目录：{@code <dataDir>/mismatch/}（与 observed.jsonl 同一处）。
+     */
+    private static void dumpMismatch(SimState before, SimState sim, SimState live,
+                                     List<String> diffs, boolean forced) {
+        if (before == null || mismatchDumps >= MAX_MISMATCH_DUMPS) {
+            return;
+        }
+        try {
+            String dirPath = System.getProperty("sts1solver.snapshotDir", "solver-snapshots");
+            java.io.File dir = new java.io.File(dirPath, "mismatch");
+            if (!dir.exists() && !dir.mkdirs()) {
+                return;
+            }
+            mismatchDumps++;
+            java.io.File file = new java.io.File(dir, String.format("%03d-%s.json",
+                    Integer.valueOf(mismatchDumps), safeName(pendingKey)));
+            StringBuilder sb = new StringBuilder(4096);
+            sb.append("{\"card\":\"").append(pendingKey).append("\",\"target\":")
+              .append(pendingTarget).append(",\"forced\":").append(forced)
+              .append(",\"choices\":[");
+            for (int i = 0; i < pendingChoiceKeys.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append('"').append(pendingChoiceKeys.get(i)).append('"');
+            }
+            sb.append("],\"diffs\":[");
+            for (int i = 0; i < diffs.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append('"').append(diffs.get(i).replace("\"", "'").replace("\\", "/"))
+                  .append('"');
+            }
+            sb.append("],\"before\":").append(before.toJson())
+              .append(",\"sim\":").append(sim.toJson())
+              .append(",\"live\":").append(live.toJson()).append("}\n");
+            java.io.OutputStreamWriter w = new java.io.OutputStreamWriter(
+                    new java.io.FileOutputStream(file), "UTF-8");
+            try {
+                w.write(sb.toString());
+            } finally {
+                w.close();
+            }
+            Trace.info("MISMATCH DUMP " + file.getPath());
+        } catch (Throwable t) {
+            Trace.warn("mismatch dump failed: " + t);
+        }
+    }
+
+    private static String safeName(String key) {
+        if (key == null) {
+            return "unknown";
+        }
+        return key.replace('/', '_').replace('\\', '_').replace(' ', '_');
     }
 
     /**
@@ -529,6 +604,11 @@ public final class ShadowTracker {
 
     public static String stats() {
         return matches + " match / " + mismatches + " mismatch / " + comparisons + " total";
+    }
+
+    /** 见 {@link #mismatchSeq}：只增不减，调用方记下旧值、下次比对即可。 */
+    public static int mismatchSequence() {
+        return mismatchSeq;
     }
 
     /** Kept for the panel and logs. */

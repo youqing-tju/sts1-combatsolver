@@ -78,6 +78,29 @@ class EndTurnWithEnergyLeftTest {
                         + " port=" + solver.lastPortfolioAdopted + "）");
     }
 
+    /**
+     * 能量已经打光，但手里有一张**本回合 0 费**的攻击牌（药水/地狱之刃/发现给的）。
+     *
+     * <p>2026-10-30 真机实测踩到：小鬼头目那场，攻击药水给的「顺劈斩 Pommel Strike」
+     * 带着 {@code costForTurn = 0} 留在手里，搜索却排了「结束回合」——
+     * 白丢 9 点伤害 + 一张抽牌，紧接着就被反打 26。
+     *
+     * <p>判据与上面两条一致：0 费伤害牌打出去没有任何副作用，必须严格优于空过。
+     */
+    @Test
+    void playsAZeroCostCardEvenWithNoEnergyLeft() {
+        SimState s = state(0, 1, 30);
+        s.hand.add(new SimCard("Pommel Strike", false, 1, 9, "ATTACK", 0));
+        BeamSolver solver = new BeamSolver(3, 5, 135, 500, 500_000, 72)
+                .withNovelty().withPortfolio();
+        PlanAction action = solver.bestFirstAction(s, 10_000L);
+
+        assertNotNull(action, "必须给出动作");
+        assertEquals(PlanAction.Kind.PLAY_CARD, action.kind,
+                "能量 0 但手里有本回合 0 费的攻击牌，不该结束回合（novelty="
+                        + solver.lastNoveltyStop + " port=" + solver.lastPortfolioAdopted + "）");
+    }
+
     /** 同样的局面，但敌人只剩 3 血：必须补刀，不能空过。 */
     @Test
     void finishesALowHpEnemyInsteadOfEndingTheTurn() {

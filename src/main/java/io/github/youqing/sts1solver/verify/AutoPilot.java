@@ -316,6 +316,15 @@ public final class AutoPilot {
     private static java.util.ArrayDeque<io.github.youqing.sts1solver.search.RouteStep> plan;
     /** 计划是按哪一回合的局面算的；回合变了就作废。 */
     private static int planTurn = -1;
+    /**
+     * 采纳这份计划时的失配序号。执行每一步前比一下：序号涨了 = 影子已经和实机分叉，
+     * 计划里的「下一手」不再是从当前真局面算出来的 → 丢掉重算。
+     *
+     * <p>实例（2026-10-30 大块头那一场）：计划是在「腐化让技能免费」的影子局面下排的，
+     * 实机连着几个失配之后能量/手牌都对不上，但计划里还剩一个 END_TURN ——
+     * 自动驾驶照打，于是**留着 1 点能量和一张顺劈斩结束回合**，白挨一轮打。
+     */
+    private static int planMismatchSeq = -1;
     /** 上一次规划的统计，给面板显示（蓝本也有「已查阅 N 条世界线 / 耗时」这一行）。 */
     private static String planSummary = "";
     /** 等规划结果的帧数；超时就退回逐张兜底，避免整场卡在等搜索上。 */
@@ -368,6 +377,25 @@ public final class AutoPilot {
         }
     }
 
+    /**
+     * 每回合开头把真局面落一份快照，供离线复现。
+     *
+     * <p>为什么值得写盘：每次「这把打臭了」的复盘都卡在同一件事 —— 日志只说「打了什么」，
+     * 说不出「当时怪物多少血、意图多少伤害、手里还有哪些牌」。有了这份快照，
+     * 同一个回合可以反复重跑搜索、改完评估再跑一遍，不用再开一局游戏。
+     */
+    private static void dumpTurnSnapshot(int turn) {
+        try {
+            io.github.youqing.sts1solver.sim.SimState snap =
+                    io.github.youqing.sts1solver.sim.SimState.capture();
+            String path = snap.saveAs("turn-A" + snap.act + "F" + snap.floor
+                    + "T" + turn + ".json");
+            Trace.info("TURN snapshot " + path);
+        } catch (Throwable t) {
+            Trace.warn("turn snapshot failed: " + t);
+        }
+    }
+
     private static int playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {
         reportMissingMirrors(player);
         // ① 回合翻页 = 旧计划作废（跨回合的抽牌只是预测，不能硬套）
@@ -381,6 +409,7 @@ public final class AutoPilot {
                     + player.hand.size() + "  foes " + aliveMonsters());
             Trace.info("PLAN dropped: turn " + planTurn + " -> " + turnNow + ", replanning");
             plan = null;
+            dumpTurnSnapshot(turnNow);
         }
         // ② 有计划就照计划走（蓝本的「冻结路线 / 执行本回合」）
         if (plan != null && !plan.isEmpty()) {
@@ -454,6 +483,7 @@ public final class AutoPilot {
         plan = new java.util.ArrayDeque<io.github.youqing.sts1solver.search.RouteStep>(
                 result.steps);
         planTurn = turnNow;
+        planMismatchSeq = ShadowTracker.mismatchSequence();
         planSummary = summarizePlan(result);
         if (!lastSearchShape.isEmpty()) {
             // 面板第一行留一格「刚刚怎么算出来的」：135+base / 26k / 642ms
@@ -502,6 +532,17 @@ public final class AutoPilot {
     private static int executePlannedStep(AbstractPlayer player, AbstractMonster attackTarget) {
         io.github.youqing.sts1solver.search.RouteStep step = plan.peek();
         if (step == null) {
+            return OUTCOME_REPLAN;
+        }
+        // 影子已经和实机分叉（这回合有牌对不上）→ 这份计划剩下的步骤作废。
+        // 不重算就继续照打，等于拿「想象中的局面」指挥真局面（蓝本 DeploymentDrift 同义）。
+        if (ShadowTracker.mismatchSequence() != planMismatchSeq) {
+            int drift = ShadowTracker.mismatchSequence() - planMismatchSeq;
+            plan = null;
+            planTurn = -1;
+            planSummary = "";
+            Trace.info("PLAN dropped: " + drift
+                    + " mirror mismatch(es) since it was computed, replanning");
             return OUTCOME_REPLAN;
         }
         if (step.endTurn) {
@@ -574,7 +615,13 @@ public final class AutoPilot {
         // 药水效果不在对拍台架的跟踪范围里（台架只跟「打牌」）：作废基线，
         // 否则下一张牌的影子还停在喝药前，差出来的正是药水抽的牌/打的伤害。
         ShadowTracker.invalidateBaseline("potion " + step.cardKey);
-        plan.poll();
+        // 🔴 喝完药**整份计划作废**：三选一/液态记忆这类药水给哪张牌是游戏现掷的，
+        // 计划是在「不知道给什么」的前提下排的。2026-10-30 真机那一把，攻击药水给了
+        // 一张本回合 0 费的顺劈斩，计划却还按原样走，最后**留着它结束回合**，
+        // 白丢 9 点伤害 + 一次抽牌，接着被大块头反打 26。
+        plan = null;
+        planTurn = -1;
+        planSummary = "";
         noProgressEndTurns = 0;
         queuedCard = null;
         queuedFrames = 0;

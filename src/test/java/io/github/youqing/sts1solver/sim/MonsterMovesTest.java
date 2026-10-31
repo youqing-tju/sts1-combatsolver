@@ -248,7 +248,12 @@ class MonsterMovesTest {
         assertEquals(7, DamageCalc.monsterAttackDamage(s, 10, attacker), "10 × 0.75 = 7.5 → 7");
 
         s.playerPowers.put("Vulnerable", 1);
-        assertEquals(10, DamageCalc.monsterAttackDamage(s, 10, attacker), "7 × 1.5 = 10.5 → 10");
+        // 🔴 10 × 0.75 × 1.5 = 11.25 → **11**。原版全程 float，只在
+        // DamageInfo.applyPowers 末尾取一次 floor（javap：offset 340 才 call MathUtils.floor）。
+        // 旧断言写的 10 来自我们「每乘一步取一次整」的错实现（floor(7.5)=7，7×1.5=10.5→10），
+        // 每击少算 1 点 —— 2026-10-30 修掉（mechanics-reference §34）。
+        assertEquals(11, DamageCalc.monsterAttackDamage(s, 10, attacker),
+                "10 × 0.75 × 1.5 = 11.25 → 11（只在末尾取一次 floor）");
 
         attacker.powers.remove("Weakened");
         assertEquals(15, DamageCalc.monsterAttackDamage(s, 10, attacker), "10 × 1.5 = 15");

@@ -3518,3 +3518,62 @@ if (!exhaustCard || spooned) { /* 正常进弃牌堆 */ } else { /* 真消耗 */
 `Vajra` / `Bag of Preparation`）—— 所以**真正镜像的是 52 件**。
 之前一串「47 → 50 → 51」是沿着一个早已偏小的基数往上加，累计偏了 7。
 以后报这个数就报「52 件（白名单 58 条）」，别再逐个 +1。
+
+## 34. 真机失配三根因：伤害取整 / 完美打击自身 / 对拍放过怪物能力（B｜javap + 真机日志，2026-10-30）
+
+这一节记的是「用户说牌打得臭」之后从**真机日志**倒查出来的三条硬错误，每条都有字节码或日志证据。
+
+### 34.1 伤害管线**只在末尾**取一次 floor
+
+`DamageInfo.applyPowers` 的字节码：`float tmp = base` → 遍历出手方 powers 的
+`atDamageGive`（力量 +Vigor + 虚弱 ×0.75 + 笔尖 ×2）→ 遍历受击方 powers 的
+`atDamageReceive`（易伤 ×1.5/×1.75、Slow ×1.1^n）→ **offset 340 才 `MathUtils.floor(tmp)` 一次**。
+`AbstractCard.calculateCardDamage` 同样：全程 float，末尾一次 floor（并写进 `this.damage`）。
+
+我们以前**每乘一步就 floor 一次**，于是「虚弱 + 易伤」同时存在时每击少算 1 点：
+
+```
+10 × 0.75 × 1.5 = 11.25 → 11   （原版）
+floor(10×0.75)=7 → 7×1.5=10.5 → 10   （旧实现，少 1）
+```
+
+已改成 `DamageCalc.attackDamage` / `monsterAttackDamage` / `attackDamageWithStrengthMult`
+全程 float、末尾一次取整；笔尖（`PenNibPower.atDamageGive`，能力列表尾部 → 排在力量之后）
+也在 float 段里乘。旧测试 `MonsterMovesTest.monsterDamageUsesTheSameOrderAsDamageInfo`
+的期望值 10 就是按错实现写的，已改 11。
+
+### 34.2 完美打击（Perfected Strike）**数得到自己**
+
+`AbstractPlayer.useCard` 的顺序是：`calculateCardDamage`（offset 16）→ … → `hand.removeCard`
+（offset 109）。所以结算伤害时这张牌**还在手里**，`PerfectedStrike.countCards()`
+（只数 hand/draw/discard，**不数** exhaust）会把它自己算进去。
+
+真机证据：`DIFF Perfected Strike MISMATCH ... [monsters[0].hp: 65 vs 63]` —— 实机多打 2 点，
+正好是一张 Strike 的加成。修法：`Effects.damagePlusPerStrike` 补「打出的这张牌自己」。
+
+顺带把 STRIKE 标记扫了一遍全 jar（`javap -c` 逐类 grep `CardTags.STRIKE`）：
+`Strike_Red` / `PommelStrike` / `TwinStrike` / `WildStrike` / `PerfectedStrike` / `SwiftStrike`
+共 6 张，**都**含 "Strike"，所以按名字判与按标记判等价。
+
+### 34.3 对拍在怪物能力上是**假 MATCH**
+
+`SimState.diff` 里有一条 M2 时代的豁免：只要怪物身上有 power，就跳过 `block`/`powers` 比较。
+于是小鬼头目这种「整场靠 Enrage 每张技能牌 +2 力量」的怪，力量从 +2 涨到 +20
+对拍也不会报 —— 日志里那一片 MATCH 只代表血量对得上。已打开全量比较。
+
+配套：**失配样本落盘**（`solver-snapshots/mismatch/*.json`，三份快照 before/sim/live + 完整 diff）
+和**每回合开头落真局面**（`solver-snapshots/turn-A1F6T3.json`）。下次复盘不用再开游戏。
+
+### 34.4 执行层：计划必须跟着真局面走
+
+1. **失配即作废**：`ShadowTracker.mismatchSequence()` 涨了就丢掉剩余计划重算
+   （蓝本 `DeploymentDrift` 同义）。以前只在「采纳时」校验指纹，之后一路照打 ——
+   实测第 3 回合的计划是在「腐化让技能免费」的假局面里排的，实机连着失配后仍照打，
+   最后**留着 1 点能量 + 一张能打的牌结束回合**。
+2. **喝药后整份计划作废**：三选一/液态记忆给哪张是游戏现掷的，计划是在不知道的前提下排的。
+   实测攻击药水给了「本回合 0 费」的顺劈斩，计划照旧走 → 那张牌留在手里没打，白丢 9 伤 + 1 抽。
+3. **奖励选牌去重**：同一个 `rewardGroup` 实例只点一次。实测攻击药水三选一被点了 **2989 次**
+   （日志刷屏 50 秒、回合停住）。
+
+回归网：`EndTurnWithEnergyLeftTest.playsAZeroCostCardEvenWithNoEnergyLeft`
+（能量 0 但手里有本回合 0 费的攻击牌 → 不许结束回合）。全量 **524 条**通过（12 skip）。

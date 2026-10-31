@@ -468,15 +468,13 @@ public final class SimState {
                 cmp(out, p + "hp", a.hp, b.hp);
                 cmp(out, p + "maxHp", a.maxHp, b.maxHp);
 
-                // 怪物身上的「被动能力」（如虱虫的 Curl Up：受伤后蜷缩加格挡）会在我方出牌时
-                // 自行反应，而影子目前只建模玩家侧状态，没建模这些反应。
-                // 直接比较只会产生噪声，所以这类怪物的 block / powers 暂不比，只比血量。
-                // 等我方实现怪物能力（M3）后再打开。
-                boolean monsterReactionsUnmodelled = !a.powers.isEmpty() || !b.powers.isEmpty();
-                if (!monsterReactionsUnmodelled) {
-                    cmp(out, p + "block", a.block, b.block);
-                    diffMap(out, p + "powers", a.powers, b.powers);
-                }
+                // 🔴 以前这里有一条「怪物身上有 power 就跳过 block/powers 比较」的豁免，
+                // 理由是 M2 时怪物被动还没建模。M3 之后它变成了**假 MATCH 的源头**：
+                // 小鬼头目（Enrage → 每张技能牌 +2 力量）这种整场靠 power 变化的怪，
+                // 它的力量从 +2 涨到 +20 都不会被对拍发现，「MATCH」只说明血量对得上。
+                // 2026-10-30 打开：怪物的 block 与 powers 一律参与比较。
+                cmp(out, p + "block", a.block, b.block);
+                diffMap(out, p + "powers", a.powers, b.powers);
             }
         }
 
@@ -835,13 +833,24 @@ public final class SimState {
 
     /** Writes the JSON next to the logs; returns the absolute path (or an error note). */
     public String save() {
+        return saveAs("combat-" + System.currentTimeMillis() + ".json");
+    }
+
+    /**
+     * 同 {@link #save()}，但用指定文件名（相对 {@code sts1solver.snapshotDir}）。
+     *
+     * <p>用途：**每个回合开头落一份**（{@code turn-A1F6T3.json}）。真机打臭一把之后，
+     * 每个决策点都能离线重放 —— 不用再靠日志里的「PLAN steps」猜当时手里有什么牌、
+     * 怪物多少血、意图多少伤害。同名文件直接覆盖（同一层同一回合的旧局面没有保留价值）。
+     */
+    public String saveAs(String name) {
         try {
             String dirPath = System.getProperty("sts1solver.snapshotDir", "solver-snapshots");
             File dir = new File(dirPath);
             if (!dir.exists() && !dir.mkdirs()) {
                 return "save failed: cannot create " + dir.getAbsolutePath();
             }
-            File f = new File(dir, "combat-" + System.currentTimeMillis() + ".json");
+            File f = new File(dir, name);
             OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(f), "UTF-8");
             try {
                 w.write(toJson());

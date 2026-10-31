@@ -594,9 +594,17 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
                 int strikes = 0;
+                // 🔴 打出的这张牌**自己也算**：原版 {@code AbstractPlayer.useCard} 先调
+                // {@code calculateCardDamage}（字节码 offset 16），后调 {@code hand.removeCard}
+                // （offset 109）—— 所以结算伤害时它还在手里。{@code PerfectedStrike.countCards()}
+                // 只数 hand/draw/discard 三堆（无 exhaust），此时它必在其中（它带 STRIKE 标记）。
+                // 我们这张牌在进 effect 前已经从 hand 里移走，所以要显式补 1。
                 strikes += countStrikes(state.hand);
                 strikes += countStrikes(state.draw);
                 strikes += countStrikes(state.discard);
+                if (isStrikeCard(played)) {
+                    strikes++;
+                }
                 int dmg = base + perStrike * strikes;
                 DamageCalc.hit(state, target, DamageCalc.attackDamage(state, dmg, target));
             }
@@ -1648,11 +1656,20 @@ public final class Effects {
     private static int countStrikes(java.util.List<SimCard> pile) {
         int n = 0;
         for (SimCard c : pile) {
-            if (c.id.contains("Strike") || c.id.equals("Strike_R")) {
+            if (isStrikeCard(c)) {
                 n++;
             }
         }
         return n;
+    }
+
+    /**
+     * 带 {@code CardTags.STRIKE} 标记的牌（javap 扫全 jar 核实的**全部**六张）：
+     * Strike_Red、PommelStrike、TwinStrike、WildStrike、PerfectedStrike、SwiftStrike。
+     * 名字里都含 "Strike"，所以字符串判据与标记等价（铁甲 + 无色范围内没有反例）。
+     */
+    private static boolean isStrikeCard(SimCard c) {
+        return c != null && c.id != null && c.id.contains("Strike");
     }
 
     private static SimMonster requireTarget(SimState state, int targetIndex) {        if (targetIndex < 0 || targetIndex >= state.monsters.size()) {

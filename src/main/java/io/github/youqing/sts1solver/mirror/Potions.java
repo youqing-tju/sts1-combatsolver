@@ -417,7 +417,7 @@ public final class Potions {
             if (target == null || target.hp <= 0) {
                 return false;
             }
-            DamageCalc.hit(state, target, damageWithVulnerable(target, FIRE_POTION_DAMAGE));
+            DamageCalc.hit(state, target, damageWithVulnerable(state, target, FIRE_POTION_DAMAGE));
             return true;
         }
         if (BLOCK_POTION.equals(potionId)) {
@@ -452,7 +452,7 @@ public final class Potions {
             // 对所有活着的怪各打 potency 点（DamageType.THORNS + applyEnemyPowersOnly）
             for (SimMonster m : state.monsters) {
                 if (m.hp > 0) {
-                    DamageCalc.hit(state, m, damageWithVulnerable(m, EXPLOSIVE_POTION_DAMAGE));
+                    DamageCalc.hit(state, m, damageWithVulnerable(state, m, EXPLOSIVE_POTION_DAMAGE));
                 }
             }
             return true;
@@ -541,9 +541,14 @@ public final class Potions {
      * 药水伤害的易伤修正：原版 {@code applyEnemyPowersOnly} 从 {@code output = base} 开始，
      * 只遍历受击方的 power 改写输出，所以**只有易伤生效**（×1.5，向下取整）。
      */
-    private static int damageWithVulnerable(SimMonster target, int base) {
+    private static int damageWithVulnerable(SimState state, SimMonster target, int base) {
         Integer vuln = target.powers.get(DamageCalc.VULNERABLE);
-        return (vuln != null && vuln > 0) ? (int) Math.floor(base * 1.5f) : base;
+        if (vuln == null || vuln <= 0) {
+            return base;
+        }
+        // 倍率走 VulnerablePower.atDamageReceive，所以纸青蛙（1.75）对药水同样生效
+        return (int) Math.floor(base
+                * io.github.youqing.sts1solver.mirror.hooks.RelicHooks.vulnerableMultiplier(state));
     }
 
     private static void addPower(java.util.Map<String, Integer> powers, String id, int delta) {

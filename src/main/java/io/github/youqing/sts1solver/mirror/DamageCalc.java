@@ -7,9 +7,13 @@ import io.github.youqing.sts1solver.sim.SimState;
  * The vanilla damage pipeline, reduced to what a single-player Ironclad fight needs.
  *
  * <p>Order matters and follows the game: base → Strength → Weak (attacker, ×0.75) →
- * Vulnerable (target, ×1.5), flooring at each multiplicative step. Getting the order or
- * the rounding wrong produces plausible-looking but wrong numbers, which is the single
- * hardest class of bug to notice later, so each step is unit-tested.
+ * Vulnerable (target, ×1.5).
+ *
+ * <p>🔴 **只在最后取一次 floor**：{@code DamageInfo.applyPowers} 与
+ * {@code AbstractCard.calculateCardDamage} 的字节码里，整个过程都是 {@code float} 累乘，
+ * 末尾才 {@code MathUtils.floor(tmp)} 一次（javap 核实，见 {@code mechanics-reference} §34）。
+ * 我们以前每乘一步就 floor 一次 —— 有虚弱 + 易伤时每击会少算 1 点，正是「战损压不下去」那类
+ * 系统性偏差的来源。
  */
 public final class DamageCalc {
 
@@ -24,50 +28,57 @@ public final class DamageCalc {
 
     /** Damage an attack card deals after attacker and target modifiers. */
     public static int attackDamage(SimState state, int base, SimMonster target) {
-        int dmg = attackDamageWithoutRelics(state, base, target);
-        // 笔尖：计数为 9 时打出的这一击（= 第 10 击）翻倍。原版是 atDamageGive，
-        // 作用在力量/虚弱/易伤之后，所以放在最后一步。
+        float dmg = targetSideModifiers(state, base + power(state, STRENGTH)
+                + power(state, "Vigor"), target);
+        // 笔尖：计数为 9 时打出的这一击（= 第 10 击）翻倍。原版是 PenNibPower.atDamageGive，
+        // 而 power 是**后加进列表的排在尾部**，所以它在 Strength 之后执行 —— 加完力量再翻倍。
+        // 它同样是 float 乘，不在这里截断（原版末尾才 floor）。
         Integer penNib = state.relics.get("Pen Nib");
         if (penNib != null && penNib == 9) {
-            dmg = (int) Math.floor(dmg * 2.0f);
+            dmg *= 2.0f;
         }
+        int out = (int) Math.floor(dmg);
         // 靴子（Boot.onAttackToChangeDamage）：**玩家打出的** 1..4 点攻击伤害抬到 5。
         // 原版那段在 AbstractMonster.damage() 里，外面套着 `info.owner == player` 才遍历
         // 玩家遗物 —— 所以只作用于「玩家 → 怪物」这条链，怪物打玩家时不吃。
         // 它发生在 applyPowers / calculateCardDamage 之后 → 排在笔尖之后、落地之前。
         if (state.relics.containsKey(
                 io.github.youqing.sts1solver.mirror.hooks.RelicHooks.BOOT)
-                && dmg > 0 && dmg
+                && out > 0 && out
                 < io.github.youqing.sts1solver.mirror.hooks.RelicHooks.bootFloor()) {
-            dmg = io.github.youqing.sts1solver.mirror.hooks.RelicHooks.bootFloor();
+            out = io.github.youqing.sts1solver.mirror.hooks.RelicHooks.bootFloor();
         }
-        return Math.max(0, dmg);
+        return Math.max(0, out);
     }
 
-    private static int attackDamageWithoutRelics(SimState state, int base, SimMonster target) {
-        // VigorPower.atDamageGive：只有 NORMAL 类型吃，直接加在力量那一档
-        // （Akabeko 的 8 层就是这里生效）。它**不是**遗物钩子，是一个能力。
-        int dmg = base + power(state, STRENGTH) + power(state, "Vigor");
+    /**
+     * 目标侧（+ 出手侧非力量项）的倍率链，全程 float：
+     * 虚弱 ×0.75 → 易伤（纸青蛙 1.75 / 默认 1.5）→ Slow（每张牌 +10%）。
+     *
+     * <p>VigorPower.atDamageGive：只有 NORMAL 类型吃，直接加在力量那一档
+     * （Akabeko 的 8 层就是这里生效）。它**不是**遗物钩子，是一个能力，由调用方加进 base。
+     */
+    private static float targetSideModifiers(SimState state, float base, SimMonster target) {
+        float dmg = base;
         if (power(state, WEAKENED) > 0) {
-            dmg = (int) Math.floor(dmg * 0.75f);
+            dmg *= 0.75f;
         }
         if (target != null && powers(target).containsKey(VULNERABLE)
                 && powers(target).get(VULNERABLE) > 0) {
             // 纸青蛙把「玩家打敌人」的易伤倍率从 1.5 提到 1.75
             // （敌人打玩家那条仍是 1.5 —— 见 monsterAttackDamage）
-            dmg = (int) Math.floor(dmg
-                    * io.github.youqing.sts1solver.mirror.hooks.RelicHooks
-                            .vulnerableMultiplier(state));
+            dmg *= io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                    .vulnerableMultiplier(state);
         }
         // SlowPower.atDamageReceive：玩家这回合每打一张牌，这只怪受到的伤害 +10%
         // （amount 在 onAfterUseCard 里 +1，atEndOfRound 清零；只有 NORMAL 类型吃这个）
         if (target != null) {
             Integer slow = powers(target).get("Slow");
             if (slow != null && slow.intValue() > 0) {
-                dmg = (int) Math.floor(dmg * (1.0f + slow.intValue() * 0.1f));
+                dmg *= 1.0f + slow.intValue() * 0.1f;
             }
         }
-        return Math.max(0, dmg);
+        return dmg;
     }
 
     /**
@@ -77,29 +88,27 @@ public final class DamageCalc {
      * <pre>
      * base → + 怪物力量 → ×0.75（怪物虚弱）→ ×1.5（玩家易伤）
      * </pre>
-     * 每步都是 float 乘完再截断（与原版一致，不是四舍五入）。
+     * 全程 float，末尾一次 floor（不是四舍五入、也不是每步截断）。
      */
     public static int monsterAttackDamage(SimState state, int base, SimMonster attacker) {
-        int dmg = base;
+        float dmg = base;
         if (attacker != null) {
             Integer strength = attacker.powers.get(STRENGTH);
             dmg += strength == null ? 0 : strength.intValue();
             Integer weak = attacker.powers.get(WEAKENED);
             if (weak != null && weak.intValue() > 0) {
                 // 纸鹤：敌人中虚弱时少打 40%（×0.6），不是默认的 25%（×0.75）
-                dmg = (int) Math.floor(dmg
-                        * io.github.youqing.sts1solver.mirror.hooks.RelicHooks
-                                .monsterWeakMultiplier(state));
+                dmg *= io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                        .monsterWeakMultiplier(state);
             }
         }
         Integer vulnerable = state.playerPowers.get(VULNERABLE);
         if (vulnerable != null && vulnerable.intValue() > 0) {
             // 奇异蘑菇：**自己**中易伤只多受 25%（×1.25），不是 50%
-            dmg = (int) Math.floor(dmg
-                    * io.github.youqing.sts1solver.mirror.hooks.RelicHooks
-                            .playerVulnerableMultiplier(state));
+            dmg *= io.github.youqing.sts1solver.mirror.hooks.RelicHooks
+                    .playerVulnerableMultiplier(state);
         }
-        return Math.max(0, dmg);
+        return Math.max(0, (int) Math.floor(dmg));
     }
 
     /** Block gained from a skill card. */
@@ -591,22 +600,12 @@ public final class DamageCalc {
         target.pendingMoveId = 4;
     }
 
-    /** 力量按倍率生效（重刃：力量 ×3/×5）。 */
+    /** 力量按倍率生效（重刃：力量 ×3/×5）。倍率作用在**力量那一档**，其余照常一次 floor。 */
     public static int attackDamageWithStrengthMult(SimState state, int base, int mult,
                                                    SimMonster target) {
-        int dmg = base + power(state, STRENGTH) * mult;
-        if (power(state, WEAKENED) > 0) {
-            dmg = (int) Math.floor(dmg * 0.75f);
-        }
-        if (target != null && powers(target).containsKey(VULNERABLE)
-                && powers(target).get(VULNERABLE) > 0) {
-            // 纸青蛙把「玩家打敌人」的易伤倍率从 1.5 提到 1.75
-            // （敌人打玩家那条仍是 1.5 —— 见 monsterAttackDamage）
-            dmg = (int) Math.floor(dmg
-                    * io.github.youqing.sts1solver.mirror.hooks.RelicHooks
-                            .vulnerableMultiplier(state));
-        }
-        return Math.max(0, dmg);
+        float dmg = targetSideModifiers(state,
+                base + power(state, STRENGTH) * mult + power(state, "Vigor"), target);
+        return Math.max(0, (int) Math.floor(dmg));
     }
 
     private static int power(SimState state, String id) {

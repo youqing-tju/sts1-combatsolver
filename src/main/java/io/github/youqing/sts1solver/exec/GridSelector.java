@@ -36,6 +36,17 @@ public final class GridSelector {
     /** 当前奖励界面的候选集合（换了一批就重新挑目标）。 */
     private static java.util.ArrayList<AbstractCard> rewardGroup;
     private static AbstractCard rewardTarget;
+    /**
+     * 已经点过的那个奖励界面（按 {@code rewardGroup} 的**实例**认）。
+     *
+     * <p>2026-10-30 真机：攻击药水的三选一被反复点了 **2989 次**（日志 50 秒刷屏），
+     * 每次 {@code markReward} 都把 {@code rewardGroup} 清空又重算，界面却还没关 ——
+     * 于是同一帧序列里一直重复「选牌 + 打日志」。这 50 秒里回合是停住的。
+     */
+    private static java.util.ArrayList<AbstractCard> rewardPicked;
+    /** 同一个界面上最多重试多少次（点不动就放弃，别把回合卡死）。 */
+    private static final int REWARD_PICK_RETRY_LIMIT = 120;
+    private static int rewardPickAttempts;
 
     private GridSelector() {
     }
@@ -70,6 +81,8 @@ public final class GridSelector {
         }
         com.megacrit.cardcrawl.screens.CardRewardScreen screen = AbstractDungeon.cardRewardScreen;
         if (screen == null || screen.discoveryCard != null) {
+            rewardPicked = null;
+            rewardPickAttempts = 0;
             return null;     // 已经选过了
         }
         if (screen.rewardGroup == null || screen.rewardGroup.isEmpty()) {
@@ -127,6 +140,14 @@ public final class GridSelector {
         if (screen == null || !screen.rewardGroup.contains(card)) {
             return;
         }
+        // 同一个界面点过一次就不再点（除非界面没关、且还没超过重试上限）
+        if (rewardPicked == screen.rewardGroup) {
+            if (rewardPickAttempts++ < REWARD_PICK_RETRY_LIMIT) {
+                return;
+            }
+            // 超过上限：多半是这张牌点不动，放弃这一格，避免整场卡住
+            return;
+        }
         if (rewardGroup != screen.rewardGroup) {
             rewardGroup = screen.rewardGroup;
             rewardTarget = chooseRewardCard(screen.rewardGroup);
@@ -140,6 +161,8 @@ public final class GridSelector {
         io.github.youqing.sts1solver.verify.ShadowTracker.onGeneratedChoicePicked(index);
         io.github.youqing.sts1solver.verify.ShadowTracker.onChoiceConfirmed();
         Trace.info("REWARD pick #" + index + " " + card.cardID + (card.upgraded ? "+" : ""));
+        rewardPicked = screen.rewardGroup;
+        rewardPickAttempts = 0;
         rewardGroup = null;
         rewardTarget = null;
     }
