@@ -280,7 +280,7 @@ public final class SolverPanel {
         out.add(new Row(TITLE, Color.WHITE, true));
         out.add(new Row("diff " + ShadowTracker.matches() + "/"
                 + (ShadowTracker.matches() + ShadowTracker.mismatches())
-                + "      AUTO " + (AutoPilot.enabled() ? "ON" : "OFF"),
+                + "      " + autoLabel(),
                 new Color(0.78f, 0.81f, 0.85f, 1f), false));
         // 状态条：这一回合的真局面（AutoPilot 每回合推一次）
         out.add(new Row(turnLine.isEmpty() ? combatLine : turnLine,
@@ -295,6 +295,7 @@ public final class SolverPanel {
             }
             // 行号来自预览里的**绝对**回合（T4/T5），不再从剩余队列现场编号（那会写成 T1/T2）
             RouteStep next = AutoPilot.nextRouteStep();
+            int targetTurn = AutoPilot.stopAfterTurn();
             int shown = Math.min(MAX_PLAN_ROWS, preview.turns().size());
             for (int i = 0; i < shown; i++) {
                 RoutePreview.Turn turn = preview.turns().get(i);
@@ -307,7 +308,13 @@ public final class SolverPanel {
                 } else {
                     color = new Color(0.55f, 0.68f, 0.82f, 1f);
                 }
-                out.add(new Row(turn.text(next), color, false, Row.Kind.ROUTE,
+                String text = turn.text(next);
+                if (targetTurn >= 0 && targetTurn == turn.absoluteTurn()) {
+                    // 当前目标行：金色 + ◎，与状态区的 AUTO → Tn 对应
+                    text = "◎ " + text;
+                    color = new Color(1f, 0.84f, 0.35f, 1f);
+                }
+                out.add(new Row(text, color, false, Row.Kind.ROUTE,
                         turn.absoluteTurn(), turn.canTarget()));
             }
         } else {
@@ -325,6 +332,27 @@ public final class SolverPanel {
             out.add(new Row(text, new Color(0.6f, 0.62f, 0.66f, 1f), false));
         }
         return out.toArray(new Row[0]);
+    }
+
+    /**
+     * 状态行里的 AUTO 文案。
+     *
+     * <p>有界 AUTO 必须<b>明说</b>「每回合重算」：预览不是执行承诺，第 3 回合打什么
+     * 取决于那时抽到什么牌。预览被重算清空时也不能把目标藏起来，否则用户会以为任务丢了。
+     */
+    private static String autoLabel() {
+        int target = AutoPilot.stopAfterTurn();
+        if (!AutoPilot.enabled()) {
+            return "AUTO OFF";
+        }
+        if (target < 0) {
+            return "AUTO ON";
+        }
+        RoutePreview preview = AutoPilot.routePreview();
+        boolean hasRows = preview != null && !preview.turns().isEmpty();
+        return hasRows
+                ? "AUTO → T" + target + "（每回合重算）"
+                : "AUTO → T" + target + " · 重算中";
     }
 
     /**
@@ -666,6 +694,22 @@ public final class SolverPanel {
                 Trace.info("panel strategy section "
                         + (strategyExpanded ? "expanded" : "collapsed")
                         + " rows=" + (laidOutRows == null ? 0 : laidOutRows.length));
+                return true;
+            }
+            if (row.kind == Row.Kind.ROUTE) {
+                // 不可点的行（没有 END_TURN 的尾行、或预览已过期）也**吃掉**这次点击：
+                // 让它落到下面的按钮/拖拽上才是真正的事故。
+                if (!row.clickable || row.targetTurn < AutoPilot.currentTurn()) {
+                    Trace.info("panel route row T" + row.targetTurn + " not targetable"
+                            + " (clickable=" + row.clickable + ")");
+                    return true;
+                }
+                // 执行层会再校验一次真实回合（不能只信 UI 的行数据）
+                if (AutoPilot.runUntil(row.targetTurn)) {
+                    Trace.info("panel route row T" + row.targetTurn + " -> bounded AUTO");
+                }
+                layoutDirty = true;
+                ensureLayout();
                 return true;
             }
         }

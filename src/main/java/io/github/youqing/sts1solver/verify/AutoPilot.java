@@ -37,6 +37,14 @@ public final class AutoPilot {
     private static int cooldown;
 
     /**
+     * 有界 AUTO 的停止边界（{@code -1} = 无界）。
+     *
+     * <p>语义是「打完 Tn 的 END_TURN 与随后敌方阶段，在 Tn+1 玩家回合交还控制」，
+     * 与「照哪条路线打」无关：重算、漂移、喝药都不会清它。
+     */
+    private static final BoundedAutoTarget boundedTarget = new BoundedAutoTarget();
+
+    /**
      * 防重复入队：记住**刚入队的那个卡牌对象本身**。
      *
      * <p>⚠️ 不能用牌名判断。实测：烧牌契约打完后，枯木树枝又会塞回一张同名牌，
@@ -126,6 +134,8 @@ public final class AutoPilot {
         droppedStepsThisTurn = 0;
         io.github.youqing.sts1solver.search.AsyncSearch.reset();
         clearPlan();
+        // 下一场绝不继承上一场的停止目标（战斗提前胜利/死亡/离开房间都走这里）
+        boundedTarget.clear();
         framesWaitingForPlan = 0;
         reportedMissingMirrors.clear();
         strategySnapshotDirty = false;
@@ -134,17 +144,113 @@ public final class AutoPilot {
     }
 
     public static void toggle() {
-        enabled = !enabled;
+        if (enabled) {
+            // 手动关闭 = 立即交还控制。已经入队的游戏动作仍由游戏自然结算，不强杀。
+            stopAuto("toggled off");
+            return;
+        }
+        // 手动开启的是**无界** AUTO：只有点路线行才会设置停止目标（见 runUntil）
+        prepareEnable();
+        Trace.info("AUTO ON (unbounded)");
+    }
+
+    /**
+     * 开启 AUTO 前的统一清理。
+     *
+     * <p>手动 {@link #toggle()} 与 {@link #runUntil(int)} 必须清同一批东西：
+     * 不清的话上一轮残留的「刚入队的那张牌 / 连续无进展计数」会让新一次开启
+     * 立刻误判卡死（实测：一开就自己关掉）。
+     */
+    private static void prepareEnable() {
+        enabled = true;
         cooldown = 0;
-        // 重新开启时把上一轮的计数清干净，否则会「一开就立刻再触发一次卡死」
         queuedCard = null;
         queuedFrames = 0;
         noProgressEndTurns = 0;
-        Trace.info("AUTO " + (enabled ? "ON" : "OFF"));
+    }
+
+    /**
+     * **唯一**关闭 AUTO 的出口。
+     *
+     * <p>所有路径（手动按钮、异常、连续卡死、无进展、有界任务完成）都走这里，
+     * 保证「有界目标」不会被下一次开启莫名继承。少绕一处就会出现
+     * 「上一场点到 T7，这一场开 AUTO 打到 T7 自己停了」这种无法解释的行为。
+     */
+    private static void stopAuto(String reason) {
+        boolean wasEnabled = enabled;
+        boolean hadTarget = boundedTarget.isActive();
+        int target = boundedTarget.targetTurn();
+        enabled = false;
+        boundedTarget.clear();
+        if (hadTarget) {
+            panelRevision++;      // 目标高亮/状态文案要跟着消失
+            Trace.info("AUTO bounded target T" + target + " cleared (" + reason + ")");
+        }
+        if (wasEnabled) {
+            Trace.info("AUTO OFF (" + reason + ")");
+        }
     }
 
     public static void disable() {
-        enabled = false;
+        stopAuto("disabled");
+    }
+
+    // ------------------------------------------------------- 有界 AUTO（打到 Tn）
+
+    /**
+     * 「AUTO 打到 {@code targetTurn} 这一回合末就停」。
+     *
+     * <p>⚠️ 这是**项目自定义扩展**，不是蓝本的 {@code ApplyRoute} / {@code AdoptRoute}：
+     * 蓝本根本没有 {@code ApplyRoute}，它的路线行 {@code MouseFilter = Ignore}（不可点）。
+     * 我们只设置一个<b>绝对停止回合</b>，不冻结路线、不按旧预测跨回合照打 ——
+     * 每回合仍然按真局面重搜，只是停的边界由用户指定。
+     *
+     * <p>行为（对应设计 §5.2）：
+     * <ol>
+     *   <li>读主线程真实回合；{@code targetTurn} 小于当前回合 = 过期目标 → 不改任何状态，返回 false；</li>
+     *   <li>AUTO 已开：保留开启，替换目标；</li>
+     *   <li>AUTO 未开：按 {@link #prepareEnable()} 开启（<b>不</b>调 toggle()，避免翻转歧义）；</li>
+     *   <li>不取消正在跑的 {@code AsyncSearch}：点击路线不等于撤回搜索。</li>
+     * </ol>
+     *
+     * <p>入口自己重新校验，不能只信任 UI —— 面板行可能来自已经过期的预览。
+     *
+     * @return true = 目标已生效
+     */
+    public static boolean runUntil(int targetTurn) {
+        int turnNow = currentTurn();
+        if (!boundedTarget.request(targetTurn, turnNow)) {
+            Trace.warn("AUTO bounded request rejected: target=T" + targetTurn
+                    + " current=T" + turnNow + " (stale target or invalid turn)");
+            return false;
+        }
+        boolean alreadyOn = enabled;
+        if (!alreadyOn) {
+            prepareEnable();
+        }
+        panelRevision++;          // 状态文案与目标行高亮要重排
+        Trace.info("AUTO bounded start target=T" + targetTurn + " current=T" + turnNow
+                + (alreadyOn ? "  (already on, target replaced)" : ""));
+        return true;
+    }
+
+    /**
+     * 有界 AUTO 的目标回合；普通无界 AUTO 返回 {@code -1}。
+     *
+     * <p>面板据此写 {@code AUTO → Tn（每回合重算）}。注意它<b>不</b>代表
+     * 「路线已冻结」：预览随时可能因为重算被清空，目标本身不变。
+     */
+    public static int stopAfterTurn() {
+        return boundedTarget.targetTurn();
+    }
+
+    /** 主线程读取真实绝对玩家回合；拿不到返回 0（调用方据此拒绝设置目标）。 */
+    public static int currentTurn() {
+        try {
+            return AbstractDungeon.actionManager == null ? 0 : AbstractDungeon.actionManager.turn;
+        } catch (Throwable t) {
+            return 0;
+        }
     }
 
     public static void tick() {
@@ -176,6 +282,21 @@ public final class AutoPilot {
         if (waitingForNextTurn()) {
             return;
         }
+        // 🔴 有界 AUTO 的停止点。
+        //
+        // 位置是三处约束的交点，挪任何一个都会出真机问题：
+        //   ① 必须在 waitingForNextTurn() **之后** —— Tn 的 END_TURN 一入队就停的话，
+        //      敌方阶段还没打完，等于把这个回合劈成两半，怪物行动归属说不清；
+        //   ② 必须在任何搜索 / 出牌 / 喝药 / END_TURN **之前** —— 晚一步就会在 Tn+1 多打一手，
+        //      用户看到的是「说了停在 Tn，结果多打了一张」；
+        //   ③ 不能只放在回合变化清计划处 —— 那里可能继续本 tick 出牌。
+        if (boundedTarget.shouldStop(turnNow)) {
+            int stoppedAt = boundedTarget.targetTurn();
+            stopAuto("bounded complete");
+            Trace.info("AUTO bounded stop after T" + stoppedAt
+                    + "; control returned at T" + turnNow);
+            return;
+        }
         if (queuedCard != null) {
             queuedFrames++;
             AbstractPlayer player = AbstractDungeon.player;
@@ -198,7 +319,7 @@ public final class AutoPilot {
                 if (stuckStreak >= STUCK_STREAK_LIMIT) {
                     Trace.warn("AUTO stopped: " + stuckStreak
                             + " cards in a row were refused by the game this turn");
-                    enabled = false;
+                    stopAuto("stuck: " + stuckStreak + " refused cards in a row");
                 }
                 return;
             }
@@ -241,7 +362,7 @@ public final class AutoPilot {
                             + " discard=" + player.discardPile.size()
                             + " exhaust=" + player.exhaustPile.size()
                             + ") — the fight cannot progress, automatic play disabled");
-                    enabled = false;
+                    stopAuto("no progress: empty hand for " + noProgressEndTurns + " turns");
                     return;
                 }
                 Trace.info("AUTO end turn (empty hand #" + noProgressEndTurns
@@ -287,7 +408,7 @@ public final class AutoPilot {
                 if (noProgressEndTurns > NO_PROGRESS_LIMIT) {
                     Trace.warn("AUTO stopped: " + noProgressEndTurns
                             + " turns in a row with nothing playable — automatic play disabled");
-                    enabled = false;
+                    stopAuto("no progress: nothing playable for " + noProgressEndTurns + " turns");
                     return;
                 }
                 Trace.info("AUTO end turn (nothing playable)  " + describeHand(player));
@@ -296,7 +417,7 @@ public final class AutoPilot {
             }
         } catch (Throwable t) {
             Trace.error("auto pilot failed", t);
-            enabled = false;
+            stopAuto("exception: " + t);
         }
     }
 
