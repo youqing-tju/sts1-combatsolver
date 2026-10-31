@@ -36,8 +36,22 @@ public final class AsyncSearch {
         public final java.util.List<RouteStep> steps;
         /** 这一次的节点上限（面板档位给的），配合 {@link #nodes} 看预算用了多少。 */
         public final int nodeLimit;
-        /** 是不是被节点上限截断的。false = 树被搜完了，再加预算也没用。 */
+        /**
+         * 是不是被节点上限截断的。
+         *
+         * <p>⚠️ {@code false} **不等于**「树被搜完了，再加预算也没用」——
+         * 它也可能是「整个地平线走完了」（{@code stopReason="horizon"}，最常见），
+         * 或者「真的找到了完整胜利」（{@code "victory"}）。判读请用 {@link #stopReason}。
+         */
         public final boolean hitNodeLimit;
+        /**
+         * 这一趟为什么停：{@code victory} / {@code horizon} / {@code node_limit} / {@code time_limit}。
+         *
+         * <p>2026-10-31 的交接文档把 {@code !hitNodeLimit} 读成「open 表过早耗尽、剪枝太狠」，
+         * 据此提出「加预算无效、要查剪枝」的结论；2026-11-01 用 123 个真机快照实测：
+         * 123 次全是 {@code horizon}，节点用量 2~3% —— 搜索是把整场战斗推演完了，不是被剪死。
+         */
+        public final String stopReason;
         /**
          * 搜索本身**崩了**（抛异常），不是「没找到路」。
          *
@@ -86,7 +100,15 @@ public final class AsyncSearch {
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
                boolean failed, String noveltyStop, String portfolioAdopted) {
+            this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
+                    hitNodeLimit, failed, noveltyStop, portfolioAdopted, "");
+        }
+
+        Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
+               int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
+               boolean failed, String noveltyStop, String portfolioAdopted, String stopReason) {
             this.fingerprint = fingerprint;
+            this.stopReason = stopReason == null ? "" : stopReason;
             this.action = action;
             this.nodes = nodes;
             this.states = states;
@@ -188,7 +210,7 @@ public final class AsyncSearch {
                 result = new Result(fingerprint, action, solver.lastNodes, solver.lastStates,
                         solver.lastDepth, solver.lastMillis, solver.lastLeaves,
                         solver.lastSteps, nodeLimit, solver.hitNodeLimit, false,
-                        solver.lastNoveltyStop, solver.lastPortfolioAdopted);
+                        solver.lastNoveltyStop, solver.lastPortfolioAdopted, solver.lastStopReason);
             } catch (Throwable t) {
                 Trace.error("background search failed", t);
                 result = new Result(fingerprint, null, 0, 0, 0, 0, 0,

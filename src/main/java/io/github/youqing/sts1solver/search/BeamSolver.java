@@ -90,6 +90,15 @@ public final class BeamSolver {
     /** 最后采纳的是哪个成员（{@code "135"} / {@code "90"} / {@code "135+band"} …）。 */
     public String lastPortfolioAdopted = "";
 
+    /**
+     * 本趟搜索留下的**最终候选池**：打完的终局 + 最后一代前沿 + 本趟挑出来的那一个。
+     *
+     * <p>蓝本 {@code CombatBeamSolver.Phases.cs:2222}：
+     * {@code finalPool = [..completed, ..frontier]} —— 最终选哪条路线是在
+     * **所有终局 + 所有前沿节点**里排，而不是只看本趟自己挑出来的那一个。
+     */
+    final java.util.List<SearchNode> lastFinalPool = new ArrayList<SearchNode>();
+
     /** 蓝本 {@code NoveltyPortfolioBudget}：探索的时间帽 = min(5s, 总预算 / 2)，Boss 再除以 4。 */
     static long noveltyBudgetMillis(long totalMillis, boolean boss) {
         if (totalMillis == Long.MAX_VALUE) {
@@ -114,6 +123,23 @@ public final class BeamSolver {
      * 比这个分数，就能分清是「搜索没看到」（根本搜不到，前缀会被拒）还是「估值觉得更差」。
      */
     public long lastSelectedScore;
+    /**
+     * 这一次采纳的路线是不是**真的打完了这场战斗**（{@code isCompleteVictory}）。
+     *
+     * <p>⚠️ 不能用 {@code lastSelectedScore >= VICTORY_BONUS} 判断：胜利分里还要扣掉
+     * 掉血与本回合惩罚，掉血多时总分会被压到 {@code VICTORY_BONUS} 以下，
+     * 于是「赢了」被误读成「没赢」（2026-11-01 批量探针踩过这个坑）。
+     */
+    public boolean lastSelectedVictory;
+    /**
+     * 这一趟**为什么停**：{@code victory} / {@code horizon} / {@code node_limit} / {@code time_limit}。
+     *
+     * <p>为什么要有它：以前日志只打 {@code hitNodeLimit ? "node limit hit" : "tree exhausted"}，
+     * 于是「把整个地平线走完了」被读成「树被剪得太狠、再加预算也没用」（2026-10-31 交接文档
+     * 就是这么写的）。实际正好相反 —— 真机 123 个快照里 **123 次都是 horizon**，
+     * 也就是搜索把整场战斗推演到了终局，节点预算只用掉 2~3%。
+     */
+    public String lastStopReason = "";
     public int lastWidth;
     /**
      * 从根到最优叶子的**完整动作序列**（蓝本的「世界线」就是这个：一条打完整场战斗的路线）。
@@ -547,6 +573,10 @@ public final class BeamSolver {
 
         lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
         lastSelectedScore = selected == null ? Long.MIN_VALUE : selected.score;
+        lastSelectedVictory = isCompleteVictory(selected);
+        lastStopReason = hitNodeLimit ? "node_limit"
+                : (lastPassCutShort ? "time_limit"
+                : (lastSelectedVictory ? "victory" : "horizon"));
         if (selected != null) {
             // 补搜可能会换掉主搜索的答案，路线要跟着换（AUTO 执行的是 lastSteps）
             lastRoute = routeOf(selected);
@@ -790,6 +820,10 @@ public final class BeamSolver {
         lastPortfolioMembers.clear();
         lastPortfolioAdopted = "";
 
+        // 全局候选池：每个成员把自己那一趟的 finalPool 交上来，最后统一排序
+        java.util.List<SearchNode> pool = new ArrayList<SearchNode>();
+        java.util.List<String> poolLabels = new ArrayList<String>();
+
         SearchNode best = null;
         String bestLabel = "";
         boolean baselineObserved = false;
@@ -854,6 +888,10 @@ public final class BeamSolver {
                     best = candidate;
                     bestLabel = label;
                 }
+                for (SearchNode node : lastFinalPool) {
+                    pool.add(node);
+                    poolLabels.add(label);
+                }
             } else if (candidate != null) {
                 boolean terminal = isCompleteVictory(candidate) || SearchNode.noAliveMonster(candidate.state);
                 boolean comparable = !memberHitLimit || terminal;
@@ -861,8 +899,29 @@ public final class BeamSolver {
                     best = candidate;
                     bestLabel = label;
                 }
+                // 被节点上限截断的那一趟，前沿是半成品，只在它真的打完时才算数
+                if (comparable) {
+                    for (SearchNode node : lastFinalPool) {
+                        if (!memberHitLimit || node.terminal()) {
+                            pool.add(node);
+                            poolLabels.add(label);
+                        }
+                    }
+                }
             }
             lastPortfolioMembers.add(label + "=" + memberExpanded + "n/" + memberMillis + "ms");
+        }
+
+        // 全局重排：在「所有成员 × 所有终局/前沿」里挑一条（蓝本 finalPool 口径）
+        for (int i = 0; i < pool.size(); i++) {
+            SearchNode node = pool.get(i);
+            if (node == null || node.action == null) {
+                continue;                   // 根节点没有可执行动作
+            }
+            if (best == null || better(node, best)) {
+                best = node;
+                bestLabel = poolLabels.get(i);
+            }
         }
 
         lastPortfolioAdopted = bestLabel;
@@ -1033,6 +1092,17 @@ public final class BeamSolver {
         // ③ 两者都没有（例如第一回合就走死了）才退回前沿里最好的叶子。
         SearchNode best = bestTerminal != null ? bestTerminal
                 : (currentTurnCandidate != null ? currentTurnCandidate : bestOf(frontier));
+
+        // 蓝本 finalPool = [..completed, ..frontier]：把这一趟找到的**所有**候选留下来，
+        // 交给宽度组合在全局范围里排，而不是「每趟只交一个节点」。
+        lastFinalPool.clear();
+        if (bestTerminal != null) {
+            lastFinalPool.add(bestTerminal);
+        }
+        lastFinalPool.addAll(frontier);
+        if (best != null) {
+            lastFinalPool.add(best);
+        }
 
         SearchNode bestRollout = null;
         if (useRollout) {

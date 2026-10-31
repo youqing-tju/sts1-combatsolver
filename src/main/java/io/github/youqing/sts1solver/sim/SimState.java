@@ -791,7 +791,10 @@ public final class SimState {
         StringBuilder sb = new StringBuilder(512);
         sb.append("{\n  \"meta\":{\"act\":").append(act)
           .append(",\"floor\":").append(floor)
-          .append(",\"ascension\":").append(ascension).append("},\n");
+          .append(",\"ascension\":").append(ascension)
+          // boss 必须落盘：搜值里「延迟收益」只在多敌人或 Boss 房启用（蓝本同一条件），
+          // 少了这个标志，Boss 房回放会被当成普通房静默算成另一套估值。
+          .append(",\"boss\":").append(boss).append("},\n");
         sb.append("  \"player\":{\"hp\":").append(hp)
           .append(",\"maxHp\":").append(maxHp)
           .append(",\"block\":").append(block)

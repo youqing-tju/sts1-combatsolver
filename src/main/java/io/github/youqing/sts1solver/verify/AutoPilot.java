@@ -763,13 +763,15 @@ public final class AutoPilot {
             // 面板第一行留一格「刚刚怎么算出来的」：135+base / 26k / 642ms
             planSummary = lastSearchShape + "   " + planSummary;
         }
-        // 预算用量一并打出来：树被搜完了（exhausted）再加预算也没用，
-        // 只有 hitNodeLimit=true 才说明「是预算把它掐断的」。
+        // 预算用量 + **停止原因**：horizon = 把整场战斗推演完了（最常见，节点用量很低是正常的），
+        // node_limit / time_limit 才是被预算掐断。以前只印 "tree exhausted"，
+        // 被读成「剪枝太狠」，据此得出过「加预算无效」的错误结论（2026-11-01 已用 123 个真机快照纠正）。
         Trace.info("PLAN ready: " + result.steps.size() + " steps, depth " + result.depth
                 + " turns, " + result.nodes + "/" + result.nodeLimit + " nodes ("
                 + (result.nodeLimit <= 0 ? "unlimited"
                     : (result.nodes * 100 / Math.max(1, result.nodeLimit)) + "%")
-                + ", " + (result.hitNodeLimit ? "node limit hit" : "tree exhausted")
+                + ", stop=" + (result.stopReason.isEmpty()
+                    ? (result.hitNodeLimit ? "node_limit" : "?") : result.stopReason)
                 + ") / " + result.states + " states, " + result.millis + " ms"
                 + "  port=" + (result.portfolioAdopted.isEmpty() ? "off" : result.portfolioAdopted)
                 + " novelty=" + result.noveltyStop);
@@ -1280,7 +1282,7 @@ public final class AutoPilot {
      * 结束回合必须走**游戏自己的路** —— 而且是**和鼠标点击完全同一条路**。
      *
      * <p>🔴 2026-10-31 真机事故（灼烧 / 多层护甲 / 金属化 / 奥利哈刚全部不触发，
-     * 手点结束回合就正常）。根因在游戏侧，字节码逐条核实：
+     * 手点结束回合就正常）。下面这条链是字节码逐条核实过的**事实**：
      *
      * <pre>
      * // GameActionManager.getNextAction()，cardQueue 非空时：
@@ -1310,11 +1312,14 @@ public final class AutoPilot {
      *   <li>{@code player.releaseCard()} —— 清 {@code justClickedLeft/isMouseDown/inSingleTargetMode} 等输入态</li>
      * </ol>
      *
-     * <p>少了第 2、5 步，`cardQueue` 的状态和「手点」不同，哨兵项就漏掉了 ——
-     * 表现正是「回合照常推进，但这一回合所有回合末效果一起静默消失」。
+     * <p>少了第 2、5 步之后，{@code cardQueue} 的状态与「手点」有哪些差别，**目前只是假设**
+     * （与「回合照常推进、但这一回合所有回合末效果一起静默消失」的现象相符）。探针已观测到
+     * {@code endTurn()} 确实会启动（{@code q} 由 1 变 0 的那一帧 {@code actions} 从 0 跳到 3~5），
+     * 所以「入口没启动」已被排除，但「哨兵项丢失」尚未被直接观测到 —— 这条因果待真机验证。
      *
-     * <p>所以现在不再自己拼这一步，而是**直接调用按钮自己的 {@code disable(true)}**：
-     * 不复制逻辑、不和版本漂移赛跑，路径与手点逐字节一致。
+     * <p>既然已知差异只有第 2、5 步，修法就是**直接调用按钮自己的 {@code disable(true)}**：
+     * 不复制逻辑、不和版本漂移赛跑，路径与手点逐字节一致。这是**消除差异**的排除法修法，
+     * 不是定位到具体某一行后的定点修复；真机逐项通过前保持「候选修复」状态。
      *
      * <p>⚠️ 仍然不能调 {@code actionManager.endTurn()}：那是 {@code EndTurnAction} 才做的事，
      * 会跳过玩家侧整段（实测：战斗专注的「禁止抽牌」永不消失、怪物完全不行动）。

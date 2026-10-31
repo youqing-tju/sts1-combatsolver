@@ -73,8 +73,10 @@ tasks.test {
     reports.html.required.set(false)
     reports.junitXml.required.set(true)
     // 回合重放探针（TurnReplayProbeTest）：gradlew test -Dreplay=<snapshot.json>
-    // Gradle 不会把命令行 -D 自动转给测试 JVM，这里显式转发一次。
+    // 批量快照探针（SnapshotBatchProbeTest）：gradlew test -Dbatch=<snapshot dir>
+    // Gradle 不会把命令行 -D 自动转给测试 JVM，这里显式转发。
     providers.systemProperty("replay").orNull?.let { systemProperty("replay", it) }
+    providers.systemProperty("batch").orNull?.let { systemProperty("batch", it) }
     // 离线实验（@Disabled 的那些）靠这个开关打开：gradle test -Pexperiments
     // 这样不用改源码就能跑 A/B，也就不会出现「忘了把 @Disabled 加回去」。
     if (project.hasProperty("experiments")) {

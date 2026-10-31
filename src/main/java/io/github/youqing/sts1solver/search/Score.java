@@ -250,6 +250,8 @@ public final class Score {
     public final int initialRetainedAttackValue;
     /** 开局时的敌人数（蓝本只在多敌人/Boss 时启用 LatentSetup）。 */
     public final int initialEnemyCount;
+    /** 这一场是不是幕末 Boss 房（蓝本 {@code _isActEndingBoss}）。 */
+    public final boolean initialBoss;
 
     public final boolean dead;
     public final boolean won;
@@ -293,6 +295,7 @@ public final class Score {
         this.clutter = b.clutter;
         this.initialRetainedAttackValue = b.initialRetainedAttackValue;
         this.initialEnemyCount = b.initialEnemyCount;
+        this.initialBoss = b.initialBoss;
         this.dead = b.dead;
         this.won = b.won;
         this.actions = b.actions;
@@ -335,6 +338,14 @@ public final class Score {
         final io.github.youqing.sts1solver.mirror.PostCombatRelicHeal postCombatHeal;
         /** 路线起点的「能力保留价值」（蓝本 {@code InitialPersistentBuffValue}）。 */
         final int initialPersistentBuffValue;
+        /**
+         * 这一场是不是幕末 Boss 房（蓝本 {@code _isActEndingBoss}）。
+         *
+         * <p>STS1 的 Boss 判定就是房间类型 {@code MonsterRoomBoss}（{@code SimState.boss}）。
+         * 它只为 {@code LatentSetupValue} 服务：蓝本的启用条件是
+         * {@code _isActEndingBoss || _initialEnemyCount > 1}，我们以前只留了后半句。
+         */
+        final boolean boss;
 
         public Root(SimState state) {
             this(state, false);
@@ -357,6 +368,7 @@ public final class Score {
                 }
             }
             this.enemyCount = alive;
+            this.boss = state.boss;
             this.retainedAttackValue = attackTotal(state.hand) + attackTotal(state.draw)
                     + attackTotal(state.discard);
             this.postCombatHeal = io.github.youqing.sts1solver.mirror.PostCombatRelicHeal.of(state.relics);
@@ -425,6 +437,7 @@ public final class Score {
         b.turns = Math.max(0, state.turn - root.turn);
         b.initialRetainedAttackValue = root.retainedAttackValue;
         b.initialEnemyCount = root.enemyCount;
+        b.initialBoss = root.boss;
         b.postCombatHeal = root.postCombatHeal;
         b.initialPersistentBuffValue = root.initialPersistentBuffValue;
         // 没有能力时整段跳过：投影要扫一遍三个牌堆 + 怪物，而绝大多数节点身上没有能力，
@@ -630,7 +643,8 @@ public final class Score {
             int persistentDelta = Math.max(0, persistentBuffValue - initialPersistentBuffValue);
             score += Math.min(PERSISTENT_CAP, persistentDelta) * PERSISTENT_VALUE;
             // 还没打出去的能力牌 = 延迟收益（蓝本：只在多敌人或 Boss 时启用）
-            if (initialEnemyCount > 1) {
+            // 蓝本只在「多敌人或幕末 Boss」时启用 LatentSetup（_isActEndingBoss || _initialEnemyCount > 1）
+            if (initialBoss || initialEnemyCount > 1) {
                 score += Math.min(LATENT_SETUP_CAP, latentSetupValue) * LATENT_SETUP_VALUE;
             }
             // 牌堆攻击总量比开局更多（暴走/愤怒/武装）= 未来输出更高
@@ -706,6 +720,7 @@ public final class Score {
         int latentSetupValue;
         int initialRetainedAttackValue;
         int initialEnemyCount;
+        boolean initialBoss;
         int clutter;
         boolean dead;
         boolean won;

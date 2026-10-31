@@ -70,7 +70,7 @@ class TurnReplayProbeTest {
                 "  选择: %s   score=%d  nodes=%d states=%d depth=%d ms=%d port=%s novelty=%s%s",
                 chosen, solver.lastSelectedScore, solver.lastNodes, solver.lastStates,
                 solver.lastDepth, solver.lastMillis, solver.lastPortfolioAdopted,
-                solver.lastNoveltyStop, solver.hitNodeLimit ? "  [node limit hit]" : "  [tree exhausted]"));
+                solver.lastNoveltyStop, solver.lastSelectedVictory ? "  [WIN]" : "  [no win]"));
         System.out.println("  路线: " + steps(solver, 14));
 
         // 逐个候选首手钉成固定前缀，看每条线各自能走到多好
@@ -81,15 +81,17 @@ class TurnReplayProbeTest {
             List<PlanAction> prefix = Collections.singletonList(PlanAction.play(i, 0));
             BeamSolver forced = realConfig().withFixedPrefix(prefix);
             forced.bestFirstAction(root.copy(), 60_000L);
-            lines.add(String.format("    %-22s score=%-14d nodes=%-6d %s",
+            lines.add(String.format("    %-22s score=%-14d nodes=%-6d %-4s %s",
                     c.key() + "(" + c.effectiveCost() + ")",
-                    forced.lastSelectedScore, forced.lastNodes, steps(forced, 8)));
+                    forced.lastSelectedScore, forced.lastNodes,
+                    forced.lastSelectedVictory ? "WIN" : "lost", steps(forced, 8)));
         }
         BeamSolver end = realConfig().withFixedPrefix(
                 Collections.singletonList(PlanAction.endTurn()));
         end.bestFirstAction(root.copy(), 60_000L);
-        lines.add(String.format("    %-22s score=%-14d nodes=%-6d %s",
-                "END_TURN", end.lastSelectedScore, end.lastNodes, steps(end, 8)));
+        lines.add(String.format("    %-22s score=%-14d nodes=%-6d %-4s %s",
+                "END_TURN", end.lastSelectedScore, end.lastNodes,
+                end.lastSelectedVictory ? "WIN" : "lost", steps(end, 8)));
         for (String line : lines) {
             System.out.println(line);
         }

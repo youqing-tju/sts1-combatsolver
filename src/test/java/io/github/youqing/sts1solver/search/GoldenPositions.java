@@ -120,6 +120,8 @@ final class GoldenPositions {
         s.act = intOf(meta, "act");
         s.floor = intOf(meta, "floor");
         s.ascension = intOf(meta, "ascension");
+        // 老快照没有这个字段（读到 false = 按普通房处理，与当时的行为一致）
+        s.boss = meta.containsKey("boss") && boolOf(meta, "boss");
 
         Map<String, Object> p = asMap(root.get("player"));
         s.hp = intOf(p, "hp");
