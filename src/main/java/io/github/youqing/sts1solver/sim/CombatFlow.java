@@ -230,7 +230,8 @@ public final class CombatFlow {
      * 所以用蓝蜡烛/医疗包**主动打出**它们时反而什么都不发生（我们的空效果镜像是对的）。
      *
      * <pre>
-     * Burn  / Decay  → DamageAction(player, DamageInfo(player, 2, THORNS))   // 吃格挡
+     * Burn  / Decay  → DamageAction(player, DamageInfo(player, magicNumber, THORNS))   // 吃格挡
+     *                  Burn: 2 / Burn+: 4（upgradeMagicNumber(2)）；Decay 恒 2（upgrade() 空实现）
      * Regret         → LoseHPAction(player, player, magicNumber = 当时手牌数)  // HP_LOSS，无视图格挡
      * Doubt          → WeakPower(player, 1)     // 吃姜
      * Shame          → FrailPower(player, 1)    // 吃萝卜
@@ -252,7 +253,12 @@ public final class CombatFlow {
                 io.github.youqing.sts1solver.mirror.Effects.exhaustCard(state, card);
                 continue;
             }
-            if ("Burn".equals(card.id) || "Decay".equals(card.id)) {
+            if ("Burn".equals(card.id)) {
+                // 灼烧：magicNumber 2，upgrade() → upgradeMagicNumber(2) → 4（javap 核实）
+                hitPlayer(state, card.upgraded ? 4 : 2, null, DamageKind.THORNS);
+            } else if ("Decay".equals(card.id)) {
+                // 腐朽：构造器没有 magicNumber，use() 里 iconst_2 写死；
+                // upgrade() 是 `0: return` 空实现 → 原版**不存在** Decay+，恒为 2。
                 hitPlayer(state, 2, null, DamageKind.THORNS);
             } else if ("Regret".equals(card.id)) {
                 hitPlayer(state, handSize, null, DamageKind.HP_LOSS);
