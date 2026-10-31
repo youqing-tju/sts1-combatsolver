@@ -141,7 +141,7 @@ status: "用户已于 2026-10-31 批准；实施须遵循 TDD 计划"
 - 折叠标题是一条真实命中区域；路线行与折叠标题在按钮、拖拽标题之前处理，避免同一点击落入两个动作。
 - `ensureLayout()` 缓存本次用于布局、渲染、命中的同一个 `Row[]`，避免 update 与 render 各自重建出不同行序。
 - 展开内容导致面板变高时仍走 `clampToScreen()`；拖拽结束再夹取。
-- 本刀沿用现有面板输入时机，不新增全局输入钩子；真机必须验证点击不会同时选到下方卡牌。若出现 click-through，暂停交付并单独报备输入消费补丁，不在实施中暗中扩大范围。
+- 本刀优先沿用现有面板输入时机；真机必须验证点击不会同时选到下方卡牌。若出现 click-through，直接记录复现、评估最小输入消费修复及回退，实施并补真机验证；不得隐瞒全局输入补丁等范围变化，但不因此停工等待确认。
 
 ## 5. 第四刀：AUTO 至目标回合末
 
@@ -244,7 +244,7 @@ STOPPED（enabled = false, stopAfterTurn = -1）
   - `src/test/java/io/github/youqing/sts1solver/verify/BoundedAutoStopTest.java`
 - 修改 `docs/plans/2026-10-31-ui-parity.md`
 - 修改 `docs/research/blueprint-parity.md`
-- 实施完成后按项目惯例更新 `CHANGELOG.md` 与交接状态。
+- 实施完成后更新 UI 实施计划、`docs/research/blueprint-parity.md` 与 `docs/handoff-prompt.md` 的真实状态；本仓库无 CHANGELOG 惯例，不凭空新建。
 
 不改：`search/`、`mirror/`、`sim/`、`config/SolverConfig.java`、游戏语义补丁。若 `BoundedAutoStop` 无法在不实例化 STS1 游戏对象的情况下测试，应把“目标设置/取消/到期判断”抽成纯数据小类，而不是用反射绕过测试或在单元测试里启动游戏。
 
@@ -256,7 +256,7 @@ STOPPED（enabled = false, stopAfterTurn = -1）
 4. **命中区域与绘制错位**：使用同一次布局缓存的 `Row[]` 与 `rowTop()`；折叠/目标/新计划变化必须置脏。
 5. **停止晚一手**：停止检查必须在等待结束后、任何行动前；这是最重要的执行回归点。
 6. **停止早半回合**：不能在 Tn 的 END_TURN 入队时立刻 disable；必须等敌方阶段结束。
-7. **点击穿透**：现有面板是 AbstractDungeon update 的后置补丁；必须真机验证，若需要前置输入补丁另行报备。
+7. **点击穿透**：现有面板是 AbstractDungeon update 的后置补丁；必须真机验证。若需要前置输入补丁，评估副作用与回退后直接实施并留证，不等逐项批准。
 8. **用户误解预览**：界面明示“每回合重算”，文档不得把路线预览称为执行承诺。
 9. **测试数口径漂移**：当前实际测试数以实施时 Gradle 输出为准，不沿用旧文档的固定数字。
 
