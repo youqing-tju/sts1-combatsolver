@@ -3577,3 +3577,25 @@ floor(10×0.75)=7 → 7×1.5=10.5 → 10   （旧实现，少 1）
 
 回归网：`EndTurnWithEnergyLeftTest.playsAZeroCostCardEvenWithNoEnergyLeft`
 （能量 0 但手里有本回合 0 费的攻击牌 → 不许结束回合）。全量 **524 条**通过（12 skip）。
+
+## 35. 能力 ID 全库审计：三个「永远匹配不上」的键（A｜javap 全量扫描，2026-10-31）
+
+起因：查「大块头为什么打不过」时发现 `AngerPower.POWER_ID = "Anger"`，而我们全程写 `"Enrage"`。
+顺手做了一次**全量审计**：从 jar 里导出全部 159 个 power ID（`javap -p -constants` 读 `POWER_ID`/
+`ID` 常量 + `javap -c` 读构造器里 `this.ID = "..."` 的常量），再和我们代码里
+`powers.get/put/containsKey/remove`、`powerOnPlayer`、`hasPower` 的字面量交叉比对。
+
+命中三处（都是「写错了但不会报错」的静默错误）：
+
+| 我们写的 | 原版真 ID | 后果 |
+|---|---|---|
+| `Enrage` | **`Anger`**（AngerPower） | 大块头每张技能牌 +2 力量**从不生效**。它实战力量能涨到 +19，我们算 0 —— 于是「它只打 14」→ 不铺格挡 → 实机被 33 点打穿（正是「打不过小红」那两把的死因） |
+| `Beat of Death` | **`BeatOfDeath`**（无空格） | 腐化心脏的每张牌反伤从不触发 |
+| `No Block` | **`NoBlockPower`** | 恐慌按钮（PanicButton）的「本回合不再获得格挡」从不生效 |
+
+只留一个「原版不存在」的键：`Half Dead` —— 那是**我们自己**为觉醒者/暗灵半死状态造的标记
+（原版是 `AbstractMonster.halfDead` 布尔 + 房间 `cannotLose`，没有同名 power），
+已在 `SimState.diff` 里显式排除（否则打开怪物 powers 对拍后必然假失配）。
+
+> 教训与 `Flex`（§见 2026-10-30 那条）完全同型：**能力名必须原版 ID，不能按界面文字写**。
+> 这类错误不会抛异常，只会让搜索「以为没有这个机制」——比崩溃更难发现。

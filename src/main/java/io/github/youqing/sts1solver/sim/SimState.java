@@ -474,7 +474,10 @@ public final class SimState {
                 // 它的力量从 +2 涨到 +20 都不会被对拍发现，「MATCH」只说明血量对得上。
                 // 2026-10-30 打开：怪物的 block 与 powers 一律参与比较。
                 cmp(out, p + "block", a.block, b.block);
-                diffMap(out, p + "powers", a.powers, b.powers);
+                // 「Half Dead」是我们自己的标记（原版是 AbstractMonster 的布尔字段 + 房间 cannotLose，
+                // 没有同名 power），真机抓不到 —— 比较时剔掉，否则觉醒者/暗灵那类半死机制必然假失配。
+                diffMap(out, p + "powers", withoutSimOnlyMarkers(a.powers),
+                        withoutSimOnlyMarkers(b.powers));
             }
         }
 
@@ -504,6 +507,27 @@ public final class SimState {
         if (a != b) {
             out.add(path + ": " + a + " vs " + b);
         }
+    }
+
+    /** 影子自造的标记（原版没有同名 power），不参与对拍。 */
+    private static final String[] SIM_ONLY_POWER_MARKERS = {"Half Dead"};
+
+    private static Map<String, Integer> withoutSimOnlyMarkers(Map<String, Integer> src) {
+        boolean found = false;
+        for (String k : SIM_ONLY_POWER_MARKERS) {
+            if (src.containsKey(k)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return src;
+        }
+        Map<String, Integer> copy = new java.util.LinkedHashMap<String, Integer>(src);
+        for (String k : SIM_ONLY_POWER_MARKERS) {
+            copy.remove(k);
+        }
+        return copy;
     }
 
     private static void diffMap(List<String> out, String path, Map<String, Integer> a, Map<String, Integer> b) {

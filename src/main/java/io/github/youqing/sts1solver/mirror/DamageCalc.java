@@ -449,7 +449,7 @@ public final class DamageCalc {
     /** 无实体：所有伤害上限 1（{@code IntangiblePower}）。 */
     public static final String INTANGIBLE = "Intangible";
     /** 不能获得格挡（{@code NoBlockPower.modifyBlockLast} 直接返回 0）。 */
-    public static final String NO_BLOCK = "No Block";
+    public static final String NO_BLOCK = "NoBlockPower";
     /** 烈焰屏障：受击时反弹 {@code amount} 点给攻击者（{@code FlameBarrierPower}）。 */
     public static final String FLAME_BARRIER = "Flame Barrier";
 

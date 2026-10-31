@@ -755,7 +755,7 @@ class MonsterMovesTest {
     void gremlinNobBellowsThenAlternates() {
         MonsterMove bellow = decide("GremlinNob", history(), 50, 0, 0);
         assertEquals(3, bellow.id, "首招 Bellow");
-        assertEquals("Enrage", bellow.selfBuff, "挂的是激怒");
+        assertEquals("Anger", bellow.selfBuff, "挂的是激怒（原版 AngerPower，ID 就是 Anger）");
         assertEquals(2, bellow.selfBuffAmount);
         assertEquals(3, decide("GremlinNob", history(), 50, 0, 18).selfBuffAmount, "A18 起 3 层");
 
@@ -787,7 +787,7 @@ class MonsterMovesTest {
         s.maxHp = 80;
         s.energy = 5;
         SimMonster nob = new SimMonster("GremlinNob", 82, 86, 0, NO_POWERS);
-        nob.powers.put("Enrage", Integer.valueOf(2));
+        nob.powers.put("Anger", Integer.valueOf(2));
         s.monsters.add(nob);
         s.hand.add(new SimCard("Defend_R", false, 1, -1, "SKILL"));
         s.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
@@ -2951,7 +2951,7 @@ class MonsterMovesTest {
         // 第二次 Buff（history 里已有 1 个 4）→ Beat of Death 1
         MonsterMove secondBuff = decide("CorruptHeart", history(3, 1, 2, 4, 1, 2), 50, 0, 0);
         assertEquals(4, secondBuff.id);
-        assertEquals("Beat of Death", secondBuff.extra.extraSelfBuff);
+        assertEquals("BeatOfDeath", secondBuff.extra.extraSelfBuff);
         assertEquals(1, secondBuff.extra.extraSelfBuffAmount);
     }
 
@@ -3018,7 +3018,7 @@ class MonsterMovesTest {
         s.maxHp = 50;
         SimMonster heart = new SimMonster("CorruptHeart", 750, 750, 0,
                 new java.util.HashMap<String, Integer>());
-        heart.powers.put("Beat of Death", Integer.valueOf(1));
+        heart.powers.put("BeatOfDeath", Integer.valueOf(1));   // 原版 ID 无空格
         s.monsters.add(heart);
 
         io.github.youqing.sts1solver.mirror.hooks.Hooks

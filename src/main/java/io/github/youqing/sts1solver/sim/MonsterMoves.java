@@ -861,7 +861,8 @@ public final class MonsterMoves {
      * getMove:  第一次 → 3(Bellow)，并关掉 usedBellow
      *           A18+：最近两招都没出过 2 → 2(Skull Bash)；否则连续两招 1 → 2；否则 1(Rush)
      *           其余：num &lt; 33 → 2；否则连续两招 1 → 2；否则 1
-     * takeTurn: 3 → 给自己挂 **Enrage 2**（A18: 3）；2(Skull Bash) → 一段 bash + 玩家易伤 2；
+     * takeTurn: 3 → 给自己挂 **Anger 2**（A18: 3；原版类是 {@code AngerPower}，
+     *            {@code POWER_ID = "Anger"}，不是 "Enrage"）；2(Skull Bash) → 一段 bash + 玩家易伤 2；
      *           1(Rush) → 一段 rush
      * 常数:     bash 6 (A3: 8)、rush 14 (A3: 16)、HP 82-86 (A8: 85-90)
      * </pre>
@@ -875,7 +876,7 @@ public final class MonsterMoves {
             int rush = c.baseDamage(0, c.ascension >= 3 ? 16 : 14);
             MonsterMove skullBash = MonsterMove.attackDebuff(2, bash, "Vulnerable", 2);
             if (c.history.isEmpty()) {
-                return MonsterMove.buff(3, "Enrage", c.ascension >= 18 ? 3 : 2);
+                return MonsterMove.buff(3, "Anger", c.ascension >= 18 ? 3 : 2);
             }
             boolean bashAgain = c.ascension >= 18
                     ? (!c.lastMove(2) && !c.lastMoveBefore(2)) || c.lastTwoMoves(1)
@@ -2953,7 +2954,7 @@ public final class MonsterMoves {
                 case 0:
                     return MonsterMove.buffTwo(4, "Strength", gain, "Artifact", 2);
                 case 1:
-                    return MonsterMove.buffTwo(4, "Strength", gain, "Beat of Death", 1);
+                    return MonsterMove.buffTwo(4, "Strength", gain, "BeatOfDeath", 1);
                 case 2:
                     return MonsterMove.buffTwo(4, "Strength", gain, "Painful Stabs", 1);
                 case 3:

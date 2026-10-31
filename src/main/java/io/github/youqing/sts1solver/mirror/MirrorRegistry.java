@@ -492,9 +492,9 @@ public final class MirrorRegistry {
 
         // 恐慌按钮：30/40 格挡，接下来 2 回合不能用牌获得格挡，消耗
         registerExhaust("PanicButton", Arrays.asList(
-                Effects.block(30), Effects.powerOnPlayer("No Block", 2)));
+                Effects.block(30), Effects.powerOnPlayer("NoBlockPower", 2)));
         registerExhaust("PanicButton+", Arrays.asList(
-                Effects.block(40), Effects.powerOnPlayer("No Block", 2)));
+                Effects.block(40), Effects.powerOnPlayer("NoBlockPower", 2)));
 
         // 仪式匕首：15 伤，击杀则永久 +3/+5（用卡面伤害，捕获时自动读到），消耗
         registerExhaust("RitualDagger", Effects.damageEqualToCardBase());

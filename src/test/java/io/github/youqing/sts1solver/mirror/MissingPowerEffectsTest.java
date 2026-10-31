@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 「卡牌设置了能力，但效果没建模」那一批里的三个。
  *
- * <p>这类缺口的危险在于**不报错**：{@code powerOnPlayer("No Block", 1)} 成功上状态，
+ * <p>这类缺口的危险在于**不报错**：{@code powerOnPlayer("NoBlockPower", 1)} 成功上状态，
  * 但格挡照加 → 模型高估防御 → 估值把「不能格挡」的负面效果当没有。
  */
 class MissingPowerEffectsTest {
@@ -37,7 +37,7 @@ class MissingPowerEffectsTest {
     @Test
     void noBlockZeroesOutAllBlockGain() {
         SimState s = fight();
-        s.playerPowers.put("No Block", 1);
+        s.playerPowers.put("NoBlockPower", 1);   // 原版 ID 就是这个（NoBlockPower.ID）
 
         assertEquals(0, DamageCalc.blockAmount(s, 12), "基础 12 也变 0");
     }
@@ -45,7 +45,7 @@ class MissingPowerEffectsTest {
     @Test
     void noBlockIgnoresDexterityToo() {
         SimState s = fight();
-        s.playerPowers.put("No Block", 1);
+        s.playerPowers.put("NoBlockPower", 1);   // 原版 ID 就是这个（NoBlockPower.ID）
         s.playerPowers.put("Dexterity", 5);
 
         assertEquals(0, DamageCalc.blockAmount(s, 12));

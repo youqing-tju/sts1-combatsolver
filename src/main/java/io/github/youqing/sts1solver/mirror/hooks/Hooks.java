@@ -124,13 +124,16 @@ public final class Hooks {
     /**
      * 怪物侧的 {@code onUseCard}（目前只有**激怒 Enrage**）。
      *
-     * <p>{@code EnragePower.onUseCard}：玩家每打出一张 **技能牌**，主人就 +amount 力量
+     * <p>{@code AngerPower.onUseCard}（界面上叫 Enrage/激怒，**类名与 ID 都是 Anger**）：
+     * 玩家每打出一张 **技能牌**，主人就 +amount 力量
      * （字节码直读：{@code card.type == SKILL → ApplyPowerAction(owner, owner, Strength(amount))}）。
      * 这是 GremlinNob 的核心机制 —— 不建模的话搜索会以为「多打技能牌没有代价」，
      * 在小鬼头目面前疯狂甩防御。
      *
      * <p>⚠️ 只看得到**能力表里现有的**激怒层数；捕获时 {@code SimState.capture} 会把
-     * {@code EnragePower.ID}（"Enrage"）带进来，所以真机打着打着也会准。
+     * {@code AngerPower.POWER_ID}（"Anger"）带进来，所以真机打着打着也会准。
+     * ⚠️ 2026-10-31 修正：以前这里写 "Enrage"，原版**没有**这个 ID —— 抓不到能力，
+     * 大块头的力量涨到 +19 我们这边还是 0，于是「以为它只打 14 点」不铺格挡，实机被 33 点打穿。
      */
     private static void monsterOnCardUsed(SimState state, SimCard card) {
         sharpHide(state, card);
@@ -153,7 +156,7 @@ public final class Hooks {
             if (beatMonster.hp <= 0) {
                 continue;
             }
-            Integer beat = beatMonster.powers.get("Beat of Death");
+            Integer beat = beatMonster.powers.get("BeatOfDeath");
             if (beat != null && beat.intValue() > 0) {
                 io.github.youqing.sts1solver.sim.CombatFlow
                         .hitPlayer(state, beat.intValue());
@@ -200,7 +203,7 @@ public final class Hooks {
             if (monster.hp <= 0) {
                 continue;
             }
-            Integer enrage = monster.powers.get("Enrage");
+            Integer enrage = monster.powers.get("Anger");
             if (enrage == null || enrage <= 0) {
                 continue;
             }
