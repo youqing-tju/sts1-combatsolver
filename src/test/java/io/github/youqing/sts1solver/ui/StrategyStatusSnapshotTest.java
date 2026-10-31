@@ -46,6 +46,24 @@ class StrategyStatusSnapshotTest {
     }
 
     @Test
+    void emptySlotPlaceholderIsCountedAsEmptyNotAsAPotion() {
+        SimState s = new SimState();
+        s.potions.add("DistilledChaos");
+        // 原版空槽是 PotionSlot 实例，ID 就是 "Potion Slot"（javap 核实），不是 null
+        s.potions.add("Potion Slot");
+        s.potions.add("Potion Slot");
+        s.potionSlots = 3;
+
+        StrategyStatusSnapshot view = StrategyStatusSnapshot.from(s);
+        String all = String.join("\n", view.lines());
+
+        assertTrue(view.lines().contains("药[1] DistilledChaos · 主动 · 门槛 9 HP"));
+        assertTrue(view.lines().contains("药空槽 ×2"));
+        assertFalse(all.contains("Potion Slot · 主动"));
+        assertFalse(all.contains("药[2] Potion Slot"));
+    }
+
+    @Test
     void relicWarningAndPositiveGrowthAreReadOnlyFacts() {
         SimState s = new SimState();
         s.hp = 63;

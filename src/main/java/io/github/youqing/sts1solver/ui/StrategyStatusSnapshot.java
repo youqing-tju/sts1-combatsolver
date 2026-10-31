@@ -42,6 +42,17 @@ public final class StrategyStatusSnapshot {
     /** 成长行固定顺序与展示文案（顺序固定 = 同一局面永远同一行，便于肉眼比对）。 */
     private static final String[] GROWTH_POWERS = {"Strength", "Dexterity", "Demon Form"};
 
+    /**
+     * 空药水槽的占位 ID。
+     *
+     * <p>🔴 原版 {@code AbstractPlayer.potions} 里的空槽**不是 null**，而是一个
+     * {@code PotionSlot} 实例，它的 {@code ID} 就是 {@code "Potion Slot"}
+     * （{@code PotionSlot} 构造器 {@code super(NAME, "Potion Slot", PLACEHOLDER, ...)}，
+     * javap 核实）。所以只判 null 会把空槽显示成「一瓶叫 Potion Slot 的主动药水，
+     * 门槛 9 HP」—— 2026-10-31 真机截图里就是这个假药水。
+     */
+    private static final String EMPTY_SLOT_ID = "Potion Slot";
+
     private final List<String> lines;
 
     private StrategyStatusSnapshot(List<String> lines) {
@@ -78,7 +89,7 @@ public final class StrategyStatusSnapshot {
         int empty = 0;
         for (int i = 0; i < slots; i++) {
             String id = i < state.potions.size() ? state.potions.get(i) : null;
-            if (id == null) {
+            if (id == null || EMPTY_SLOT_ID.equals(id)) {
                 empty++;
                 continue;
             }
