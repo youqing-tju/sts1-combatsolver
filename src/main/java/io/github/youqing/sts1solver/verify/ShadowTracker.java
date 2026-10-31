@@ -71,6 +71,20 @@ public final class ShadowTracker {
     private static final int SETTLE_FRAMES = 2;
     /** 兜底：某张牌让 limbo 一直不空时，等 1.5 秒也要出结论，并标记 forced。 */
     private static final int MAX_PENDING_FRAMES = 90;
+
+    /**
+     * 「实机状态从哪来」的唯一出口：生产永远指向 {@link SimState#capture()}，
+     * 单元测试换成纯数据序列（这样排队纪律不必启动游戏也能验证）。
+     */
+    static java.util.function.Supplier<SimState> DEFAULT_LIVE_STATE =
+            new java.util.function.Supplier<SimState>() {
+                @Override
+                public SimState get() {
+                    return SimState.capture();
+                }
+            };
+
+    static java.util.function.Supplier<SimState> liveState = DEFAULT_LIVE_STATE;
     private static final int MAX_LOGGED_DIFFS = 6;
     /** 每场最多落盘多少个失配样本（防刷盘；一场打完一般也就几个）。 */
     private static final int MAX_MISMATCH_DUMPS = 24;
@@ -224,19 +238,35 @@ public final class ShadowTracker {
 
     /** Called from the {@code useCard} prefix patch, i.e. before the card resolves. */
     public static void onCardPlayed(AbstractCard card, AbstractMonster target) {
+        onCardPlayed(card.cardID + (card.upgraded ? "+" : ""), indexOf(target));
+    }
+
+    /**
+     * 纯数据入口（生产路径由上面那个重载转进来，单元测试直接用牌名）。
+     *
+     * <p>🔴 连续出牌不能丢掉后一张（2026-10-31 真机日志 {@code DIFF xxx skipped
+     * (previous Warcry still pending)}）：那会让后一张既不进 {@code comparisons}、
+     * 也不产生属于自己的 MISMATCH，而 {@code pre} 还停在更早那一手 ——
+     * **一条失配顺着往下污染所有条目**。正确做法是先把上一张当场结算（{@link #resolve(boolean)}
+     * 末尾会把基线重设成结算后的实机状态），再用它当这一张的基线。
+     */
+    static void onCardPlayed(String key, int targetIndex) {
         if (baseline == null) {
-            Trace.info("DIFF " + card.cardID + " skipped (no baseline yet)");
+            Trace.info("DIFF " + key + " skipped (no baseline yet)");
             return;
         }
         if (pending) {
-            // 上一张还没结算完就又出牌（例如 Havoc 的自动出牌、或选牌卡拖了很久）。
-            // 这时覆盖 pending 会让两张牌的状态互相污染，直接放弃这张的比对更诚实。
-            Trace.warn("DIFF " + card.cardID + " skipped (previous " + pendingKey + " still pending)");
-            return;
+            Trace.info("DIFF flush " + pendingKey + " before " + key
+                    + " (previous play had not settled yet)");
+            resolve(true);
+            if (baseline == null) {
+                Trace.info("DIFF " + key + " skipped (no baseline after flush)");
+                return;
+            }
         }
         pre = baseline.copy();
-        pendingKey = card.cardID + (card.upgraded ? "+" : "");
-        pendingTarget = indexOf(target);
+        pendingKey = key;
+        pendingTarget = targetIndex;
         pending = true;
         pendingChoiceKeys.clear();
         pendingChoiceIndices.clear();
@@ -301,7 +331,7 @@ public final class ShadowTracker {
                 return;
             }
             if (actionsDrained() && !AbstractDungeon.player.isEndingTurn) {
-                baseline = SimState.capture();
+                baseline = liveState.get();
             }
         } catch (Throwable t) {
             Trace.error("diff harness tick failed", t);
@@ -345,7 +375,7 @@ public final class ShadowTracker {
             return;
         }
 
-        SimState live = SimState.capture();
+        SimState live = liveState.get();
         // 死亡动画期间游戏仍保留 0 血怪物，两边先归一化再比。
         // 注意：必须比对副本 —— 直接 drop 会把 live 里的死怪删掉，而 live 随后要当 baseline，
         // 那会让下一次出牌的怪物下标对不上（实测报过 "effect needs a valid monster target"）。
@@ -439,7 +469,7 @@ public final class ShadowTracker {
      * 以后写镜像时有现成的期望值可对照，而不是凭卡面文字猜。
      */
     private static void record(SimState before, ActionRejected e) {
-        SimState live = SimState.capture();
+        SimState live = liveState.get();
         java.util.List<String> delta = before.copy().dropDeadMonsters()
                 .diff(live.copy().dropDeadMonsters());
         Trace.info("RECORD " + pendingKey + " [" + e.getMessage() + "] "
@@ -478,8 +508,14 @@ public final class ShadowTracker {
         }
     }
 
-    private static int liveLimboSize() {        return AbstractDungeon.player == null || AbstractDungeon.player.limbo == null
-                ? -1 : AbstractDungeon.player.limbo.size();
+    private static int liveLimboSize() {
+        // 诊断量绝不能反过来打断比对：类初始化/不在战斗里时一律记 -1
+        try {
+            return AbstractDungeon.player == null || AbstractDungeon.player.limbo == null
+                    ? -1 : AbstractDungeon.player.limbo.size();
+        } catch (Throwable t) {
+            return -1;
+        }
     }
 
     private static int liveDiscardSize() {
@@ -604,6 +640,11 @@ public final class ShadowTracker {
 
     public static String stats() {
         return matches + " match / " + mismatches + " mismatch / " + comparisons + " total";
+    }
+
+    /** 本场（或本段）已经做出的比对次数；{@code matches + mismatches} 应恒等于它。 */
+    public static int comparisons() {
+        return comparisons;
     }
 
     /** 见 {@link #mismatchSeq}：只增不减，调用方记下旧值、下次比对即可。 */
