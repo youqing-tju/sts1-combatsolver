@@ -364,6 +364,33 @@ class CardPlayerTest {
         assertEquals(28, s.monsters.get(0).hp);
     }
 
+    /**
+     * 打击木偶（StrikeDummy）：带 {@code CardTags.STRIKE} 的牌 +3 伤害，且**加在力量之前**。
+     *
+     * <p>2026-10-31 真机抓到的实证：一次打击实机 9、我们 6；带易伤的打击实机 18、我们 13 ——
+     * 差的就是这 3 点。铁甲整套牌组一半是打击，少算 1/3 会让搜索以为「打不死，先防」。
+     */
+    @Test
+    void strikeDummyAddsThreeToStrikeTaggedCards() {
+        SimState s = combat("Strike_R", "Pommel Strike", "Bash");
+        s.relics.put("StrikeDummy", Integer.valueOf(-1));
+        s.monsters.clear();
+        s.monsters.add(new SimMonster("AcidSlime_L", 40, 67, 0,
+                Collections.<String, Integer>emptyMap()));
+        CardPlayer.play(s, 0, 0);       // 打击：6 + 3 = 9
+        assertEquals(31, s.monsters.get(0).hp, "打击 6 + 3（打击木偶）= 9");
+
+        // 力量加在 +3 之后：顺劈斩 9 + 3 + 2 = 14（出完打击后下标 0 是顺劈斩）
+        s.playerPowers.put("Strength", Integer.valueOf(2));
+        CardPlayer.play(s, 0, 0);
+        assertEquals(17, s.monsters.get(0).hp, "顺劈斩 9 + 3 + 2 力量 = 14");
+
+        // 非 STRIKE 标记的牌不吃（重击 Bash 8）
+        s.playerPowers.clear();
+        CardPlayer.play(s, 0, 0);
+        assertEquals(9, s.monsters.get(0).hp, "Bash 8 不受打击木偶影响");
+    }
+
     // ---- 第五批：随机位置 / 随机目标 ----
 
     @Test

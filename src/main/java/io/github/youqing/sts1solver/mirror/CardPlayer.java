@@ -190,7 +190,11 @@ public final class CardPlayer {
             }
             spooned = rng.randomBoolean();
         }
-        if (wouldExhaust && !spooned) {
+        if (card.isPower()) {
+            // 原版 UseCardAction.update：`type == POWER` 的牌**既不进弃牌堆也不进消耗堆**，
+            // 打出即离场。以前我们把它塞进弃牌堆，每次打能力牌都对拍出 `discard.size: 1 vs 0`
+            // （2026-10-31 一轮里 18 次失配里绝大多数来自这条）。
+        } else if (wouldExhaust && !spooned) {
             Effects.exhaustCard(state, card);
         } else {
             state.discard.add(card);

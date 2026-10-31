@@ -1,5 +1,6 @@
 package io.github.youqing.sts1solver.mirror;
 
+import io.github.youqing.sts1solver.sim.SimCard;
 import io.github.youqing.sts1solver.sim.SimMonster;
 import io.github.youqing.sts1solver.sim.SimState;
 
@@ -26,8 +27,33 @@ public final class DamageCalc {
     private DamageCalc() {
     }
 
+    /** StrikeDummy 的常数（{@code atDamageModify} 里那个 3.0f）。 */
+    public static final int STRIKE_DUMMY_BONUS = 3;
+    public static final String STRIKE_DUMMY = "StrikeDummy";
+
     /** Damage an attack card deals after attacker and target modifiers. */
     public static int attackDamage(SimState state, int base, SimMonster target) {
+        return attackDamage(state, base, target, null);
+    }
+
+    /**
+     * 同上，但带上「打的是哪张牌」—— 只有 {@code played} 参与遗物的 {@code atDamageModify}
+     * 那一步（目前铁甲只有**打击木偶 StrikeDummy**：带 {@code CardTags.STRIKE} 的牌 +3）。
+     *
+     * <p>顺序照抄 {@code AbstractCard.calculateCardDamage} 的字节码：先遍历遗物
+     * {@code atDamageModify}（offset 31-68），再遍历玩家 powers 的 {@code atDamageGive}
+     * （力量/Vigor/虚弱，offset 87+）。所以 +3 是**加在力量之前**的：
+     * {@code (base + 3 + str) × 0.75 × 1.5}，不是 {@code (base + str) × … + 3}。
+     *
+     * <p>2026-10-31 真机抓到的实证：一次打击实机打 9 点、我们算 6 点（base 6）；
+     * 带易伤的打击实机 18、我们 13 —— 恰好都是差这 3 点。整套牌组里打击占一半，
+     * 「每张打击少算 1/3」足以让搜索觉得「打不死、先防吧」，牌自然打得臭。
+     */
+    public static int attackDamage(SimState state, int base, SimMonster target, SimCard played) {
+        if (played != null && isStrikeTagged(played) && state.relics != null
+                && state.relics.containsKey(STRIKE_DUMMY)) {
+            base += STRIKE_DUMMY_BONUS;
+        }
         float dmg = targetSideModifiers(state, base + power(state, STRENGTH)
                 + power(state, "Vigor"), target);
         // 笔尖：计数为 9 时打出的这一击（= 第 10 击）翻倍。原版是 PenNibPower.atDamageGive，
@@ -606,6 +632,14 @@ public final class DamageCalc {
         float dmg = targetSideModifiers(state,
                 base + power(state, STRENGTH) * mult + power(state, "Vigor"), target);
         return Math.max(0, (int) Math.floor(dmg));
+    }
+
+    /**
+     * 带 {@code CardTags.STRIKE} 标记的牌（javap 扫全 jar 核实）：Strike_Red、PommelStrike、
+     * TwinStrike、WildStrike、PerfectedStrike、SwiftStrike —— 名字里都含 "Strike"。
+     */
+    public static boolean isStrikeTagged(SimCard c) {
+        return c != null && c.id != null && c.id.contains("Strike");
     }
 
     private static int power(SimState state, String id) {

@@ -107,6 +107,13 @@ public final class BeamSolver {
         return Math.min(NOVELTY_MAX_NODES, Math.max(1, totalNodes / 4));
     }
     /** Beam 宽度（蓝本按档位固定；我们不再按预算加宽）。 */
+    /**
+     * 被采纳那条路线的**基础分**（诊断用）。
+     *
+     * <p>用途：回答「为什么不走另一条明显更好的线」—— 把候选首手逐个钉成固定前缀各跑一趟，
+     * 比这个分数，就能分清是「搜索没看到」（根本搜不到，前缀会被拒）还是「估值觉得更差」。
+     */
+    public long lastSelectedScore;
     public int lastWidth;
     /**
      * 从根到最优叶子的**完整动作序列**（蓝本的「世界线」就是这个：一条打完整场战斗的路线）。
@@ -539,6 +546,7 @@ public final class BeamSolver {
         }
 
         lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
+        lastSelectedScore = selected == null ? Long.MIN_VALUE : selected.score;
         if (selected != null) {
             // 补搜可能会换掉主搜索的答案，路线要跟着换（AUTO 执行的是 lastSteps）
             lastRoute = routeOf(selected);

@@ -872,7 +872,19 @@ public final class RelicHooks {
             return;
         }
         int next = counter + 1;
-        state.relics.put("Pen Nib", next >= 10 ? 0 : next);
+        if (next >= 10) {
+            state.relics.put("Pen Nib", 0);
+            // 第 10 击打完：PenNibPower 自己摘掉（原版 onUseCard 里 removePower）
+            state.playerPowers.remove("Pen Nib");
+        } else {
+            state.relics.put("Pen Nib", next);
+            if (next == 9) {
+                // 计数到 9 = 「下一击翻倍」：原版这时候会 ApplyPowerAction(PenNibPower 1)，
+                // 真机快照里能看到这条能力。以前只在伤害计算里用遗物计数判断，
+                // 状态上少了一条 power —— 对拍每 10 击就有一次 `playerPowers.Pen Nib` 假失配。
+                state.playerPowers.put("Pen Nib", 1);
+            }
+        }
     }
 
     /**

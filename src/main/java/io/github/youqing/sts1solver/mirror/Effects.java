@@ -21,7 +21,7 @@ public final class Effects {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
-                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target, played));
             }
 
             @Override
@@ -43,7 +43,7 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
                 for (int i = 0; i < times; i++) {
-                    DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+                    DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target, played));
                 }
             }
 
@@ -66,7 +66,7 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 for (SimMonster m : state.monsters) {
                     if (m.hp > 0) {
-                        DamageCalc.hit(state, m, DamageCalc.attackDamage(state, base, m));
+                        DamageCalc.hit(state, m, DamageCalc.attackDamage(state, base, m, played));
                     }
                 }
             }
@@ -364,7 +364,7 @@ public final class Effects {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
-                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, state.block, target));
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, state.block, target, played));
             }
 
             @Override
@@ -428,7 +428,7 @@ public final class Effects {
                 for (SimMonster m : state.monsters) {
                     if (m.hp > 0) {
                         total += DamageCalc.hitAndReturnDealt(state, m,
-                                DamageCalc.attackDamage(state, base, m));
+                                DamageCalc.attackDamage(state, base, m, played));
                     }
                 }
                 state.hp = Math.min(state.maxHp, state.hp
@@ -541,7 +541,7 @@ public final class Effects {
                 SimMonster target = requireTarget(state, targetIndex);
                 int count = state.hand.size();
                 for (int i = 0; i < count; i++) {
-                    DamageCalc.hit(state, target, DamageCalc.attackDamage(state, damagePer, target));
+                    DamageCalc.hit(state, target, DamageCalc.attackDamage(state, damagePer, target, played));
                 }
                 io.github.youqing.sts1solver.sim.RngStream rng =
                         state.rng.get(SimState.RngKind.CARD);
@@ -606,7 +606,7 @@ public final class Effects {
                     strikes++;
                 }
                 int dmg = base + perStrike * strikes;
-                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, dmg, target));
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, dmg, target, played));
             }
 
             @Override
@@ -675,7 +675,7 @@ public final class Effects {
                     SimMonster target = state.monsters.get(
                             Math.min(index, state.monsters.size() - 1));
                     DamageCalc.hit(state, target,
-                            DamageCalc.attackDamage(state, base, target));
+                            DamageCalc.attackDamage(state, base, target, played));
                 }
             }
 
@@ -1196,7 +1196,7 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
                 boolean alive = target.hp > 0;
-                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target, played));
                 if (alive && target.hp <= 0) {
                     state.gold += gold;
                 }
@@ -1236,7 +1236,7 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
                 int base = played == null || played.baseDamage < 0 ? 0 : played.baseDamage;
-                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target, played));
             }
 
             @Override
@@ -1328,7 +1328,7 @@ public final class Effects {
             @Override
             public void applyWithChoice(SimState state, int targetIndex, SimCard played, int choiceIndex) {
                 SimMonster target = requireTarget(state, targetIndex);
-                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target, played));
                 if (choiceIndex >= 0 && choiceIndex < state.discard.size()) {
                     state.draw.add(state.discard.remove(choiceIndex));
                 }
@@ -1391,7 +1391,7 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
                 int base = state.draw.size();
-                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target, played));
             }
 
             @Override
@@ -1436,7 +1436,7 @@ public final class Effects {
             public void applyTo(SimState state, int targetIndex, SimCard played) {
                 SimMonster target = requireTarget(state, targetIndex);
                 boolean aliveBefore = target.hp > 0;
-                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target));
+                DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target, played));
                 if (aliveBefore && target.hp <= 0) {
                     state.maxHp += maxHpGain;
                     state.hp += maxHpGain;
@@ -1624,7 +1624,7 @@ public final class Effects {
                     for (SimMonster m : state.monsters) {
                         if (m.hp > 0) {
                             DamageCalc.hit(state, m,
-                                    DamageCalc.attackDamage(state, perEnergy, m));
+                                    DamageCalc.attackDamage(state, perEnergy, m, played));
                         }
                     }
                 }
@@ -1669,7 +1669,7 @@ public final class Effects {
      * 名字里都含 "Strike"，所以字符串判据与标记等价（铁甲 + 无色范围内没有反例）。
      */
     private static boolean isStrikeCard(SimCard c) {
-        return c != null && c.id != null && c.id.contains("Strike");
+        return DamageCalc.isStrikeTagged(c);
     }
 
     private static SimMonster requireTarget(SimState state, int targetIndex) {        if (targetIndex < 0 || targetIndex >= state.monsters.size()) {
