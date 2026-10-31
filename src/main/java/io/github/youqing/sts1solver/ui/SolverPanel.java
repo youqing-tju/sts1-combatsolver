@@ -12,7 +12,9 @@ import com.megacrit.cardcrawl.helpers.input.InputHelper;
 
 import io.github.youqing.sts1solver.config.SolverConfig;
 import io.github.youqing.sts1solver.diag.Trace;
+import io.github.youqing.sts1solver.search.RouteStep;
 import io.github.youqing.sts1solver.verify.AutoPilot;
+import io.github.youqing.sts1solver.verify.RoutePreview;
 import io.github.youqing.sts1solver.verify.ShadowTracker;
 
 /**
@@ -98,7 +100,7 @@ public final class SolverPanel {
     private static int lastMismatches = -1;
     private static boolean lastAuto;
     private static String lastBudget;
-    private static int lastPlanSize = -1;
+    private static long lastPanelRevision = -1;
 
     /** 三个按钮的实测宽度：{AUTO, budget, auto-start}（下标 0 是最右边那个）。 */
     private static final float[] buttonW = new float[3];
@@ -168,15 +170,17 @@ public final class SolverPanel {
         int bad = ShadowTracker.mismatches();
         boolean auto = AutoPilot.enabled();
         String budget = SolverConfig.budget().name();
-        int planSize = AutoPilot.planLines(MAX_PLAN_ROWS).size();
+        // 只比一个版本号：计划新增/替换/作废/每出一手都会让它变。
+        // （旧实现每帧调 planLines() 新建一串字符串，纯浪费。）
+        long revision = AutoPilot.panelRevision();
         if (m != lastMatches || bad != lastMismatches || auto != lastAuto
-                || planSize != lastPlanSize
+                || revision != lastPanelRevision
                 || (lastBudget != null && !lastBudget.equals(budget))) {
             lastMatches = m;
             lastMismatches = bad;
             lastAuto = auto;
             lastBudget = budget;
-            lastPlanSize = planSize;
+            lastPanelRevision = revision;
             layoutDirty = true;
         }
     }
@@ -283,16 +287,28 @@ public final class SolverPanel {
                 new Color(0.72f, 0.9f, 0.72f, 1f), false));
         appendStrategyRows(out);
 
-        String route = AutoPilot.planSummaryLine();
-        if (route != null && !route.isEmpty()) {
-            out.add(new Row(route, new Color(0.92f, 0.86f, 0.6f, 1f), false));
-            // 第一行是「本回合」，用亮色；后面是推演，用暗色（蓝本动作条也是当前档高亮）
-            boolean first = true;
-            for (String line : AutoPilot.planLines(MAX_PLAN_ROWS)) {
-                Color c = first ? new Color(0.75f, 0.92f, 1f, 1f)
-                        : new Color(0.55f, 0.68f, 0.82f, 1f);
-                out.add(new Row(line, c, false));
-                first = false;
+        RoutePreview preview = AutoPilot.routePreview();
+        if (preview != null && !preview.turns().isEmpty()) {
+            String summary = AutoPilot.planSummaryLine();
+            if (summary != null && !summary.isEmpty()) {
+                out.add(new Row(summary, new Color(0.92f, 0.86f, 0.6f, 1f), false));
+            }
+            // 行号来自预览里的**绝对**回合（T4/T5），不再从剩余队列现场编号（那会写成 T1/T2）
+            RouteStep next = AutoPilot.nextRouteStep();
+            int shown = Math.min(MAX_PLAN_ROWS, preview.turns().size());
+            for (int i = 0; i < shown; i++) {
+                RoutePreview.Turn turn = preview.turns().get(i);
+                Color color;
+                if (!turn.canTarget()) {
+                    // 没有 END_TURN 的尾行：不能承诺「打完此回合」，所以暗色且不可点
+                    color = new Color(0.45f, 0.48f, 0.55f, 1f);
+                } else if (i == 0) {
+                    color = new Color(0.75f, 0.92f, 1f, 1f);
+                } else {
+                    color = new Color(0.55f, 0.68f, 0.82f, 1f);
+                }
+                out.add(new Row(turn.text(next), color, false, Row.Kind.ROUTE,
+                        turn.absoluteTurn(), turn.canTarget()));
             }
         } else {
             // 开了宽度组合 + 新颖度之后单步要 1~5 秒：把「已等多少秒」显示出来，

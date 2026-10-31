@@ -125,9 +125,7 @@ public final class AutoPilot {
         lastRejectSignature = null;
         droppedStepsThisTurn = 0;
         io.github.youqing.sts1solver.search.AsyncSearch.reset();
-        plan = null;
-        planTurn = -1;
-        planSummary = "";
+        clearPlan();
         framesWaitingForPlan = 0;
         reportedMissingMirrors.clear();
         strategySnapshotDirty = false;
@@ -334,6 +332,21 @@ public final class AutoPilot {
     private static int planMismatchSeq = -1;
     /** 上一次规划的统计，给面板显示（蓝本也有「已查阅 N 条世界线 / 耗时」这一行）。 */
     private static String planSummary = "";
+    /**
+     * 这份计划的**完整**预览（含已经打过的步骤），显示用的绝对回合号从这里来。
+     *
+     * <p>🔴 与 {@link #plan} 是两件事：{@code plan} 是被执行的剩余队列（会 {@code poll} 到空），
+     * 预览是「这份路线本来长什么样」，出牌时<b>不重建</b>，只在整份计划被替换或作废时清空。
+     * 否则每出一手后续回合都会重排编号，用户看到的 T2 下一秒就变成另一件事。
+     */
+    private static RoutePreview preview;
+    /**
+     * 面板内容版本号：任何会改变行集合/行文本的变化都递增。
+     *
+     * <p>面板每帧比一个 {@code long} 就知道要不要重排，不用去解析计划队列
+     * （旧实现每帧调 {@code planLines()} 新建一堆字符串）。
+     */
+    private static long panelRevision;
     /** 等规划结果的帧数；超时就退回逐张兜底，避免整场卡在等搜索上。 */
     private static int framesWaitingForPlan;
     private static final int PLAN_WAIT_LIMIT = 1800;   // 30 秒
@@ -544,7 +557,7 @@ public final class AutoPilot {
                     + player.maxHealth + "  e" + player.energy.energy + "  hand "
                     + player.hand.size() + "  foes " + aliveMonsters());
             Trace.info("PLAN dropped: turn " + planTurn + " -> " + turnNow + ", replanning");
-            plan = null;
+            clearPlan();
             dumpTurnSnapshot(turnNow);
         }
         // ② 有计划就照计划走（蓝本的「冻结路线 / 执行本回合」）
@@ -563,7 +576,7 @@ public final class AutoPilot {
             if (outcome != OUTCOME_REPLAN) {
                 return outcome;
             }
-            plan = null;      // 计划失效（手牌对不上/被拒），丢掉重算
+            clearPlan();      // 计划失效（手牌对不上/被拒），丢掉重算（停止目标不在这里清）
         }
 
         // ③ 没有计划：等后台整场规划的结果，没有就提交一次
@@ -620,6 +633,10 @@ public final class AutoPilot {
                 result.steps);
         planTurn = turnNow;
         planMismatchSeq = ShadowTracker.mismatchSequence();
+        // 执行队列和预览都从**完整** steps 建：预览要保留已经打过的步骤，
+        // 这样行号是绝对回合（T4/T5），不是「剩余行数」的 T1/T2。
+        preview = RoutePreview.fromSteps(turnNow, result.steps);
+        panelRevision++;
         planSummary = summarizePlan(result);
         if (!lastSearchShape.isEmpty()) {
             // 面板第一行留一格「刚刚怎么算出来的」：135+base / 26k / 642ms
@@ -674,15 +691,14 @@ public final class AutoPilot {
         // 不重算就继续照打，等于拿「想象中的局面」指挥真局面（蓝本 DeploymentDrift 同义）。
         if (ShadowTracker.mismatchSequence() != planMismatchSeq) {
             int drift = ShadowTracker.mismatchSequence() - planMismatchSeq;
-            plan = null;
-            planTurn = -1;
-            planSummary = "";
+            clearPlan();
             Trace.info("PLAN dropped: " + drift
                     + " mirror mismatch(es) since it was computed, replanning");
             return OUTCOME_REPLAN;
         }
         if (step.endTurn) {
             plan.poll();
+            panelRevision++;      // 下一手箭头要移动
             return OUTCOME_END_TURN;
         }
         if (step.potion) {
@@ -703,6 +719,7 @@ public final class AutoPilot {
         pendingChoiceIndex = step.choiceIndex;
         enqueue(chosen, target);
         plan.poll();
+        panelRevision++;      // 下一手箭头要移动
         return OUTCOME_PLAYED;
     }
 
@@ -757,9 +774,7 @@ public final class AutoPilot {
         // 计划是在「不知道给什么」的前提下排的。2026-10-30 真机那一把，攻击药水给了
         // 一张本回合 0 费的顺劈斩，计划却还按原样走，最后**留着它结束回合**，
         // 白丢 9 点伤害 + 一次抽牌，接着被大块头反打 26。
-        plan = null;
-        planTurn = -1;
-        planSummary = "";
+        clearPlan();
         noProgressEndTurns = 0;
         queuedCard = null;
         queuedFrames = 0;
@@ -793,6 +808,7 @@ public final class AutoPilot {
         lastRejectSignature = null;
         if (plan != null && !plan.isEmpty()) {
             plan.poll();
+            panelRevision++;      // 剔掉一步 → 预览里那一行的箭头要移走
             droppedStepsThisTurn++;
             if (!step.endTurn && !step.potion && step.cardKey != null) {
                 blockedThisTurn.add(step.cardKey);
@@ -933,61 +949,45 @@ public final class AutoPilot {
 
 
     /**
-     * 当前计划的摘要（按回合分组），给面板显示用。
+     * 这份计划的**完整**预览（含已经执行过的步骤）；没有计划时为 {@code null}。
      *
-     * <p>只列「还剩哪些回合、每回合打什么」——完整路线面板留到 M4-1 再做。
+     * <p>面板只读它来画路线行：行号是绝对回合，行身份是 {@link RoutePreview.Turn}，
+     * 不再从剩余队列现场编号（那会把第 4 回合写成 T1）。
      */
-    public static java.util.List<String> planLines(int maxLines) {
-        java.util.List<String> out = new java.util.ArrayList<String>();
-        if (plan == null || plan.isEmpty()) {
-            return out;
-        }
-        int turn = 1;
-        int actionsInTurn = 0;
-        boolean firstStep = true;
-        StringBuilder sb = new StringBuilder();
-        for (io.github.youqing.sts1solver.search.RouteStep step : plan) {
-            if (step.endTurn) {
-                if (sb.length() > 0) {
-                    out.add(rowText(turn, sb));
-                    sb.setLength(0);
-                }
-                actionsInTurn = 0;
-                turn++;
-                if (out.size() >= maxLines) {
-                    return out;
-                }
-            } else {
-                if (actionsInTurn == MAX_ACTIONS_PER_ROW) {
-                    sb.append(" · …");
-                    firstStep = false;
-                } else if (actionsInTurn < MAX_ACTIONS_PER_ROW) {
-                    if (sb.length() > 0) {
-                        sb.append(" · ");
-                    }
-                    // 下一步（plan.peek）画箭头：这是执行层马上要做的那一手，
-                    // 蓝本的动作条也是「当前动作高亮 + 后续动作淡色」。
-                    if (firstStep) {
-                        sb.append("▶");
-                    }
-                    sb.append(step.potion
-                            ? "药·" + shortName(step.cardKey) : shortName(step.cardKey));
-                    actionsInTurn++;
-                }
-                firstStep = false;
-            }
-        }
-        if (sb.length() > 0 && out.size() < maxLines) {
-            out.add(rowText(turn, sb));
-        }
-        return out;
+    public static RoutePreview routePreview() {
+        return preview;
     }
 
-    /** 一回合最多画几个动作（超出就 `…`）——面板宽度有限，宁可截断也不要让 fit() 随机切。 */
-    private static final int MAX_ACTIONS_PER_ROW = 6;
+    /** 面板内容版本号：变了就要重排行（比每帧新建字符串便宜得多）。 */
+    public static long panelRevision() {
+        return panelRevision;
+    }
 
-    private static String rowText(int turn, StringBuilder actions) {
-        return "T" + turn + " ▸ " + actions;
+    /**
+     * 执行层下一手（{@code plan.peek()}），供预览画箭头。
+     *
+     * <p>只读：返回的是步骤对象本身，不暴露 {@code ArrayDeque} ——
+     * 谁拿到队列谁就能把它消费掉，显示层不该有这个能力。
+     */
+    public static RouteStep nextRouteStep() {
+        return plan == null ? null : plan.peek();
+    }
+
+    /**
+     * 「这份路线不能再用」的统一出口。
+     *
+     * <p>所有作废路径都必须走这里：回合翻页、镜像失配（漂移）、喝药后重算、
+     * 执行层判定这一步不可用。少清一处，面板就会继续展示一条已经不存在的路线。
+     *
+     * <p>⚠️ 它<b>不清</b>有界 AUTO 的停止目标：目标是「打到第几回合」这个绝对边界，
+     * 与「照哪条路线打」无关 —— 重算之后目标必须原样保留。
+     */
+    private static void clearPlan() {
+        plan = null;
+        planTurn = -1;
+        planSummary = "";
+        preview = null;
+        panelRevision++;
     }
 
     /** 牌名缩写：去掉 {@code _R} 后缀，面板宽度有限。 */
