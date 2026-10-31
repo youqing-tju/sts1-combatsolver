@@ -391,9 +391,62 @@ public final class AutoPilot {
             String path = snap.saveAs("turn-A" + snap.act + "F" + snap.floor
                     + "T" + turn + ".json");
             Trace.info("TURN snapshot " + path);
+            io.github.youqing.sts1solver.ui.SolverPanel.setTurnLine(turnLineOf(snap, turn));
+            io.github.youqing.sts1solver.ui.SolverPanel.setStrategyLine(strategyLine());
         } catch (Throwable t) {
             Trace.warn("turn snapshot failed: " + t);
         }
+    }
+
+    /**
+     * 面板状态条：`A1F14 T3 · hp 36/80 e3 · 敌 Lagavulin 94 (意图20)`。
+     *
+     * <p>只在回合开头算一次（跟快照同一时机），不在渲染里现读 —— 面板每帧都跑，
+     * {@code SimState.capture()} 这种扫全场的调用放进去会直接掉帧。
+     */
+    private static String turnLineOf(io.github.youqing.sts1solver.sim.SimState s, int turn) {
+        StringBuilder sb = new StringBuilder();
+        sb.append('A').append(s.act).append('F').append(s.floor).append(" T").append(turn)
+          .append(" · hp ").append(s.hp).append('/').append(s.maxHp)
+          .append(" · e").append(s.energy);
+        int shown = 0;
+        for (io.github.youqing.sts1solver.sim.SimMonster m : s.monsters) {
+            if (m.hp <= 0) {
+                continue;
+            }
+            if (shown++ >= 3) {
+                sb.append(" +");
+                break;
+            }
+            sb.append(" · ").append(m.type).append(' ').append(m.hp);
+            if (m.intentAttack && m.intentDmg > 0) {
+                sb.append(" (意图").append(m.intentDmg).append(')');
+            } else if (m.powers.containsKey("Anger") || m.powers.containsKey("Ritual")) {
+                sb.append(" (成长)");
+            }
+        }
+        String shape = lastSearchShape;
+        if (shape != null && !shape.isEmpty()) {
+            sb.append(" · ").append(shape);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 面板策略行：这一场「数据干不干净」的结论。
+     *
+     * <p>比药水对账更该露出来的是**未镜像遗物**——它们会在战斗里自行触发，
+     * 让后面的每一条 diff 都变成噪声（日志里那条 `RELIC 未镜像的遗物` 就是它）。
+     * 药水对账的明细留在日志，面板只留「这把数据能不能用」。
+     */
+    private static String strategyLine() {
+        java.util.List<String> missing = io.github.youqing.sts1solver.mirror.Coverage
+                .unmirroredRelics(io.github.youqing.sts1solver.sim.SimState.capture());
+        if (missing == null || missing.isEmpty()) {
+            return "数据：遗物全部已镜像";
+        }
+        return "⚠ 未镜像遗物 " + missing.size() + " 件：" + String.join(" ", missing)
+                + "（这一把的 diff 会带噪声）";
     }
 
     private static int playOneCard(AbstractPlayer player, AbstractMonster attackTarget) {

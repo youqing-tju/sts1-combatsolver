@@ -64,6 +64,15 @@ public final class SolverPanel {
     private static float dragDY;
 
     private static String combatLine = "combat: (none)";
+    /**
+     * 每回合刷新一次的「这一回合的真相」：`A1F14 T3 · hp 36/80 e3 · 敌 Lagavulin 94 (意图20)`。
+     *
+     * <p>为什么不每帧现读：{@code SimState.capture()} 要扫牌堆/能力/遗物，每帧调会把帧率吃掉。
+     * 由 {@code AutoPilot} 在回合开头落快照时顺手推一次（每回合一次，成本可忽略）。
+     */
+    private static String turnLine = "";
+    /** 药水对账闸的最近结论（蓝本 PotionStrategicCost 的可读版），没有就不占行。 */
+    private static String strategyLine = "";
 
     // 版面缓存：只在文本变化时重算，避免每帧分配 GlyphLayout
     private static float panelW = MIN_W;
@@ -103,9 +112,29 @@ public final class SolverPanel {
         Trace.info("panel sees combat start: " + summary);
     }
 
+    /** AutoPilot 每回合开头推一次：`A1F14 T3 · hp 36/80 e3 · 敌 X 94 (意图20)`。 */
+    public static void setTurnLine(String line) {
+        if (line == null ? turnLine == null : line.equals(turnLine)) {
+            return;
+        }
+        turnLine = line;
+        layoutDirty = true;
+    }
+
+    /** 药水/遗物/成长的结论行（没有就传空串，面板不占行）。 */
+    public static void setStrategyLine(String line) {
+        if (line == null ? strategyLine == null : line.equals(strategyLine)) {
+            return;
+        }
+        strategyLine = line;
+        layoutDirty = true;
+    }
+
     /** 战斗结束：面板别一直挂着上一场的战况（用户会以为还在打）。 */
     public static void onCombatEnd() {
         combatLine = "combat: (none)";
+        turnLine = "";
+        strategyLine = "";
         layoutDirty = true;
     }
 
@@ -225,13 +254,23 @@ public final class SolverPanel {
                 + (ShadowTracker.matches() + ShadowTracker.mismatches())
                 + "      AUTO " + (AutoPilot.enabled() ? "ON" : "OFF"),
                 new Color(0.78f, 0.81f, 0.85f, 1f), false));
-        out.add(new Row(combatLine, new Color(0.72f, 0.9f, 0.72f, 1f), false));
+        // 状态条：这一回合的真局面（AutoPilot 每回合推一次）
+        out.add(new Row(turnLine.isEmpty() ? combatLine : turnLine,
+                new Color(0.72f, 0.9f, 0.72f, 1f), false));
+        if (!strategyLine.isEmpty()) {
+            out.add(new Row(strategyLine, new Color(0.86f, 0.78f, 0.62f, 1f), false));
+        }
 
         String route = AutoPilot.planSummaryLine();
         if (route != null && !route.isEmpty()) {
             out.add(new Row(route, new Color(0.92f, 0.86f, 0.6f, 1f), false));
+            // 第一行是「本回合」，用亮色；后面是推演，用暗色（蓝本动作条也是当前档高亮）
+            boolean first = true;
             for (String line : AutoPilot.planLines(MAX_PLAN_ROWS)) {
-                out.add(new Row(line, new Color(0.64f, 0.8f, 0.96f, 1f), false));
+                Color c = first ? new Color(0.75f, 0.92f, 1f, 1f)
+                        : new Color(0.55f, 0.68f, 0.82f, 1f);
+                out.add(new Row(line, c, false));
+                first = false;
             }
         } else {
             // 开了宽度组合 + 新颖度之后单步要 1~5 秒：把「已等多少秒」显示出来，
