@@ -803,28 +803,51 @@ public final class AutoPilot {
             return out;
         }
         int turn = 1;
+        int actionsInTurn = 0;
+        boolean firstStep = true;
         StringBuilder sb = new StringBuilder();
         for (io.github.youqing.sts1solver.search.RouteStep step : plan) {
             if (step.endTurn) {
                 if (sb.length() > 0) {
-                    out.add("T" + turn + "  " + sb);
+                    out.add(rowText(turn, sb));
                     sb.setLength(0);
                 }
+                actionsInTurn = 0;
                 turn++;
                 if (out.size() >= maxLines) {
                     return out;
                 }
             } else {
-                if (sb.length() > 0) {
-                    sb.append("  ");
+                if (actionsInTurn == MAX_ACTIONS_PER_ROW) {
+                    sb.append(" · …");
+                    firstStep = false;
+                } else if (actionsInTurn < MAX_ACTIONS_PER_ROW) {
+                    if (sb.length() > 0) {
+                        sb.append(" · ");
+                    }
+                    // 下一步（plan.peek）画箭头：这是执行层马上要做的那一手，
+                    // 蓝本的动作条也是「当前动作高亮 + 后续动作淡色」。
+                    if (firstStep) {
+                        sb.append("▶");
+                    }
+                    sb.append(step.potion
+                            ? "药·" + shortName(step.cardKey) : shortName(step.cardKey));
+                    actionsInTurn++;
                 }
-                sb.append(step.potion ? "药·" + shortName(step.cardKey) : shortName(step.cardKey));
+                firstStep = false;
             }
         }
         if (sb.length() > 0 && out.size() < maxLines) {
-            out.add("T" + turn + "  " + sb);
+            out.add(rowText(turn, sb));
         }
         return out;
+    }
+
+    /** 一回合最多画几个动作（超出就 `…`）——面板宽度有限，宁可截断也不要让 fit() 随机切。 */
+    private static final int MAX_ACTIONS_PER_ROW = 6;
+
+    private static String rowText(int turn, StringBuilder actions) {
+        return "T" + turn + " ▸ " + actions;
     }
 
     /** 牌名缩写：去掉 {@code _R} 后缀，面板宽度有限。 */
