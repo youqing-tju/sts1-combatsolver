@@ -49,6 +49,8 @@ public final class EndTurnProbe {
 
     /** 上一次打印的签名；只有签名变化才落盘，避免每帧刷日志。 */
     private static String lastSignature = "";
+    private static boolean lastQueued;
+    private static boolean lastTurnEnded;
 
     private EndTurnProbe() {
     }
@@ -71,10 +73,15 @@ public final class EndTurnProbe {
             // 只在「queued 期间」把队列规模纳入签名：否则一次抽牌/出牌就刷一行，日志会被淹
             String signature = queued + "|" + ending + "|" + control + "|" + turnEnded
                     + "|" + (queued ? cardQueue + "/" + actions : "-");
-            if (signature.equals(lastSignature)) {
+            // 回合末结算的两端（endTurn 启动 / 敌方阶段开始）必须留证，哪怕签名没变
+            boolean endTurnStart = lastQueued && !queued;
+            boolean enemyPhase = turnEnded && !lastTurnEnded;
+            if (signature.equals(lastSignature) && !endTurnStart && !enemyPhase) {
                 return;
             }
             lastSignature = signature;
+            lastQueued = queued;
+            lastTurnEnded = turnEnded;
 
             int hand = player.hand == null ? -1 : player.hand.size();
             int energy = EnergyPanel.totalCount;
@@ -90,11 +97,40 @@ public final class EndTurnProbe {
                     + " hand=" + hand
                     + " e=" + energy
                     + " turn=" + am.turn
+                    + " hp=" + player.currentHealth + "/" + player.maxHealth
+                    + " block=" + player.currentBlock
+                    // 结算两端把当时的手牌抄下来：没有它就无法判断「灼烧到底在不在手上」
+                    + ((endTurnStart || enemyPhase)
+                            ? "  cards=" + handIds(player) : "")
                     + "  " + verdict(queued, ending, control, cardQueue, actions, hand));
         } catch (Throwable t) {
             // 探针自身绝不能影响游戏
             Trace.warn("EOT probe failed: " + t);
         }
+    }
+
+    /** 手牌快照（最多 8 张，够看清有没有灼烧/眩晕这类状态牌）。 */
+    private static String handIds(AbstractPlayer player) {
+        if (player.hand == null || player.hand.group == null) {
+            return "[]";
+        }
+        StringBuilder sb = new StringBuilder("[");
+        int shown = 0;
+        for (com.megacrit.cardcrawl.cards.AbstractCard card : player.hand.group) {
+            if (card == null) {
+                continue;
+            }
+            if (shown > 0) {
+                sb.append(',');
+            }
+            if (shown >= 8) {
+                sb.append('…');
+                break;
+            }
+            sb.append(card.cardID).append(card.upgraded ? "+" : "");
+            shown++;
+        }
+        return sb.append(']').toString();
     }
 
     /** 把当前组合翻译成一句人话，省得每次读日志还要在脑子里跑一遍状态机。 */
@@ -121,5 +157,7 @@ public final class EndTurnProbe {
     /** 战斗边界清状态，避免「上一场的签名」把这一场的第一行吃掉。 */
     public static void reset() {
         lastSignature = "";
+        lastQueued = false;
+        lastTurnEnded = false;
     }
 }

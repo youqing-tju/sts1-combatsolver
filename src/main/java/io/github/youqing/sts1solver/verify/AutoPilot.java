@@ -1277,21 +1277,64 @@ public final class AutoPilot {
     }
 
     /**
-     * 结束回合必须走**游戏自己的路**：{@code EndTurnButton} 点下去就是把
-     * {@code player.endTurnQueued} 置为 true，由游戏主循环执行完整流程
-     * （回合末结算、手牌弃置、下回合抽牌、敌方行动）。
+     * 结束回合必须走**游戏自己的路** —— 而且是**和鼠标点击完全同一条路**。
      *
-     * <p>🔴 直接调 {@code actionManager.endTurn()} 会跳过玩家侧那一段，
-     * 实测后果：战斗专注的「禁止抽牌」永不消失、**怪物完全不行动**。
+     * <p>🔴 2026-10-31 真机事故（灼烧 / 多层护甲 / 金属化 / 奥利哈刚全部不触发，
+     * 手点结束回合就正常）。根因在游戏侧，字节码逐条核实：
      *
-     * <p>但只置 flag 又会出现反向问题：flag 很快被游戏清掉，而收尾动作还在跑，
-     * 下一帧我们会再置一次 —— 实测**怪物一回合行动两次**，玩家直接被打死。
+     * <pre>
+     * // GameActionManager.getNextAction()，cardQueue 非空时：
+     * CardQueueItem item = cardQueue.get(0);
+     * if (item.card == null) {
+     *     callEndOfTurnActions();      // ← 回合末三类触发的**唯一**入口（全类仅此一处调用）
+     * }
      *
-     * <p>所以这里用两段式等待：先等敌方阶段开始（turnHasEnded=true），
-     * 再等它结束（turnHasEnded=false 且玩家回合恢复）。整个期间不做任何事。
+     * private void callEndOfTurnActions() {
+     *     room.applyEndOfTurnRelics();          // 奥利哈刚 / 香炉…
+     *     room.applyEndOfTurnPreCardPowers();   // 多层护甲 / 金属化…
+     *     addToBot(new TriggerEndOfTurnOrbsAction());
+     *     for (AbstractCard c : player.hand.group) c.triggerOnEndOfTurnForPlayingCard();  // 灼烧 / 后悔…
+     *     player.stance.onEndOfTurn();
+     * }
+     * </pre>
+     *
+     * <p>也就是说：**回合末结算挂在「手牌队列里那个 card==null 的哨兵项」上**。
+     * 而 {@code EndTurnButton.disable(true)}（鼠标点击真正调用的方法）一共做 5 件事，
+     * 以前我们只复刻了第 4 件 {@code player.endTurnQueued = true}：
+     *
+     * <ol>
+     *   <li>{@code InputHelper.moveCursorToNeutralPosition()}</li>
+     *   <li>{@code actionManager.addToBottom(new NewQueueCardAction())} —— 先把挂着的出牌收尾</li>
+     *   <li>{@code enabled/hb.hovered/isGlowing} 置位</li>
+     *   <li>{@code player.endTurnQueued = true}</li>
+     *   <li>{@code player.releaseCard()} —— 清 {@code justClickedLeft/isMouseDown/inSingleTargetMode} 等输入态</li>
+     * </ol>
+     *
+     * <p>少了第 2、5 步，`cardQueue` 的状态和「手点」不同，哨兵项就漏掉了 ——
+     * 表现正是「回合照常推进，但这一回合所有回合末效果一起静默消失」。
+     *
+     * <p>所以现在不再自己拼这一步，而是**直接调用按钮自己的 {@code disable(true)}**：
+     * 不复制逻辑、不和版本漂移赛跑，路径与手点逐字节一致。
+     *
+     * <p>⚠️ 仍然不能调 {@code actionManager.endTurn()}：那是 {@code EndTurnAction} 才做的事，
+     * 会跳过玩家侧整段（实测：战斗专注的「禁止抽牌」永不消失、怪物完全不行动）。
+     *
+     * <p>等待策略不变，仍是两段式：先等敌方阶段开始（{@code turnHasEnded=true}），
+     * 再等它结束（{@code turnHasEnded=false} 且玩家回合恢复），期间不做任何事 ——
+     * 否则会重复置 flag，实测**怪物一回合行动两次**。
      */
     private static void requestEndTurn(AbstractPlayer player) {
-        player.endTurnQueued = true;
+        com.megacrit.cardcrawl.ui.buttons.EndTurnButton button =
+                AbstractDungeon.overlayMenu == null ? null
+                        : AbstractDungeon.overlayMenu.endTurnButton;
+        if (button != null) {
+            // 与鼠标点击同一个入口（含 NewQueueCardAction + releaseCard）
+            button.disable(true);
+        } else {
+            // 兜底：没有按钮对象时退回旧行为（至少能推进回合，代价是回合末结算可能丢）
+            Trace.warn("AUTO end turn: EndTurnButton unavailable, falling back to endTurnQueued");
+            player.endTurnQueued = true;
+        }
         endPhase = 1;
         endPhaseFrames = 0;
     }
