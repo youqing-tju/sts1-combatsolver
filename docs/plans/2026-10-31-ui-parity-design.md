@@ -1,14 +1,14 @@
 ---
-summary: "UI 剩余两刀的设计定稿候选：只读策略现状区 + 有停止边界的 AUTO；获批后再改实施计划"
+summary: "UI 剩余两刀的已批准设计：只读策略现状区 + 有停止边界的 AUTO"
 read_when:
   - 实施 UI 第三刀或第四刀之前
   - 需要判断蓝本复刻、STS1 适配与项目自定义扩展的边界时
-status: "待用户批准；不是实施许可"
+status: "用户已于 2026-10-31 批准；实施须遵循 TDD 计划"
 ---
 
 # UI 剩余两刀设计：只读策略现状区 + AUTO 至目标回合末
 
-> 本文是设计稿，**不是实施完成记录，也不授权直接改代码**。
+> 本文是已批准设计，**不是实施完成记录**；实施必须按 `2026-10-31-ui-parity.md` 的 TDD 步骤执行。
 > 用户已拍板两项产品语义：
 > 1. 策略区本轮 **先只读，后控制**；真正的策略控制器另开任务。
 > 2. 点路线行 = **打完目标回合 Tn 再停**：继续执行 Tn 的 `END_TURN` 与随后敌方阶段，在 Tn+1 玩家回合交还控制；每回合根据真局面重搜，不冻结旧预览。
@@ -37,7 +37,7 @@ status: "待用户批准；不是实施许可"
 - 当前蓝本源码全库无 `ApplyRoute`；此前对蓝本 Git 历史 `git log --all -SApplyRoute -- src` 也无结果。
 - `SolverRouteRow.cs:28` 为 `MouseFilter = MouseFilterEnum.Ignore`。
 - 蓝本实际入口是 `ApplyCurrentTurn` 与 `AdoptCurrentRoute`，不是“点路线行执行到该回合”。
-- `SolverController` 的 `DeployCurrentTurn` 只部署 `action.Turn == result.StartTurnNumber` 的动作；旧对照表把本项目每回合重规划归为同构，这个判断保留。
+- `SolverController` 的 `DeployCurrentTurn` 只部署 `action.Turn == result.StartTurnNumber` 的动作；旧对照表把本项目每回合重规划归为同构，这个判断保留。需注意蓝本后续回合会先做精确 `ContinuationStamp` 校验，命中时复用 continuation、未命中才重搜；不能把它概括成“蓝本每回合必定从头重搜”。
 
 因此，第四刀必须命名为 **项目自定义扩展：“AUTO 至目标回合末”**。它不实现蓝本 `AdoptRoute`，不冻结跨回合路线，也不再使用“复刻蓝本 `ApplyRoute`”的表述。
 
