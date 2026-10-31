@@ -785,7 +785,8 @@ public final class AutoPilot {
             if (step.potion) {
                 planText.append("POTION:").append(step.cardKey);
             } else {
-                planText.append(step.cardKey == null ? "END_TURN" : shortName(step.cardKey));
+                planText.append(step.cardKey == null ? "END_TURN"
+                        : RoutePreview.shortName(step.cardKey));
             }
             if (shown < result.steps.size() && shown < 40) {
                 planText.append(" | ");
@@ -1109,14 +1110,6 @@ public final class AutoPilot {
         planSummary = "";
         preview = null;
         panelRevision++;
-    }
-
-    /** 牌名缩写：去掉 {@code _R} 后缀，面板宽度有限。 */
-    private static String shortName(String key) {
-        if (key == null) {
-            return "?";
-        }
-        return key.endsWith("_R") ? key.substring(0, key.length() - 2) : key;
     }
 
     /** 当前局面指纹；抓不到（还没捕获根状态）时返回 null = 不做有效性校验。 */

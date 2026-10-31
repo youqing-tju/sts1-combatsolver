@@ -137,10 +137,10 @@ public final class RoutePreview {
     /**
      * 牌名缩写：去掉 {@code _R} 后缀（面板宽度有限）。
      *
-     * <p>与 {@code AutoPilot.shortName} 口径一致；重复一份是为了让本类能被单元测试
-     * 独立构造，不拉进 {@code AutoPilot} 的静态真机状态。
+     * <p>面板行与日志共用这一份口径 —— 两处各写一个「去掉后缀」很容易在改名后分叉，
+     * 而分叉的表现是「日志和面板对不上」，排查成本远高于一个 static 方法。
      */
-    private static String shortName(String key) {
+    static String shortName(String key) {
         if (key == null) {
             return "?";
         }

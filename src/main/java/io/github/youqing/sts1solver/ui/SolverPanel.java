@@ -622,23 +622,23 @@ public final class SolverPanel {
             ensureLayout();
             if (InputHelper.justClickedLeft) {
                 // 行命中优先级最高：同一点击不能既折叠策略区又落到下面的按钮或拖拽标题上
-                if (hitRow()) {
-                    return;
-                }
-                float by = buttonY();
-                if (inRect(autoStartButtonX(), by, buttonW[2], BUTTON_H)) {
-                    SolverConfig.toggleAutoStart();
-                    layoutDirty = true;
-                } else if (inRect(budgetButtonX(), by, buttonW[1], BUTTON_H)) {
-                    SolverConfig.cycleBudget();
-                    layoutDirty = true;
-                } else if (inRect(autoButtonX(), by, buttonW[0], BUTTON_H)) {
-                    AutoPilot.toggle();
-                    layoutDirty = true;
-                } else if (inRect(x, topY - TITLE_BAR, panelW, TITLE_BAR)) {
-                    dragging = true;
-                    dragDX = InputHelper.mX - x;
-                    dragDY = InputHelper.mY - topY;
+                boolean consumed = hitRow();
+                if (!consumed) {
+                    float by = buttonY();
+                    if (inRect(autoStartButtonX(), by, buttonW[2], BUTTON_H)) {
+                        SolverConfig.toggleAutoStart();
+                        layoutDirty = true;
+                    } else if (inRect(budgetButtonX(), by, buttonW[1], BUTTON_H)) {
+                        SolverConfig.cycleBudget();
+                        layoutDirty = true;
+                    } else if (inRect(autoButtonX(), by, buttonW[0], BUTTON_H)) {
+                        AutoPilot.toggle();
+                        layoutDirty = true;
+                    } else if (inRect(x, topY - TITLE_BAR, panelW, TITLE_BAR)) {
+                        dragging = true;
+                        dragDX = InputHelper.mX - x;
+                        dragDY = InputHelper.mY - topY;
+                    }
                 }
             }
 
