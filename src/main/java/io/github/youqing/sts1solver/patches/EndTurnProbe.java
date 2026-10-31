@@ -27,23 +27,23 @@ import io.github.youqing.sts1solver.diag.Trace;
  * // AbstractRoom.update():  if (player.isEndingTurn) this.endTurn();
  * </pre>
  *
- * <p>所以只要「置 {@code endTurnQueued} 的那一刻」手牌队列非空、或还有动作在执行，
- * {@code endTurn()} 就**根本不会启动** —— 这一回合所有回合末效果（灼烧、多层护甲、山铜、
- * 金属化、香炉……）会**一起静默丢失**。反过来，手点按钮能触发、AUTO 不能，
- * 差别只能出在「谁在什么时机把 {@code endTurnQueued} 置 true」。
+ * <p>所以「置 {@code endTurnQueued} 的那一刻」手牌队列非空、或还有动作在执行时，那一帧
+ * {@code endTurn()} **不会**启动；它要等条件满足后的某一帧才会启动（2026-10-31 的探针日志已
+ * 观测到它确实启动了：{@code q} 由 1 变 0 那一帧 {@code actions} 从 0 跳到 3~5，且 {@code hand}
+ * 仍有牌）。因此「入口完全没启动」**不是**本轮的根因，本探针只用于记录真实时序、
+ * 排除或确认「哨兵项 / 结算时机」这一类差异，不预设结论。
  *
  * <h2>手点按钮实际做了 5 件事（{@code EndTurnButton.disable(true)} 字节码）</h2>
  * <ol>
  *   <li>{@code InputHelper.moveCursorToNeutralPosition()}</li>
  *   <li>{@code actionManager.addToBottom(new NewQueueCardAction())} ← 先把挂着的牌收尾</li>
  *   <li>{@code enabled = false} / {@code hb.hovered = false} / {@code isGlowing = false}</li>
- *   <li>{@code player.endTurnQueued = true}  ← 我们只做了这一件</li>
+ *   <li>{@code player.endTurnQueued = true}  ← 我们以前只做了这一件</li>
  *   <li>{@code player.releaseCard()}（会顺手清 {@code justClickedLeft / isMouseDown / inSingleTargetMode}）</li>
  * </ol>
  *
- * <p>本探针就是要把这个时序差打成可读的日志：每次「与回合结束相关的布尔量」变化时打一行，
- * 另外在 {@code endTurnQueued} 为真期间记录 {@code cardQueue/actions} 的规模变化。
- * 有它就能一句话判定：是入口没启动，还是启动了但手牌已经空了。
+ * <p>⚠️ 「少了第 2、5 步」是**与手点之间唯一已知的差异**，不是已证实的根因；本探针的作用是
+ * 把时序摊开，让「到底是哪一步导致回合末结算丢失」可以被观测，而不是靠推理定案。
  */
 public final class EndTurnProbe {
 
@@ -138,18 +138,18 @@ public final class EndTurnProbe {
                                   int cardQueue, int actions, int hand) {
         if (queued && !ending) {
             if (cardQueue > 0) {
-                return "<- 卡在 cardQueue 非空：endTurn() 不会启动";
+                return "<- 本帧 cardQueue 非空，endTurn() 尚未启动（会等到队列清空）";
             }
             if (actions > 0) {
-                return "<- 卡在 actions 非空";
+                return "<- 本帧 actions 非空，endTurn() 尚未启动";
             }
             if (control) {
-                return "<- 卡在 hasControl=true";
+                return "<- 本帧 hasControl=true，endTurn() 尚未启动";
             }
             return "<- 条件已满足，下一帧应变 ending=1";
         }
         if (ending) {
-            return "<- endTurn() 应已启动（这一帧的回合末效果该结算了）";
+            return "<- endTurn() 已启动（这一帧的回合末效果该结算了）";
         }
         return "";
     }

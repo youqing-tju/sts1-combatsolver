@@ -15,6 +15,9 @@ logs/
 trace/
 runs/
 *.log
+# 对拍失配落盘（真机/测试运行时生成）
+solver-snapshots/
+solver-data/
 
 # IDE
 .idea/

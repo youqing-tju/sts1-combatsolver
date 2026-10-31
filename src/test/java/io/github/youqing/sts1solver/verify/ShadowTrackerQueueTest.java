@@ -55,9 +55,14 @@ class ShadowTrackerQueueTest {
     }
 
     private final Deque<SimState> live = new ArrayDeque<SimState>();
+    private java.io.File snapshotDir;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
+        // 这个测试**故意**制造一条失配，会把快照写到工作目录；
+        // 指到临时目录里，别把仓库弄脏。
+        snapshotDir = java.nio.file.Files.createTempDirectory("sts1-diff").toFile();
+        System.setProperty("sts1solver.snapshotDir", snapshotDir.getAbsolutePath());
         ShadowTracker.reset();
         ShadowTracker.resetCounters();
         live.clear();
@@ -73,6 +78,20 @@ class ShadowTrackerQueueTest {
     void tearDown() {
         ShadowTracker.liveState = ShadowTracker.DEFAULT_LIVE_STATE;
         ShadowTracker.reset();
+        System.clearProperty("sts1solver.snapshotDir");
+        if (snapshotDir != null) {
+            deleteTree(snapshotDir);
+        }
+    }
+
+    private static void deleteTree(java.io.File f) {
+        java.io.File[] kids = f.listFiles();
+        if (kids != null) {
+            for (java.io.File kid : kids) {
+                deleteTree(kid);
+            }
+        }
+        f.delete();
     }
 
     @Test
