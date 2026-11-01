@@ -1,10 +1,10 @@
-# STS1 战斗求解器 · 交接说明（2026-11-01 21:10 版）
+# STS1 战斗求解器 · 交接说明（2026-11-01 20:28 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-01 21:10，测试 **679 条全绿**（0 fail / 0 err，15 skipped），
+> **当前状态**：2026-11-01 20:28，测试 **679 条全绿**（0 fail / 0 err，15 skipped），
 > 代码 HEAD = 本轮四个纠偏 commit（`44e8ae6` → `ff2e6ee` → `8c429ac` → `652ae13`），未 push。
-> 已安装 `build 1101-193207`（**不含**本轮四个 commit，真机跑的还是旧 jar）。
+> 已安装 `build 1101-202828`（**已含**本轮四个 commit + 文档；等真机启动即可验证）。
 >
 > 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做**。
 > `docs/plans/2026-11-01-strict-blueprint-parity.md` 的 Task 1–4 **已全部执行完**：
@@ -488,3 +488,33 @@ Task 1–4 已完成（见 `blueprint-parity.md` 结果列），**剩下的是 T
 4. `BeamSolver.offensiveProgressOf` 把**抽牌堆里的 Body Slam** 也算「格挡=进攻推进」，
    导致怪物不攻击时也会先出格挡（`turn-A1F16T2` 复现：那一回合格挡纯白给）。
    改法只有一行（只认手牌），但要先在 497 个快照上跑 paired A/B，有改善才入库。
+
+---
+
+## 十、2026-11-01 纠偏结果表（Task 1–5）
+
+> 口径：**自动化** = `./gradlew test --offline` 的合同测试；**真机** = 进游戏实跑。
+> 本轮全部真机项为 **未验证**：20:28 时游戏进程不存在，jar 已装 `build 1101-202828`。
+
+| 纠偏项 | commit | 蓝本证据 | 自动化 | 真机 | 状态 |
+|---|---|---|---|---|---|
+| 默认不冻结；失配从根重算 | `44e8ae6` | `SolverController.cs:1077-1140` | ✅ `RouteReplanTest`(3) | 未验证 | 已完成 |
+| 单步不可用 → DEPLOY_REPLAN | `44e8ae6` | `SolverController.cs:2925-3010` | ✅ `unplayableStepReplansFromRootInsteadOfDroppingOnlyThatStep` | 未验证 | 已完成 |
+| 无生还路线不再禁打 | `44e8ae6` | `FinalPlanOrdering.cs:246-270` | ✅ `noSurvivingRouteDoesNotInventDeploymentBan` | 未验证 | 已完成 |
+| 有界 AUTO / 点 Tn 删除 | `ff2e6ee` | `SolverOverlay` 路线行 `MouseFilter=Ignore` | ✅ `NoLocalRouteControlTest`(2) | 未验证 | 已完成 |
+| AdoptRoute / RouteFrozen 不伪实现 | `ff2e6ee` | `SolverController.cs:128-158` | ✅ 同上（反射） | — | 登记未做 |
+| 边界只选下标、状态由回放采集 | `8c429ac` | `Terminal.cs:337-390` | ✅ `ContinuationPlanTest`(4)+`BeamSolverContinuationTest.bestNode…` | 未验证 | 已完成 |
+| CaptureLive / CapturePredicted 分侧 | `8c429ac` | `ContinuationStamp.cs:68-182` | ✅ `liveAndPredictedCaptureAgreeOnTheSameState` | 未验证 | 已完成 |
+| 四牌堆（含手牌）保序 | `8c429ac` | `AppendLivePile/AppendPredictedPile` | ✅ `handOrderMattersExactlyLikeDrawDiscardAndExhaust` | 未验证 | 已完成 |
+| 全局 Disabled 不压显式 Force | `652ae13` | `PotionStrategySnapshot.cs:66-87` | ✅ `globalDisabledStillAllowsExplicitForceDirective` | 未验证 | 已完成 |
+| 全局档位不落盘 | `652ae13` | `SolverSettings.cs:94-96` `[JsonIgnore]` | ✅ `onlyPerSlotDirectivesRoundTrip` + 配置往返 | 未验证 | 已完成 |
+| 删除 policyRevision | `652ae13` | `SolverController.cs:1899-2008` | ✅ `PotionPolicyChangeTest`(6) | 未验证 | 已完成 |
+| 无合格候选抛专用异常 | `652ae13` | `FinalPlanOrdering.cs:274-282` | ✅ `unsatisfiedPolicyThrowsDedicatedExceptionInsteadOfPinnedRescueOrNull` | 未验证 | 已完成 |
+| 来源审计与保留项登记 | `638e970` | 见 `blueprint-parity.md` | — | — | 已完成 |
+
+**未闭环**：① 全部真机项；② 真机跨回合命中率（纠偏前 97 对配对 0 命中）；
+③ 影子首差 `playerPowers` → `energy` → `discardPile` → `hand` → `block`；
+④ `AdoptRoute` / `RouteFrozen` / play_depth / `PotionRewardOutlook` 未做。
+
+**回退方式**：四个 commit 相互独立且都在 `master` 本地（未 push）。
+`git revert 652ae13 8c429ac ff2e6ee 44e8ae6` 可整体回到 `73f44c8` 的旧语义（旧测试会一起回来）。
