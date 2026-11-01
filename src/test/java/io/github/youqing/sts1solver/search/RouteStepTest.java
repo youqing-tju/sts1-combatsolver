@@ -25,6 +25,17 @@ class RouteStepTest {
         assertTrue(potion.toString().startsWith("POTION "), "日志里要能一眼看出是喝药");
     }
 
+    /** 同 ID 两瓶药水靠槽位区分：日志与执行都必须带上它。 */
+    @Test
+    void potionStepBindsItsSlot() {
+        RouteStep second = RouteStep.potion("Fire Potion", 1, 0, -1);
+        assertEquals(1, second.potionSlot);
+        assertEquals("POTION[1] Fire Potion", second.toString());
+        assertFalse(new RouteStep(false, "Strike_R", 0, -1).potion);
+        assertEquals(-1, new RouteStep(false, "Strike_R", 0, -1).potionSlot,
+                "打牌的步骤没有药水槽位");
+    }
+
     @Test
     void cardStepsAreNotPotionSteps() {
         RouteStep card = new RouteStep(false, "Strike_R", 0, -1);

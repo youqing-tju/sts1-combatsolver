@@ -64,6 +64,8 @@ public final class SolverConfig {
     private static final String KEY_AUTO_START = "autoStart";
     private static final String KEY_NOVELTY = "novelty";
     private static final String KEY_PORTFOLIO = "portfolio";
+    /** 药水策略（全局档位 + 每槽覆盖）的落盘键；旧配置没有它 = 全 Smart。 */
+    public static final String KEY_POTION_STRATEGY = "potionStrategy";
 
     private static SpireConfig config;
     private static Budget budget = Budget.MEDIUM;
@@ -72,6 +74,14 @@ public final class SolverConfig {
     private static boolean novelty = true;
     /** Beam 宽度组合（蓝本 UseBeamWidthPortfolio，默认开）。 */
     private static boolean portfolio = true;
+    /**
+     * 药水策略（蓝本 {@code SolverPotionPolicy} + 每槽 directive）。
+     *
+     * <p>只在**主线程**改（面板点击），改完立刻落盘并递增 {@code policyRevision}；
+     * 后台搜索只读请求里带的快照，不读这个字段。
+     */
+    private static io.github.youqing.sts1solver.search.PotionStrategySnapshot potionStrategy =
+            io.github.youqing.sts1solver.search.PotionStrategySnapshot.defaults();
 
     private SolverConfig() {
     }
@@ -82,6 +92,7 @@ public final class SolverConfig {
         defaults.setProperty(KEY_AUTO_START, "false");
         defaults.setProperty(KEY_NOVELTY, "true");
         defaults.setProperty(KEY_PORTFOLIO, "true");
+        defaults.setProperty(KEY_POTION_STRATEGY, potionStrategy.toStorageString());
         try {
             config = new SpireConfig(MOD_ID, FILE, defaults);
             String name = config.getString(KEY_BUDGET);
@@ -93,11 +104,13 @@ public final class SolverConfig {
             autoStart = config.getBool(KEY_AUTO_START);
             novelty = config.getBool(KEY_NOVELTY);
             portfolio = config.getBool(KEY_PORTFOLIO);
+            potionStrategy = parsePotionStrategy(config.getString(KEY_POTION_STRATEGY));
             Trace.info("config loaded: budget=" + budget.label
                     + " (width " + budget.beamWidth + ", nodes " + budget.nodeLimit
                     + ", time " + budget.timeMillis + "ms)"
                     + " autoStart=" + autoStart + " novelty=" + novelty
-                    + " portfolio=" + portfolio);
+                    + " portfolio=" + portfolio
+                    + " potions=" + potionStrategy.toStorageString());
         } catch (Throwable t) {
             // 配置坏了也要能玩：全部走默认值
             config = null;
@@ -133,6 +146,42 @@ public final class SolverConfig {
         return budget;
     }
 
+    /** 当前药水策略（不可变快照）。 */
+    public static io.github.youqing.sts1solver.search.PotionStrategySnapshot potionStrategy() {
+        return potionStrategy;
+    }
+
+    /**
+     * 解析落盘的策略串（旧配置/坏值一律退回「全 Smart、无覆盖」）。
+     *
+     * <p>坏值退回 Smart 而不是 Disabled：退回 Disabled 会让玩家一瓶药都喝不了，
+     * 而「什么都没设」才是安全的一侧。
+     */
+    public static io.github.youqing.sts1solver.search.PotionStrategySnapshot parsePotionStrategy(
+            String raw) {
+        java.util.List<String> problems = new java.util.ArrayList<String>();
+        io.github.youqing.sts1solver.search.PotionStrategySnapshot parsed =
+                io.github.youqing.sts1solver.search.PotionStrategySnapshot.parse(raw, problems);
+        if (!problems.isEmpty()) {
+            Trace.warn("potion strategy entries ignored: " + problems);
+        }
+        return parsed;
+    }
+
+    /**
+     * 落一份新策略。
+     *
+     * <p>⚠️ 它只负责「存」，不负责「让旧结果失效」—— 那是 {@code AutoPilot} 的
+     * {@code policyRevision} 的职责。两者分开是因为搜索层也要能在没有真机的情况下改策略。
+     */
+    public static void applyPotionStrategy(
+            io.github.youqing.sts1solver.search.PotionStrategySnapshot snapshot) {
+        potionStrategy = snapshot == null
+                ? io.github.youqing.sts1solver.search.PotionStrategySnapshot.defaults()
+                : snapshot;
+        save();
+    }
+
     /** 面板上的 auto-start 开关：下一场战斗开始时是否自动接管。 */
     public static boolean toggleAutoStart() {
         autoStart = !autoStart;
@@ -148,6 +197,7 @@ public final class SolverConfig {
         try {
             config.setString(KEY_BUDGET, budget.name());
             config.setBool(KEY_AUTO_START, autoStart);
+            config.setString(KEY_POTION_STRATEGY, potionStrategy.toStorageString());
             config.save();
         } catch (IOException e) {
             Trace.warn("config save failed: " + e);

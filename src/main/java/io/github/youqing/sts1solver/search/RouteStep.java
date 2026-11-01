@@ -21,6 +21,15 @@ public final class RouteStep {
     public final String cardKey;
     public final int targetIndex;
     public final int choiceIndex;
+    /**
+     * 喝药步骤对应的**药水槽位**；非喝药步骤为 {@code -1}。
+     *
+     * <p>🔴 必须和 {@link #cardKey} 一起看：两瓶同 ID 的药水在同一个腰带上时，
+     * 「喝 Fire Potion」这条指令是**有歧义**的 —— 只按 ID 找会喝掉另一格，
+     * 用户看到的就是「明明锁了这瓶，它喝了那瓶」。Force/Disabled 的校验同理，
+     * 所以策略层与执行层都绑定 {@code (slot, potionId)}。
+     */
+    public final int potionSlot;
 
     public RouteStep(boolean endTurn, String cardKey, int targetIndex, int choiceIndex) {
         this(endTurn, false, cardKey, targetIndex, choiceIndex);
@@ -28,11 +37,22 @@ public final class RouteStep {
 
     public RouteStep(boolean endTurn, boolean potion, String cardKey, int targetIndex,
                      int choiceIndex) {
+        this(endTurn, potion, cardKey, -1, targetIndex, choiceIndex);
+    }
+
+    public RouteStep(boolean endTurn, boolean potion, String cardKey, int potionSlot,
+                     int targetIndex, int choiceIndex) {
         this.endTurn = endTurn;
         this.potion = potion;
         this.cardKey = cardKey;
+        this.potionSlot = potion ? potionSlot : -1;
         this.targetIndex = targetIndex;
         this.choiceIndex = choiceIndex;
+    }
+
+    /** 喝药步骤（带槽位）。 */
+    public static RouteStep potion(String potionId, int slot, int targetIndex, int choiceIndex) {
+        return new RouteStep(false, true, potionId, slot, targetIndex, choiceIndex);
     }
 
     @Override
@@ -40,6 +60,9 @@ public final class RouteStep {
         if (endTurn) {
             return "END_TURN";
         }
-        return potion ? "POTION " + cardKey : cardKey;
+        // 槽位未知（老构造器 / 老 fixture）时保持旧写法，日志格式不必为了 -1 变丑
+        return potion
+                ? "POTION" + (potionSlot >= 0 ? "[" + potionSlot + "]" : "") + " " + cardKey
+                : cardKey;
     }
 }
