@@ -1,8 +1,8 @@
-# STS1 战斗求解器 · 交接说明（2026-11-01 19:26 版）
+# STS1 战斗求解器 · 交接说明（2026-11-01 19:33 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-01 19:15，测试 **670 条全绿**（0 fail / 0 err），
+> **当前状态**：2026-11-01 19:33，测试 **672 条全绿**（0 fail / 0 err），
 > 代码 HEAD = `53853ec`，未 push。本轮新增 107 条（565 → 672）。
 > 已安装 `build 1101-193207`（与 `~/.sts1-combatsolver/build/libs/` 一致）。
 >
@@ -161,7 +161,8 @@ private void callEndOfTurnActions() {
 |---|---|---|
 | `db60ff7` | ① 无生还路线 → 不部署、停 AUTO、面板红字（蓝本 `StopFullAutoOnDeathTurn`）；② 回合翻页不再清空预览（消除「路线闪一下」）；③ 路线区行数 3 → 按屏幕自适应（1080p≈16） | `NoSurvivingRouteTest`、`SolverPanelRouteLayoutTest`、`BeamSolverDeathTurnTest` |
 | `c6233d0` | **默认改为采纳+冻结**：回合翻页不丢路线、失配只重新对齐、单步走不通只剔一步；**修 `IntangiblePlayer` 与 `hpLossCount`** | `AdoptRouteTest` + 第五节数据 |
-| `7978d95`/`ba04343` | 文档 | — |
+| `53853ec` | ①【蓝本】回合末实时风险停手（`LiveEndTurnRiskEvaluator`）；②【项目自定义·用户要求】搜不到生还路线 → 禁止自动出牌；③ parity 文档新增「附：来源审计」 | `NoSurvivingRouteTest`（新增 2 条） |
+| `7978d95`/`ba04343`/`f7b7ef8` | 文档 | — |
 
 **为什么之前每回合重算**（真机日志 `2026-11-01.log`，旧 build）：234 次规划 /
 **48 次 `SEARCH_REUSE_MISS` / 0 次命中**。用 497 个快照做相邻回合配对（97 对）复现，首差排序：
@@ -449,14 +450,14 @@ private void callEndOfTurnActions() {
 
 **主线一：真机验收（0 项 → 全部要验）**。启动：Steam → 游戏目录 `MTS-launch.cmd`
 （不要用 `jre\bin\java.exe -jar mts-launcher.jar`，2026-11-01 用那条路起不来）。
-进战斗先看面板右上角 build 号 = `1101-191346`。
+进战斗先看面板右上角 build 号 = `1101-193207`。
 
 | # | 验什么 | 判据 |
 |---|---|---|
 | 1 | **冻结生效** | 开 AUTO 打一场 ≥3 回合战斗：日志只有**一次** `PLAN ready` + 一次 `ROUTE_FROZEN`，之后每回合是 `ROUTE kept turn N -> N+1 (adopt mode)`，**没有新的 `PLAN ready`** |
 | 2 | 路线不闪 | 回合翻页时面板路线**不消失**；若在重算则原地变灰 + 一行「重算中…」 |
 | 3 | 全局路线可见 | 展开后能看到整场战斗所有回合（1080p 约 16 行），超出显示「… 还有 N 回合」 |
-| 4 | 无生还路线 | 预计本回合死的局面：AUTO 自行关闭 + 红字「已暂停执行 · 第 N 回合 预计死亡（操作权已交还）」，**不再继续出牌** |
+| 4 | 无生还路线 / 本回合会死 | 两种都要停手并各有一行红字：① `未找到生还路线 · 已禁止自动出牌（操作权已交还）`（搜不到任何活路）；② `预计本回合会死 · 已交还控制（hp X 对来袭 Y）`（回合末风险投影）。**停了之后不许再出任何牌** |
 | 5 | 手工干预才解冻 | 关 AUTO 手打一张牌再开：日志 `PLAN dropped … (manual divergence)`，然后重新规划一次并再次冻结 |
 | 6 | 药水策略 | 面板药水格点一下循环 Smart→Disabled→Force；设 Disabled 后该槽不再出现 `AUTO potion`；AUTO 执行中点它应被拒绝 |
 
