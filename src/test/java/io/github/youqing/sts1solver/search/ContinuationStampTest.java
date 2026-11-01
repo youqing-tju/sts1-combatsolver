@@ -86,7 +86,7 @@ class ContinuationStampTest {
     }
 
     private static ContinuationStamp stampOf(SimState s) {
-        return ContinuationStamp.from(s);
+        return ContinuationStamp.capturePredicted(s);
     }
 
     @Test
@@ -100,18 +100,52 @@ class ContinuationStampTest {
         assertFalse(stampOf(a).canonicalText().isEmpty());
     }
 
+    /**
+     * 手牌和另外三个牌堆一样**保序**。
+     *
+     * <p>蓝本 {@code ContinuationStamp.AppendLivePile} 就是 {@code foreach (card in pile.Cards)}，
+     * 手牌顺序会改变「先打哪张、抽到什么、连招成不成立」，是真实状态的一部分。
+     * 旧实现按 key 排序（无序多重集），于是「手上 A·B」和「手上 B·A」被当成同一局面放行 ——
+     * 那是静默复用错误世界线。
+     */
     @Test
-    void handIsAnUnorderedMultisetButDuplicatesSurvive() {
+    void handOrderMattersExactlyLikeDrawDiscardAndExhaust() {
         SimState a = base();
         SimState b = base();
-        // 手牌顺序对策略没有意义：换个顺序必须仍然相等
         Collections.reverse(b.hand);
-        assertEquals(stampOf(a), stampOf(b), "手牌是多重集，顺序不该影响续跑");
+        assertNotEquals(stampOf(a), stampOf(b), "手牌换序 = 换未来，必须不等");
+        assertTrue(stampOf(a).describeFirstDifference(stampOf(b)).contains("hand["),
+                "差异必须指名 hand 下标，实际：" + stampOf(a).describeFirstDifference(stampOf(b)));
 
-        // 但张数不能丢：多一张同名牌必须不等
+        // 张数当然也不能丢：多一张同名牌必须不等
         SimState c = base();
         c.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
         assertNotEquals(stampOf(a), stampOf(c), "同名牌的重复计数必须进戳");
+    }
+
+    /**
+     * 两侧入口产出的文本必须一致 —— 真机侧与预测侧比的是同一套字段。
+     *
+     * <p>蓝本两侧是两套对象模型，各写一份 {@code CaptureLive}/{@code CapturePredicted}；
+     * 我们两侧都是 {@code SimState}，所以共用字段 writer，但仍然保留两个入口，
+     * 让调用点无法含糊。这条测试钉的是「两个入口不许写出两种口径」。
+     */
+    @Test
+    void liveAndPredictedCaptureAgreeOnTheSameState() {
+        SimState s = base();
+        ContinuationStamp live = ContinuationStamp.captureLive(s);
+        ContinuationStamp predicted = ContinuationStamp.capturePredicted(s);
+
+        assertEquals(live, predicted, "同一个局面的真机戳与预测戳必须相等，否则永远命中不了");
+        assertEquals(live.canonicalText(), predicted.canonicalText());
+        assertNotEquals(ContinuationStamp.captureLive(base()),
+                ContinuationStamp.capturePredicted(altered()));
+    }
+
+    private static SimState altered() {
+        SimState s = base();
+        s.hp -= 1;
+        return s;
     }
 
     @Test

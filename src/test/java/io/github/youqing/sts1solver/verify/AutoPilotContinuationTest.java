@@ -74,7 +74,7 @@ class AutoPilotContinuationTest {
                     nodes.add(cur);
                 }
             }
-            this.plan = ContinuationPlan.fromFinalRoute(nodes);
+            this.plan = io.github.youqing.sts1solver.search.ContinuationFixtures.capture(nodes);
             this.steps = new ArrayList<RouteStep>();
             for (int i = 1; i < nodes.size(); i++) {
                 PlanAction a = nodes.get(i).action;
@@ -82,9 +82,9 @@ class AutoPilotContinuationTest {
                         false, a.kind == PlanAction.Kind.END_TURN ? null : "Strike_R",
                         a.targetIndex, a.choiceIndex));
             }
-            this.t2 = ContinuationStamp.from(state(2, 48));
-            this.t3 = ContinuationStamp.from(state(3, 45));
-            this.t4 = ContinuationStamp.from(state(4, 40));
+            this.t2 = ContinuationStamp.captureLive(state(2, 48));
+            this.t3 = ContinuationStamp.captureLive(state(3, 45));
+            this.t4 = ContinuationStamp.captureLive(state(4, 40));
         }
     }
 
@@ -149,7 +149,7 @@ class AutoPilotContinuationTest {
         FakeRoute route = new FakeRoute();
         AutoPilot.installRoute(route.steps, 1, route.plan, 0);
 
-        ContinuationStamp drifted = ContinuationStamp.from(state(2, 47));
+        ContinuationStamp drifted = ContinuationStamp.captureLive(state(2, 47));
         assertFalse(AutoPilot.reuseContinuation(2, drifted, 0), "血量不同就不能续跑");
 
         ContinuationDecision decision = new ContinuationDecision();
@@ -171,7 +171,7 @@ class AutoPilotContinuationTest {
         decision.adopt(route.plan, 0);
         decision.markManualDivergence();
         ContinuationDecision.Outcome outcome = decision.evaluate(2,
-                ContinuationStamp.from(state(2, 47)), 0);
+                ContinuationStamp.captureLive(state(2, 47)), 0);
         assertEquals(ContinuationDecision.Reason.MANUAL_DIVERGENCE, outcome.reason(),
                 "手工动过手时，就算状态也对不上，也不该报成镜像差异");
     }
@@ -243,7 +243,7 @@ class AutoPilotContinuationTest {
         FakeRoute route = new FakeRoute();
         AutoPilot.installRoute(route.steps, 1, route.plan, 0);
 
-        assertFalse(AutoPilot.reuseContinuation(2, ContinuationStamp.from(state(2, 47)), 0),
+        assertFalse(AutoPilot.reuseContinuation(2, ContinuationStamp.captureLive(state(2, 47)), 0),
                 "状态对不上当然要重搜");
 
         assertFalse(AutoPilot.reuseContinuation(2, route.t2, 0),

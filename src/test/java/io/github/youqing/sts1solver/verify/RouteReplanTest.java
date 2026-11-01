@@ -91,7 +91,7 @@ class RouteReplanTest {
         List<RouteStep> steps = twoTurnSteps();
         AutoPilot.installRoute(steps, 1, planWithTurnTwo(), 0);
 
-        assertFalse(AutoPilot.onTurnStart(2, ContinuationStamp.from(state(2, 47)), 0),
+        assertFalse(AutoPilot.onTurnStart(2, ContinuationStamp.captureLive(state(2, 47)), 0),
                 "血量不同 = 状态失配");
         assertTrue(AutoPilot.pendingSteps().isEmpty(),
                 "失配不许「保留路线继续打」——那正是自创的失配照打");
@@ -103,7 +103,7 @@ class RouteReplanTest {
         SearchNode root = new SearchNode(state(1, 50), null, null, 0, 0L);
         SearchNode end = new SearchNode(state(2, 48), PlanAction.endTurn(), root, 1, 0L);
         SearchNode next = new SearchNode(state(2, 48), PlanAction.play(0, 0), end, 2, 0L);
-        return ContinuationPlan.fromFinalRoute(Arrays.asList(root, end, next));
+        return io.github.youqing.sts1solver.search.ContinuationFixtures.capture(Arrays.asList(root, end, next));
     }
 
     /**

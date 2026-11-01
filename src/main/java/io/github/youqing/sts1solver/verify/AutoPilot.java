@@ -1316,9 +1316,12 @@ public final class AutoPilot {
     /**
      * 新回合的精确续接（**纯数据**，单测可直接驱动）。
      *
-     * <p>命中：按 {@code forecastOffset} 从完整步骤里裁出本回合及以后的执行队列，
-     * 预览**不动**（已打过的回合继续显示，行号仍是绝对回合）。
-     * miss：返回 false，调用方照旧重搜；日志里带原因与首个字段差异。
+     * <p>对应蓝本 {@code SolverResult.TryCreateContinuation}（{@code CombatPlan.cs:1696-1760}）：
+     * **保留原来那条 best route**，只按边界回合号把「本回合之前」的动作切掉，
+     * 续接后的缓存只留更晚的边界（{@code onlyAfter}）。预览**不动**（已打过的回合继续显示，
+     * 行号仍是绝对回合）。
+     *
+     * <p>miss：返回 false，调用方照旧从根重搜；日志里带原因与首个字段差异。
      *
      * @return true = 命中续跑，不需要搜索
      */
@@ -1432,7 +1435,7 @@ public final class AutoPilot {
      */
     private static io.github.youqing.sts1solver.search.ContinuationStamp liveStampOrNull() {
         try {
-            return io.github.youqing.sts1solver.search.ContinuationStamp.from(
+            return io.github.youqing.sts1solver.search.ContinuationStamp.captureLive(
                     io.github.youqing.sts1solver.sim.SimState.capture());
         } catch (Throwable t) {
             Trace.warn("continuation stamp failed: " + t);

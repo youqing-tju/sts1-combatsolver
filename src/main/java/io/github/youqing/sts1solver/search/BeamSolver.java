@@ -638,16 +638,18 @@ public final class BeamSolver {
             selected = enforcePotionStrategy(root, selected, deadline);
         }
 
-        lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
         lastSelectedScore = selected == null ? Long.MIN_VALUE : selected.score;
         lastSelectedVictory = isCompleteVictory(selected);
         lastStopReason = hitNodeLimit ? "node_limit"
                 : (lastPassCutShort ? "time_limit"
                 : (lastSelectedVictory ? "victory" : "horizon"));
         if (selected != null) {
-            // 补搜可能会换掉主搜索的答案，路线要跟着换（AUTO 执行的是 lastSteps）
+            // 补搜可能会换掉主搜索的答案，路线要跟着换（AUTO 执行的是 lastSteps）。
+            // 这里还会把最终路线整条回放一遍来采续用边界，所以计时放在它**之后**。
             publishFinalRoute(selected);
         }
+        // 回放也算进这次搜索的耗时：面板上的「N ms」必须是真花掉的时间
+        lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;
         return selected == null ? null : selected.firstAction();
     }
 
@@ -1251,8 +1253,11 @@ public final class BeamSolver {
      * 任何一处单独更新都会留下「步骤来自新路线、边界来自旧路线」的错配 ——
      * 那正是续跑能命中却执行出另一条世界线的原因。
      *
-     * <p>边界提取失败（父链不完整这类内部不一致）时记 warn 并留空：路线本身仍然可用，
-     * 退回「每回合重搜」是可接受降级；把它抛出去会让整趟搜索白算。
+     * <p>🔴 边界**不是**从节点链上抄下来的：{@link ContinuationPlan#capture} 只挑下标，
+     * 真正的状态由下面这次**回放**在预期边界处采集（蓝本 {@code Phases.cs:520-620}）。
+     * 回放顺带验证了「发布出去的这条路线能从根走通」；缺一个预期边界、或者某一步走不通，
+     * 都抛 {@link IllegalStateException} 显式失败 —— 静默发布半条世界线，后果是执行层照着
+     * 一份搜索从未推荐过的剩余序列出牌。
      */
     void publishFinalRoute(SearchNode selected) {
         lastRoute = routeOf(selected);
@@ -1260,12 +1265,40 @@ public final class BeamSolver {
         lastDeathTurn = deathTurnOf(selected);
         lastSelectedSurvives = selected.state.hp > 0
                 && Score.projectedHpOf(selected.state) > 0;
-        try {
-            lastContinuations = ContinuationPlan.fromFinalRoute(routeNodesOf(selected));
-        } catch (RuntimeException t) {
-            lastContinuations = ContinuationPlan.empty();
-            Trace.warn("CONTINUATION skipped: " + t.getMessage());
+        lastContinuations = captureContinuations(selected);
+    }
+
+    /**
+     * 回放最终路线并采集续用边界（蓝本 {@code CombatBeamSolver.Phases.cs:520-620}）。
+     *
+     * <p>为什么值得再跑一遍：节点链上的 {@code state} 是**展开时**的快照，
+     * 而执行层真正要复用的是「这条路线走到那一步时会是什么状态」。
+     * 两者只有在回放成功时才证明是同一个东西。
+     */
+    private ContinuationPlan captureContinuations(SearchNode selected) {
+        java.util.List<SearchNode> chain = routeNodesOf(selected);
+        ContinuationPlan.Capture capture = ContinuationPlan.capture(chain);
+        if (capture.boundaryCount() == 0) {
+            return capture.complete();          // 没有跨回合边界：空计划，不必回放
         }
+        SimState rootState = chain.get(0).state;
+        bindRoot(rootState);
+        SearchNode node = nodeOf(rootState.copy(), null, null, 0, null);
+        int actionIndex = 0;
+        for (PlanAction action : lastRoute) {
+            if (node.terminal()) {
+                break;
+            }
+            SearchNode next = replayPrefixAction(node, action);
+            if (next == null) {
+                throw new IllegalStateException(
+                        "最终路线回放第 " + actionIndex + " 步走不通：" + action);
+            }
+            node = next;
+            capture.observe(actionIndex, node.state);
+            actionIndex++;
+        }
+        return capture.complete();
     }
 
     /**

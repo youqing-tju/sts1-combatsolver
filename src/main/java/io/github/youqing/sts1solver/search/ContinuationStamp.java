@@ -22,8 +22,13 @@ import java.util.Map;
  *
  * <p>三条硬约束：
  * <ol>
- *   <li>预测侧与真机侧**只准调 {@link #from(SimState)}**。两套序列化必然漂移；</li>
- *   <li>手牌按无序多重集（每张牌先展开成完整字段再按 key 排序），抽牌堆/弃牌堆/消耗堆保序；</li>
+ *   <li><b>两侧各自一个入口</b>：{@link #captureLive}（真机）与 {@link #capturePredicted}（搜索）。
+ *       蓝本两侧是两套对象模型（{@code CardModel}/{@code Creature} 对 {@code PredictedCard}/
+ *       {@code SimCreatureState}），所以它必须写两份；我们的 {@code SimState.capture()} 直接产出
+ *       纯数据，与搜索侧同一个类型，于是两侧共用同一套字段 writer —— 这是**翻译方式**不同，
+ *       不是归一化口径不同。入口分开是为了让调用点无法含糊：谁在真机侧、谁在预测侧一目了然；</li>
+ *   <li>**四个牌堆全部按列表原顺序**（含手牌）。蓝本 {@code AppendLivePile} / {@code AppendPredictedPile}
+ *       都是 {@code foreach (card in pile.Cards)}，手牌顺序会改变后续能打出的连招与抽牌结果；</li>
  *   <li>每个字段一条独立路径，差异诊断才能指名到 {@code drawPile[3].upgraded} 这一级，
  *       而不是「整个牌堆不一样了」。</li>
  * </ol>
@@ -34,8 +39,12 @@ import java.util.Map;
  */
 public final class ContinuationStamp {
 
-    /** 文本版本号。任何字段口径变化都必须改它，老 continuation 会因此全部失效（安全方向）。 */
-    public static final String VERSION = "sts1-cont-v1";
+    /**
+     * 文本版本号。任何字段口径变化都必须改它，老 continuation 会因此全部失效（安全方向）。
+     *
+     * <p>v2：手牌改成**保序**（v1 是排序后的无序多重集），与蓝本 {@code AppendLivePile} 一致。
+     */
+    public static final String VERSION = "sts1-cont-v2";
 
     private static final char FIELD_SEP = ';';
     private static final char PAIR_SEP = '=';
@@ -63,8 +72,28 @@ public final class ContinuationStamp {
         this.hashCode = canonicalText.hashCode();
     }
 
-    /** 预测与真机的**唯一**入口。 */
-    public static ContinuationStamp from(SimState state) {
+    /**
+     * 真机侧捕获（对应蓝本 {@code ContinuationStamp.CaptureLive}）。
+     *
+     * <p>入参必须是 {@code SimState.capture()} 直接从游戏里读出来的状态；回合开始比对
+     * {@code ContinuationSource} 时就该用这一侧。
+     */
+    public static ContinuationStamp captureLive(SimState live) {
+        return build(live);
+    }
+
+    /**
+     * 预测侧捕获（对应蓝本 {@code ContinuationStamp.CapturePredicted}）。
+     *
+     * <p>入参必须是**回放最终路线时**的那一刻的模拟状态（{@code ContinuationPlan.Capture.observe}），
+     * 不是节点链上的历史快照。
+     */
+    public static ContinuationStamp capturePredicted(SimState predicted) {
+        return build(predicted);
+    }
+
+    /** 两侧共用的字段 writer（见类注释：同一个 {@code SimState} 类型，所以只有一套口径）。 */
+    private static ContinuationStamp build(SimState state) {
         if (state == null) {
             throw new IllegalArgumentException("state must not be null");
         }
@@ -105,8 +134,8 @@ public final class ContinuationStamp {
             f.num("powerAux." + e.getKey(), e.getValue().intValue());
         }
 
-        // ---- 四个牌堆 ----------------------------------------------------------
-        f.pile("hand", sortedByFullKey(state.hand));
+        // ---- 四个牌堆（全部保序；手牌顺序会改变连招与抽牌结果）------------------
+        f.pile("hand", state.hand);
         f.pile("drawPile", state.draw);
         f.pile("discardPile", state.discard);
         f.pile("exhaustPile", state.exhaust);
@@ -359,40 +388,6 @@ public final class ContinuationStamp {
             num(name + ".state1", stream.state1());
         }
     }
-
-    /** 手牌：先按完整 key 排序，再按顺序展开 —— 等价于「无序多重集，但重复计数保留」。 */
-    private static List<SimCard> sortedByFullKey(List<SimCard> cards) {
-        List<SimCard> copy = new ArrayList<SimCard>(cards);
-        Collections.sort(copy, FULL_KEY_ORDER);
-        return copy;
-    }
-
-    private static final Comparator<SimCard> FULL_KEY_ORDER = new Comparator<SimCard>() {
-        @Override
-        public int compare(SimCard a, SimCard b) {
-            int c = cmp(a.id, b.id);
-            if (c != 0) {
-                return c;
-            }
-            c = Boolean.compare(a.upgraded, b.upgraded);
-            if (c != 0) {
-                return c;
-            }
-            c = Integer.compare(a.cost, b.cost);
-            if (c != 0) {
-                return c;
-            }
-            c = Integer.compare(a.costForTurn, b.costForTurn);
-            if (c != 0) {
-                return c;
-            }
-            c = Integer.compare(a.baseDamage, b.baseDamage);
-            if (c != 0) {
-                return c;
-            }
-            return cmp(a.type, b.type);
-        }
-    };
 
     private static int cmp(String a, String b) {
         if (a == null) {

@@ -101,7 +101,7 @@ class BeamSolverContinuationTest {
                 continue;
             }
             ContinuationPlan.Lookup hit = solver.lastContinuations.lookup(
-                    walk.turn, ContinuationStamp.from(walk));
+                    walk.turn, ContinuationStamp.capturePredicted(walk));
             assertEquals(ContinuationPlan.Lookup.Status.HIT, hit.status(),
                     "T" + walk.turn + " 的边界必须与重放出来的真实状态逐字段相等，实际：" + hit
                             + "，steps=" + solver.lastSteps);
@@ -209,14 +209,50 @@ class BeamSolverContinuationTest {
         BeamSolver solver = new BeamSolver(ENERGY_PER_TURN, HAND_SIZE, 8, 6);
         solver.bestFirstAction(root.copy());
 
-        // 节点链给出的边界戳，必须与「按同一份 steps 重放」得到的状态戳完全一致。
-        // 这条如果不过，说明 fromFinalRoute 读的不是最终路线，或者搜索与重放用的不是同一套推进。
+        // 缓存里的边界戳，必须与「按同一份 steps 重放」得到的状态戳完全一致。
+        // 这条如果不过，说明 captureContinuations 回放的不是最终路线，或者搜索与回放用的不是同一套推进。
         assertTrue(solver.lastContinuations.size() >= 2,
                 "46 血 / 每回合最多 18 点，至少要跨两个回合边界，实际："
                         + solver.lastContinuations.turns());
         assertEquals(assertContinuationsFollowPublishedSteps(root, solver),
                 solver.lastContinuations.size(),
                 "每一个缓存边界都必须能在重放里精确命中");
+    }
+
+    /**
+     * 边界状态来自**回放**，不是节点链上抄下来的快照。
+     *
+     * <p>这条测试故意造一条「节点链状态是假的」的路线：END_TURN 节点上写着 hp 17，
+     * 而从根回放一遍只会掉 0 血（这只怪不还手）。如果继续用节点链的状态，
+     * 缓存下来的就是一条永远不会命中的世界线；只有回放捕获才会得到真实的 hp 30。
+     */
+    @Test
+    void bestNodeSelectsBoundariesButFinalReplayCapturesTheirStates() {
+        SimState root = slowFight();
+        SearchNode rootNode = new SearchNode(root.copy(), null, null, 0, 0L);
+
+        SimState fabricated = root.copy();
+        fabricated.turn = 2;
+        fabricated.hp = 17;                       // 假的：回放里这只怪一点伤害都不打
+        SearchNode endTurn = new SearchNode(fabricated, PlanAction.endTurn(), rootNode, 1, 0L);
+        SearchNode played = new SearchNode(fabricated, PlanAction.play(0, 0), endTurn, 2, 0L);
+
+        BeamSolver solver = new BeamSolver(ENERGY_PER_TURN, HAND_SIZE, 8, 6);
+        solver.bindRoot(root);
+        solver.publishFinalRoute(played);
+
+        // 独立算一遍「从根回放到这个边界」的真实状态
+        SimState replayed = root.copy();
+        CombatFlow.endTurn(replayed, ENERGY_PER_TURN, HAND_SIZE);
+        ContinuationPlan.Lookup hit = solver.lastContinuations.lookup(2,
+                ContinuationStamp.capturePredicted(replayed));
+        assertEquals(ContinuationPlan.Lookup.Status.HIT, hit.status(),
+                "缓存的状态必须来自回放，实际：" + hit + " / " + solver.lastContinuations);
+
+        ContinuationPlan.Lookup stale = solver.lastContinuations.lookup(2,
+                ContinuationStamp.capturePredicted(fabricated));
+        assertEquals(ContinuationPlan.Lookup.Status.STATE_MISMATCH, stale.status(),
+                "节点链上那份假状态绝不能进缓存");
     }
 
     private static PlanAction actionAt(java.util.List<PlanAction> route, int index) {

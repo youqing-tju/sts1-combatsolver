@@ -61,12 +61,12 @@ class PotionPolicyRevisionTest {
             SearchNode play2 = new SearchNode(state(2, 48), PlanAction.play(0, 0), t2, 3, 0L);
             List<SearchNode> nodes = new ArrayList<SearchNode>();
             Collections.addAll(nodes, root, play, t2, play2);
-            this.plan = ContinuationPlan.fromFinalRoute(nodes);
+            this.plan = io.github.youqing.sts1solver.search.ContinuationFixtures.capture(nodes);
             this.steps = new ArrayList<RouteStep>();
             steps.add(new RouteStep(false, "Strike_R", 0, -1));
             steps.add(new RouteStep(true, null, -1, -1));
             steps.add(new RouteStep(false, "Strike_R", 0, -1));
-            this.t2 = ContinuationStamp.from(state(2, 48));
+            this.t2 = ContinuationStamp.captureLive(state(2, 48));
         }
     }
 
