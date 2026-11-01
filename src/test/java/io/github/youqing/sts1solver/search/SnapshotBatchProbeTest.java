@@ -49,6 +49,8 @@ class SnapshotBatchProbeTest {
         long totalNodes = 0;
         long totalMs = 0;
         int exhausted = 0;
+        int powerSnapshots = 0;
+        int powerPlannedCount = 0;
         StringBuilder rows = new StringBuilder();
         for (File f : snapshots) {
             SimState root = GoldenPositions.read(f);
@@ -62,6 +64,28 @@ class SnapshotBatchProbeTest {
             PlanAction chosen = solver.bestFirstAction(root, 20_000L);
             long ms = (System.nanoTime() - started) / 1_000_000L;
             boolean victory = solver.lastSelectedVictory;
+            // 能力牌时机（P2）：手上有没有能力牌 / 这一趟计划里有没有把它打出去
+            int powersInHand = 0;
+            java.util.Set<String> powerKeys = new java.util.HashSet<String>();
+            for (io.github.youqing.sts1solver.sim.SimCard c : root.hand) {
+                if (c.isPower()) {
+                    powersInHand++;
+                    powerKeys.add(c.key());
+                }
+            }
+            boolean powerPlanned = false;
+            for (RouteStep step : solver.lastSteps) {
+                if (!step.potion && step.cardKey != null && powerKeys.contains(step.cardKey)) {
+                    powerPlanned = true;
+                    break;
+                }
+            }
+            if (powersInHand > 0) {
+                powerSnapshots++;
+                if (powerPlanned) {
+                    powerPlannedCount++;
+                }
+            }
             if (victory) {
                 wins++;
             }
@@ -70,18 +94,21 @@ class SnapshotBatchProbeTest {
             }
             totalNodes += solver.lastNodes;
             totalMs += ms;
-            rows.append(String.format("%-16s %-22s score=%-15d nodes=%-6d depth=%-3d %-6s %s%n",
+            rows.append(String.format("%-16s %-22s score=%-15d nodes=%-6d depth=%-3d %-6s %-10s pw=%d/%d%n",
                     f.getName().replace("turn-", "").replace(".json", ""),
                     String.valueOf(chosen), solver.lastSelectedScore, solver.lastNodes,
                     solver.lastDepth, victory ? "WIN" : "lost",
-                    solver.hitNodeLimit ? "node_limit" : "horizon"));
+                    solver.hitNodeLimit ? "node_limit" : solver.lastStopReason,
+                    powersInHand, powerPlanned ? 1 : 0));
         }
 
         System.out.println("\n=== SNAPSHOT BATCH (" + snapshots.size() + " 个局面) ===");
         System.out.print(rows);
         System.out.println(String.format(
-                "SUMMARY snapshots=%d wins=%d horizonCompleted=%d avgNodes=%d totalMs=%d",
+                "SUMMARY snapshots=%d wins=%d horizonCompleted=%d avgNodes=%d totalMs=%d"
+                        + " | powerInHand=%d powerPlanned=%d",
                 snapshots.size(), wins, exhausted,
-                snapshots.isEmpty() ? 0 : totalNodes / snapshots.size(), totalMs));
+                snapshots.isEmpty() ? 0 : totalNodes / snapshots.size(), totalMs,
+                powerSnapshots, powerPlannedCount));
     }
 }
