@@ -99,6 +99,15 @@ public final class BeamSolver {
      */
     final java.util.List<SearchNode> lastFinalPool = new ArrayList<SearchNode>();
 
+    /**
+     * 诊断用：这一趟最终采纳的节点。
+     *
+     * <p>只给探针读「收尾血量 / 最大生命 / 敌方剩血 / 动作数 / 药水数」——
+     * 这些数字以前只能从 {@link #lastSteps} 反推，反推不出真实收尾状态。
+     * **不参与任何决策**，也不许被搜索逻辑读。
+     */
+    SearchNode lastSelectedNode;
+
     /** 蓝本 {@code NoveltyPortfolioBudget}：探索的时间帽 = min(5s, 总预算 / 2)，Boss 再除以 4。 */
     static long noveltyBudgetMillis(long totalMillis, boolean boss) {
         if (totalMillis == Long.MAX_VALUE) {
@@ -1258,6 +1267,7 @@ public final class BeamSolver {
      * 一份搜索从未推荐过的剩余序列出牌。
      */
     void publishFinalRoute(SearchNode selected) {
+        lastSelectedNode = selected;
         lastRoute = routeOf(selected);
         lastSteps = stepsOf(selected);
         lastDeathTurn = deathTurnOf(selected);

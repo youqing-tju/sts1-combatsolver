@@ -77,6 +77,9 @@ tasks.test {
     // Gradle 不会把命令行 -D 自动转给测试 JVM，这里显式转发。
     providers.systemProperty("replay").orNull?.let { systemProperty("replay", it) }
     providers.systemProperty("batch").orNull?.let { systemProperty("batch", it) }
+    // 批量探针的可选参数：-Dout=<tsv 落盘路径>（paired A/B 基线）、-Dlimit=<n>（冒烟）。
+    providers.systemProperty("out").orNull?.let { systemProperty("out", it) }
+    providers.systemProperty("limit").orNull?.let { systemProperty("limit", it) }
     // 离线实验（@Disabled 的那些）靠这个开关打开：gradle test -Pexperiments
     // 这样不用改源码就能跑 A/B，也就不会出现「忘了把 @Disabled 加回去」。
     if (project.hasProperty("experiments")) {

@@ -1,29 +1,44 @@
 package io.github.youqing.sts1solver.search;
 
+import io.github.youqing.sts1solver.sim.SimMonster;
 import io.github.youqing.sts1solver.sim.SimState;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * 批量快照探针：把真机 {@code solver-snapshots/turn-*.json} 全部跑一遍搜索，
- * 每个局面打一行紧凑结果，末尾打汇总。
+ * 每个局面打一行**确定性**指标，末尾打汇总。
  *
- * <p>存在理由：评价「搜索改好了没有」不能看单局，也不能看耗时。
- * 这个探针给出两组可比数字：<b>首手</b>、<b>搜索形状</b>（nodes/depth/是否打赢）。
- * 同一个 Snapshots 目录、同一份配置、同一个节点上限 = 可重复的 paired A/B。
+ * <p>存在理由：评价「路线质量改好了没有」不能看单局，也不能看耗时。这个探针给的是
+ * **可逐行 diff 的 paired A/B 基线** —— 同一批快照、同一份配置、同一个节点上限，
+ * 旧实现与新实现各跑一遍，`diff` 就知道哪些局面换了路线、换了首手、掉了多少血。
+ *
+ * <p>输出契约（改动会导致历史基线不可比，必须升 {@link #FORMAT}）：
+ * <ul>
+ *   <li>每行 {@code key=value}，键按字母序，值与值之间单空格；</li>
+ *   <li>快照按文件名字典序处理；</li>
+ *   <li>{@code route} 用 {@code |} 连接：出牌 {@code id+@目标}、喝药 {@code POTION:槽:ID}、
+ *       结束回合 {@code END_TURN}；</li>
+ *   <li>同一份输入必须产生逐字节相同的输出（不写耗时、不写毫秒）。</li>
+ * </ul>
  *
  * <p>跑法（不带 {@code -Dbatch} 时自动跳过）：
  * <pre>
  * gradlew test --offline --tests "*SnapshotBatchProbeTest" -Dbatch=C:/.../solver-snapshots
  * </pre>
+ * 可选：{@code -Dout=<file>} 把同一份 TSV 落盘（表头 + 每快照一行），
+ * 供 Task 7 的配对分析直接读；{@code -Dlimit=<n>} 只跑前 n 个（冒烟用，不进基线）。
  */
 class SnapshotBatchProbeTest {
+
+    /** 输出格式版本。字段增删或口径变化必须升它，否则旧基线会被当成可比。 */
+    static final String FORMAT = "snapshot-probe-v2";
 
     /** 与真机默认档（VERY_HIGH）一致：宽 135 / 回合层 500 / 节点 50 万 / 分支 72。 */
     private static BeamSolver realConfig() {
@@ -44,14 +59,18 @@ class SnapshotBatchProbeTest {
             }
         }
         java.util.Collections.sort(snapshots);
+        int limit = Integer.parseInt(System.getProperty("limit", "0"));
+        if (limit > 0 && snapshots.size() > limit) {
+            snapshots = new ArrayList<File>(snapshots.subList(0, limit));
+        }
 
         int wins = 0;
         long totalNodes = 0;
-        long totalMs = 0;
         int exhausted = 0;
-        int powerSnapshots = 0;
-        int powerPlannedCount = 0;
         StringBuilder rows = new StringBuilder();
+        StringBuilder tsv = new StringBuilder();
+        tsv.append("format\t").append(FORMAT).append('\n');
+        tsv.append("snap\tfirst\twin\tstop\thp\tmaxHp\tenemyHp\tactions\tpotions\tscore\tnodes\troute\n");
         for (File f : snapshots) {
             SimState root = GoldenPositions.read(f);
             // 2026-10-31 之前的快照没有落盘 boss 标志；按楼层补猜（16/33/50 = 各幕 Boss 房），
@@ -60,55 +79,152 @@ class SnapshotBatchProbeTest {
                 root.boss = true;
             }
             BeamSolver solver = realConfig();
-            long started = System.nanoTime();
-            PlanAction chosen = solver.bestFirstAction(root, 20_000L);
-            long ms = (System.nanoTime() - started) / 1_000_000L;
-            boolean victory = solver.lastSelectedVictory;
-            // 能力牌时机（P2）：手上有没有能力牌 / 这一趟计划里有没有把它打出去
-            int powersInHand = 0;
-            java.util.Set<String> powerKeys = new java.util.HashSet<String>();
-            for (io.github.youqing.sts1solver.sim.SimCard c : root.hand) {
-                if (c.isPower()) {
-                    powersInHand++;
-                    powerKeys.add(c.key());
-                }
-            }
-            boolean powerPlanned = false;
-            for (RouteStep step : solver.lastSteps) {
-                if (!step.potion && step.cardKey != null && powerKeys.contains(step.cardKey)) {
-                    powerPlanned = true;
-                    break;
-                }
-            }
-            if (powersInHand > 0) {
-                powerSnapshots++;
-                if (powerPlanned) {
-                    powerPlannedCount++;
-                }
-            }
-            if (victory) {
+            solver.bestFirstAction(root, 20_000L);
+
+            Metrics m = metrics(f, solver);
+            if (m.win) {
                 wins++;
             }
             if (!solver.hitNodeLimit) {
                 exhausted++;
             }
             totalNodes += solver.lastNodes;
-            totalMs += ms;
-            rows.append(String.format("%-16s %-22s score=%-15d nodes=%-6d depth=%-3d %-6s %-10s pw=%d/%d%n",
-                    f.getName().replace("turn-", "").replace(".json", ""),
-                    String.valueOf(chosen), solver.lastSelectedScore, solver.lastNodes,
-                    solver.lastDepth, victory ? "WIN" : "lost",
-                    solver.hitNodeLimit ? "node_limit" : solver.lastStopReason,
-                    powersInHand, powerPlanned ? 1 : 0));
+
+            rows.append(m.line()).append('\n');
+            tsv.append(m.tsv()).append('\n');
         }
 
-        System.out.println("\n=== SNAPSHOT BATCH (" + snapshots.size() + " 个局面) ===");
+        System.out.println("\n=== SNAPSHOT BATCH (" + snapshots.size() + " 个局面, " + FORMAT + ") ===");
         System.out.print(rows);
         System.out.println(String.format(
-                "SUMMARY snapshots=%d wins=%d horizonCompleted=%d avgNodes=%d totalMs=%d"
-                        + " | powerInHand=%d powerPlanned=%d",
+                "SUMMARY snapshots=%d wins=%d horizonCompleted=%d avgNodes=%d",
                 snapshots.size(), wins, exhausted,
-                snapshots.isEmpty() ? 0 : totalNodes / snapshots.size(), totalMs,
-                powerSnapshots, powerPlannedCount));
+                snapshots.isEmpty() ? 0 : totalNodes / snapshots.size()));
+
+        String out = System.getProperty("out", "");
+        if (!out.isEmpty()) {
+            java.nio.file.Files.write(new File(out).toPath(), tsv.toString().getBytes("UTF-8"));
+            System.out.println("WROTE " + out);
+        }
+    }
+
+    /**
+     * 输出契约本身也要钉住：字段增删/换序都会让历史基线不可比，
+     * 所以这里用一份人造指标比字符串，改格式必须先改这条测试与 {@link #FORMAT}。
+     */
+    @Test
+    void metricLineFormatIsPinned() {
+        Metrics m = new Metrics();
+        m.snap = "A1T3";
+        m.first = "Strike_R";
+        m.win = true;
+        m.stop = "victory";
+        m.hp = 42;
+        m.maxHp = 80;
+        m.enemyHp = 0;
+        m.actions = 3;
+        m.potions = 1;
+        m.score = 123L;
+        m.nodes = 7;
+        m.route = "Strike_R@0|POTION:1:Fire Potion|END_TURN";
+
+        assertEquals("snap=A1T3 first=Strike_R win=1 stop=victory hp=42 maxHp=80 enemyHp=0"
+                        + " actions=3 potions=1 score=123 route="
+                        + "Strike_R@0|POTION:1:Fire Potion|END_TURN",
+                m.line());
+        assertEquals("snapshot-probe-v2", FORMAT,
+                "改输出字段必须同时升 FORMAT，否则历史基线会被当成可比");
+    }
+
+    /** 一个快照的确定性指标行。 */
+    static final class Metrics {
+        String snap;
+        String first;
+        boolean win;
+        String stop;
+        int hp;
+        int maxHp;
+        int enemyHp;
+        int actions;
+        int potions;
+        long score;
+        int nodes;
+        String route;
+
+        String line() {
+            return "snap=" + snap
+                    + " first=" + first
+                    + " win=" + (win ? 1 : 0)
+                    + " stop=" + stop
+                    + " hp=" + hp
+                    + " maxHp=" + maxHp
+                    + " enemyHp=" + enemyHp
+                    + " actions=" + actions
+                    + " potions=" + potions
+                    + " score=" + score
+                    + " route=" + route;
+        }
+
+        String tsv() {
+            return snap + '\t' + first + '\t' + (win ? 1 : 0) + '\t' + stop + '\t' + hp + '\t'
+                    + maxHp + '\t' + enemyHp + '\t' + actions + '\t' + potions + '\t' + score
+                    + '\t' + nodes + '\t' + route;
+        }
+    }
+
+    private static Metrics metrics(File f, BeamSolver solver) {
+        Metrics m = new Metrics();
+        m.snap = f.getName().replace("turn-", "").replace(".json", "");
+        // 首手记**牌名**而不是手牌下标：下标会随镜像里手牌顺序变化而漂移，
+        // 用它做 A/B 会把「同一张牌、不同下标」误报成「换了首手」。
+        m.first = solver.lastSteps.isEmpty() ? "NONE"
+                : (solver.lastSteps.get(0).endTurn ? "END_TURN"
+                : (solver.lastSteps.get(0).potion
+                ? "POTION:" + solver.lastSteps.get(0).cardKey
+                : solver.lastSteps.get(0).cardKey));
+        m.win = solver.lastSelectedVictory;
+        m.stop = solver.hitNodeLimit ? "node_limit" : solver.lastStopReason;
+        m.score = solver.lastSelectedScore;
+        m.nodes = solver.lastNodes;
+
+        SearchNode node = solver.lastSelectedNode;
+        if (node == null) {
+            m.hp = 0;
+            m.maxHp = 0;
+            m.enemyHp = 0;
+        } else {
+            m.hp = node.state.hp;
+            m.maxHp = node.state.maxHp;
+            m.enemyHp = enemyHp(node.state);
+        }
+        m.actions = solver.lastSteps.size();
+        int potions = 0;
+        StringBuilder route = new StringBuilder();
+        for (RouteStep step : solver.lastSteps) {
+            if (route.length() > 0) {
+                route.append('|');
+            }
+            if (step.endTurn) {
+                route.append("END_TURN");
+            } else if (step.potion) {
+                potions++;
+                route.append("POTION:").append(step.potionSlot).append(':').append(step.cardKey);
+            } else {
+                route.append(step.cardKey).append('@').append(step.targetIndex);
+            }
+        }
+        m.potions = potions;
+        m.route = route.length() == 0 ? "-" : route.toString();
+        return m;
+    }
+
+    private static int enemyHp(SimState state) {
+        int total = 0;
+        for (SimMonster monster : state.monsters) {
+            if (monster.hp > 0) {
+                total += monster.hp;
+            }
+        }
+        return total;
     }
 }
