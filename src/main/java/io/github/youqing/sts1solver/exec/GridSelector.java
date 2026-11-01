@@ -37,16 +37,15 @@ public final class GridSelector {
     private static java.util.ArrayList<AbstractCard> rewardGroup;
     private static AbstractCard rewardTarget;
     /**
-     * 已经点过的那个奖励界面（按 {@code rewardGroup} 的**实例**认）。
+     * 这个界面已经点了几帧（按 {@code rewardGroup} 的**实例**认，换界面就清零）。
      *
      * <p>2026-10-30 真机：攻击药水的三选一被反复点了 **2989 次**（日志 50 秒刷屏），
-     * 每次 {@code markReward} 都把 {@code rewardGroup} 清空又重算，界面却还没关 ——
-     * 于是同一帧序列里一直重复「选牌 + 打日志」。这 50 秒里回合是停住的。
+     * 因为每次 {@code markReward} 都把 {@code rewardGroup} 清空又重算。现在目标只在
+     * 「换了一批候选」时算一次，点不动就**继续点同一张**（只按帧数记日志），不会重算。
      */
-    private static java.util.ArrayList<AbstractCard> rewardPicked;
-    /** 同一个界面上最多重试多少次（点不动就放弃，别把回合卡死）。 */
-    private static final int REWARD_PICK_RETRY_LIMIT = 120;
     private static int rewardPickAttempts;
+    /** 重试日志的间隔（帧）；只在卡住时才会用到。 */
+    private static final int REWARD_PICK_LOG_EVERY = 60;
 
     private GridSelector() {
     }
@@ -81,8 +80,6 @@ public final class GridSelector {
         }
         com.megacrit.cardcrawl.screens.CardRewardScreen screen = AbstractDungeon.cardRewardScreen;
         if (screen == null || screen.discoveryCard != null) {
-            rewardPicked = null;
-            rewardPickAttempts = 0;
             return null;     // 已经选过了
         }
         if (screen.rewardGroup == null || screen.rewardGroup.isEmpty()) {
@@ -101,8 +98,11 @@ public final class GridSelector {
                 markGrid(card);
                 return;
             }
-            if (activeReward() != null) {
-                markReward(card);
+            com.megacrit.cardcrawl.screens.CardRewardScreen reward = activeReward();
+            if (reward != null) {
+                markReward(reward, card);
+            } else {
+                resetRewardPick();
             }
         } catch (Throwable t) {
             Trace.error("grid mark failed", t);
@@ -135,36 +135,58 @@ public final class GridSelector {
      * <p>{@code AbstractCard.update()} 的 postfix 对**每张**候选都会调进来，
      * 所以必须先算出唯一目标再点，否则三张一起点。
      */
-    private static void markReward(AbstractCard card) {
-        com.megacrit.cardcrawl.screens.CardRewardScreen screen = activeReward();
-        if (screen == null || !screen.rewardGroup.contains(card)) {
-            return;
-        }
-        // 同一个界面点过一次就不再点（除非界面没关、且还没超过重试上限）
-        if (rewardPicked == screen.rewardGroup) {
-            if (rewardPickAttempts++ < REWARD_PICK_RETRY_LIMIT) {
-                return;
-            }
-            // 超过上限：多半是这张牌点不动，放弃这一格，避免整场卡住
+    /**
+     * 「发现」的三选一：点哪张由影子估值决定，只点选中那张。
+     *
+     * <p>{@code AbstractCard.update()} 的 postfix 对**每张**候选都会调进来，
+     * 所以必须先算出唯一目标再点，否则三张一起点。
+     *
+     * <p>🔴 只把 {@code hb.clicked} 置 true **是不够的**：{@code CardRewardScreen.cardSelectUpdate()}
+     * 先算出「鼠标当前悬停的那张」（{@code hb.hovered}），再读**那一张**的 {@code hb.clicked}
+     * （字节码 0-70 / 73-88 / 142-153）。鼠标不在目标卡上时，置了也没人看 ——
+     * 2026-10-31 22:13 真机就是这样把「无色药水三选一」卡了 **9.1 秒**（22:13:01.195 →
+     * 22:13:10.278 全无日志），直到人手点了一下才继续，那张 0 费牌等于白开。
+     *
+     * <p>所以这里按本类已有的做法（见 {@link #prepareConfirm}）把虚拟光标挪到卡面中心：
+     * 紧跟其后的 {@code updateHoverLogic()} 会用这个坐标算出 {@code hovered=true}，
+     * 屏幕循环于是读到我们置的 {@code clicked}。{@code InputHelper.update()} 每帧都会用真实鼠标
+     * 重写 {@code mX/mY}，所以这个覆盖只活当前这一帧，不会污染别处。
+     */
+    private static void markReward(com.megacrit.cardcrawl.screens.CardRewardScreen screen,
+                                   AbstractCard card) {
+        if (!screen.rewardGroup.contains(card)) {
             return;
         }
         if (rewardGroup != screen.rewardGroup) {
             rewardGroup = screen.rewardGroup;
             rewardTarget = chooseRewardCard(screen.rewardGroup);
+            rewardPickAttempts = 0;
         }
         if (card != rewardTarget) {
             return;
         }
         int index = screen.rewardGroup.indexOf(card);
+        InputHelper.mX = (int) card.hb.cX;
+        InputHelper.mY = (int) card.hb.cY;
         card.hb.clicked = true;
-        // 这个下标是「生成列表里的第几张」，不是手牌下标
-        io.github.youqing.sts1solver.verify.ShadowTracker.onGeneratedChoicePicked(index);
-        io.github.youqing.sts1solver.verify.ShadowTracker.onChoiceConfirmed();
-        Trace.info("REWARD pick #" + index + " " + card.cardID + (card.upgraded ? "+" : ""));
-        rewardPicked = screen.rewardGroup;
-        rewardPickAttempts = 0;
+        rewardPickAttempts++;
+        if (rewardPickAttempts == 1) {
+            // 这个下标是「生成列表里的第几张」，不是手牌下标
+            io.github.youqing.sts1solver.verify.ShadowTracker.onGeneratedChoicePicked(index);
+            io.github.youqing.sts1solver.verify.ShadowTracker.onChoiceConfirmed();
+            Trace.info("REWARD pick #" + index + " " + card.cardID + (card.upgraded ? "+" : "")
+                    + "  cursor->" + (int) card.hb.cX + "," + (int) card.hb.cY);
+        } else if (rewardPickAttempts % REWARD_PICK_LOG_EVERY == 0) {
+            Trace.warn("REWARD pick still blocked after " + rewardPickAttempts
+                    + " frames (" + card.cardID + ") — retrying on the same card");
+        }
+    }
+
+    /** 界面消失（选完/被关掉）：清掉这一轮的目标，下一批候选重新估。 */
+    private static void resetRewardPick() {
         rewardGroup = null;
         rewardTarget = null;
+        rewardPickAttempts = 0;
     }
 
     /** 用影子估一下「拿到哪张最好」。没有快照时退回第一张。 */
