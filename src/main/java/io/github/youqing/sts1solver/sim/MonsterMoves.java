@@ -355,6 +355,34 @@ public final class MonsterMoves {
      *
      * <p>**每次调用都会消耗一次 aiRng**（见类注释），所以不要在试探性路径上随便调。
      */
+    /**
+     * 这一招会从玩家身上偷走多少金币（{@code 0} = 不偷）。
+     *
+     * <p>javap 核实（{@code Looter}/{@code Mugger} 构造器与 {@code takeTurn}）：
+     * <ul>
+     *   <li>{@code goldAmt} 是**构造器里定的常量**：15（A17 起 20）；</li>
+     *   <li>MUG(1) / LUNGE 或 BIGSWIPE(4) 的 {@code DamageAction(player, info, goldAmt)}
+     *       第三个参数就是它 —— 也就是「这一招顺手偷钱」；</li>
+     *   <li>偷钱发生在伤害结算之前（{@code DamageAction.stealGold}），格挡挡不住；</li>
+     *   <li>烟雾弹(2)/逃跑(3) 不偷。</li>
+     * </ul>
+     *
+     * <p>金额与招式一一对应且整场不变，所以它是**机器常量**，不进 {@link MonsterMove}、
+     * 不进状态戳 —— 同一只怪的同一招永远偷同样多的钱。
+     */
+    public static int stealGoldOf(String monsterType, MonsterMove move, int ascension) {
+        if (move == null || monsterType == null) {
+            return 0;
+        }
+        if (!"Looter".equals(monsterType) && !"Mugger".equals(monsterType)) {
+            return 0;
+        }
+        if (move.id != 1 && move.id != 4) {          // MUG / LUNGE(BIGSWIPE)
+            return 0;
+        }
+        return ascension >= 17 ? 20 : 15;
+    }
+
     public static MonsterMove next(SimState state, SimMonster monster, int turn, int slot) {
         if (monster == null) {
             throw new IllegalArgumentException("monster is null");
@@ -1149,8 +1177,9 @@ public final class MonsterMoves {
      * 常数: swipe 10（A2: 11）、lunge 12（A2: 14）、格挡 6、HP 44-48（A7: 46-50）
      * </pre>
      *
-     * <p>偷到的金币影子不建模（`SimState` 没有 gold），但**逃逸时机与金币无关** ——
-     * 它是自己按招序排的（`escapeNext` 在这个类里一次都没出现），所以不影响战斗推进。
+     * <p>偷钱走 {@link #stealGoldOf}（MUG/LUNGE 各 15，A17 起 20），由 {@code CombatFlow}
+     * 在伤害之前扣 —— 见 {@code TheftTest}。逃逸时机与偷到多少无关，
+     * 它是自己按招序排的（`escapeNext` 在这个类里一次都没出现）。
      */
     static final class LooterMachine implements Machine {
         @Override
@@ -1590,8 +1619,8 @@ public final class MonsterMoves {
      * 常数:     swipe 10（A2: 11）、bigSwipe 16（A2: 18）、escapeDef 11（A17: 17）
      * </pre>
      *
-     * <p>它打人时会偷金币（`StealGoldAction`），影子不建模金币 —— 只影响战利品，
-     * 不影响战斗推进（逃跑是招序排的，与偷到多少无关）。
+     * <p>它打人时会偷金币（MUG/BIGSWIPE 各 15，A17 起 20），走 {@link #stealGoldOf}；
+     * 逃跑时机是招序排的，与偷到多少无关。
      */
     static final class MuggerMachine implements Machine {
         @Override

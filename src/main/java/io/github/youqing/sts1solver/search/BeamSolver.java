@@ -1662,7 +1662,7 @@ public final class BeamSolver {
      * 而最终路线该看**真实结果**；`StrategicHpDeficit` 才是蓝本用来衡量「这条路线赔了多少血」的轴，
      * 它把「掉的血」和「最大生命亏空」加在一起，且回血已经抵掉。
      */
-    private boolean better(SearchNode candidate, SearchNode incumbent) {
+    boolean better(SearchNode candidate, SearchNode incumbent) {
         boolean candidateWon = isCompleteVictory(candidate);
         boolean incumbentWon = isCompleteVictory(incumbent);
         if (candidateWon != incumbentWon) {
@@ -1678,6 +1678,17 @@ public final class BeamSolver {
         int incumbentSaves = incumbent.state.deathSaveUseCount;
         if (candidateSaves != incumbentSaves) {
             return candidateSaves < incumbentSaves;
+        }
+        // 🔴 被抢走的金币（蓝本 FinalPlanOrdering.cs:253-256 的第 4 个键）：
+        //   .ThenBy(candidate => theftPolicy == PreserveResources
+        //            ? candidate.Quality.OutstandingStolenResource : 0)
+        // 它排在**战略血量赤字之前** —— 也就是说「钱能不能追回来」比「少掉几滴血」更优先。
+        // 这正是用户要的手感：宁愿挨一点，也不能让抢錢的跑了。
+        // 没有抢錢怪时两边都是 0，这一键自然不生效。
+        int candidateLoot = candidate.state.outstandingStolenGold();
+        int incumbentLoot = incumbent.state.outstandingStolenGold();
+        if (candidateLoot != incumbentLoot) {
+            return candidateLoot < incumbentLoot;
         }
         // 掉血优先于回合数：2026-10-30 试过把两者换序（先比几回合结束），
         // 第一章连环战 37 → 45 血，更差，所以顺序维持蓝本原样。

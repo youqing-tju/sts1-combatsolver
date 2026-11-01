@@ -321,6 +321,17 @@ public final class SimState {
                 } catch (Throwable ignored) {
                     // 拿不到就留空：机器会退回字节码里的默认档
                 }
+                // 抢錢怪手里还攥着多少金币（原版 Looter/Mugger 的私有字段 stolenGold）。
+                // 不捕获的话，真机局面在搜索眼里永远是「没被偷过」，
+                // 于是「打死它把钱追回来」这条路根本不会被算出来。
+                try {
+                    java.lang.reflect.Field stolen =
+                            m.getClass().getDeclaredField("stolenGold");
+                    stolen.setAccessible(true);
+                    monster.stolenGold = Math.max(0, stolen.getInt(m));
+                } catch (Throwable ignored) {
+                    monster.stolenGold = 0;          // 不是抢錢怪（没有这个字段）
+                }
                 // InvinciblePower.maxAmt 是私有字段（powers 表只装当前剩余量）→ 反射读一份上限
                 try {
                     for (com.megacrit.cardcrawl.powers.AbstractPower power : m.powers) {
@@ -648,6 +659,22 @@ public final class SimState {
     // ------------------------------------------------------------------- output
 
     /** 四个牌堆的总张数。用来发现「某张牌在两侧都没了」这类丢卡问题。 */
+    /**
+     * 还被抢錢怪攥着的金币（原版 {@code Looter.stolenGold} / {@code Mugger.stolenGold} 之和）。
+     *
+     * <p>语义是「**还没找回**的资源」：怪死了这一笔归零（原版把它还进战斗奖励），
+     * 怪逃跑了则原样留着（原版什么都不还）。搜索用它判断「值不值得多掉几点血把它留下」。
+     */
+    public int outstandingStolenGold() {
+        int total = 0;
+        for (SimMonster m : monsters) {
+            if (m != null && m.stolenGold > 0) {
+                total += m.stolenGold;
+            }
+        }
+        return total;
+    }
+
     public int totalCards() {
         return hand.size() + draw.size() + discard.size() + exhaust.size();
     }

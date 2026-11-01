@@ -21,6 +21,18 @@ public final class SimMonster {
      */
     public int intentDmg;
 
+    /**
+     * 这只怪**手里还攥着**多少金币（原版 {@code Looter.stolenGold} / {@code Mugger.stolenGold}）。
+     *
+     * <p>原版语义（javap 核实 `Looter$1` / `Looter.die`）：
+     * 每次 Mug/Lunge 命中，`stolenGold += min(goldAmt, player.gold)`；
+     * 它死时 `addStolenGoldToRewards(stolenGold)` 把这一笔**还回奖励**；
+     * 它用烟雾弹逃走时**什么都不还** —— 钱就没了。
+     *
+     * <p>所以这个字段是「还被扣着的资源」：死了归零（已找回），跑了留着（已损失）。
+     */
+    public int stolenGold;
+
     /** 本回合意图是否为攻击类（观察弱点需要）。同样不参与对拍比较。 */
     public boolean intentAttack;
 
@@ -95,6 +107,7 @@ public final class SimMonster {
         c.pendingMoveId = pendingMoveId;
         c.damageBase.addAll(damageBase);
         c.invincibleMax = invincibleMax;
+        c.stolenGold = stolenGold;
         return c;
     }
 

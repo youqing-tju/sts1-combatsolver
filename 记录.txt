@@ -103,3 +103,18 @@ STS1 CombatSolver 工程经验记录
     而不是删掉它 —— 删了就没有东西阻止它被加回来。
 54. 真机仍是 0 项：新 jar 未安装、未进游戏。命中率与 deployment 行为都必须真机复测，
     自动化 679 绿只能说明口径一致，不能说明影子准。
+
+十一、抢錢怪（Looter/Mugger）—— 2026-11-01 追加
+
+55. 原版语义（javap 核实，别再凭印象）：`Looter.usePreBattleAction` 先挂 `ThieveryPower(goldAmt)`；
+    `MUG(1)/LUNGE(4)`（Mugger 是 MUG/BIGSWIPE）的 `DamageAction(player, info, goldAmt)` 第三个参数就是偷钱，
+    `DamageAction.stealGold` 在**伤害结算之前**执行，所以格挡挡不住；金额 15（A17 起 20）。
+    它死时 `die()` 里 `addStolenGoldToRewards(stolenGold)` 把钱还进奖励；烟雾弹逃跑不还。
+56. 影子实现：`SimMonster.stolenGold`（死时归零、逃跑保留）+ `SimState.outstandingStolenGold()`；
+    真机捕获用反射读私有字段 `stolenGold`（与 `InvinciblePower.maxAmt` 同一手法）。
+57. 排序：`FinalPlanOrdering.cs:253-256` 把 `OutstandingStolenResource` 放在 **StrategicHpDeficit 之前**，
+    所以「多掉 8 血但把钱追回来」必须赢「一滴血不掉但让贼跑了」。这是用户要的手感，不是我们加的权重。
+58. 不建模金币价值本身（`Score` 里没有 gold）：蓝本也没把 gold 放进基础分，它用的是排序键。
+    改基础分＝自创，别做。
+59. 缺口：`SolverTheftPolicy.LetEscape` 的 UI 开关没做（默认 PreserveResources 与蓝本一致）；
+    `MinimumOutstandingStolenResource` 的乐观下界（「活着的贼手里的都还能追回」）没做。

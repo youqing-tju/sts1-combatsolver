@@ -426,6 +426,12 @@ public final class DamageCalc {
         // GremlinHorn.onMonsterDeath：这一下打死它 → 回 1 能量 + 抽 1 张（整场清空时不触发）
         io.github.youqing.sts1solver.mirror.hooks.RelicHooks
                 .onMonsterKilled(state, target, hpBefore);
+        // 抢錢怪死时把偷走的钱还回奖励（原版 Looter.die / Mugger.die 的
+        // addStolenGoldToRewards）—— 影子只记「还被扣着多少」，所以这里归零。
+        // 逃跑不走这条路径（EscapeAction 不还钱），于是那笔会一直留在账上。
+        if (hpBefore > 0 && target.hp <= 0 && target.stolenGold > 0) {
+            target.stolenGold = 0;
+        }
         return remaining;
     }
 

@@ -312,6 +312,14 @@ public final class CombatFlow {
             }
             return;
         }
+        // 原版 DamageAction(player, info, goldAmt)：**先把钱摸走，再结算伤害**（格挡挡不住）。
+        // 只受玩家身上还有多少钱限制（stealGold 里先夹 min，再扣）。
+        int steal = MonsterMoves.stealGoldOf(m.type, move, state.ascension);
+        if (steal > 0 && state.gold > 0) {
+            int taken = Math.min(steal, state.gold);
+            state.gold -= taken;
+            m.stolenGold += taken;
+        }
         for (int hit = 0; hit < move.hits; hit++) {
             int damage = io.github.youqing.sts1solver.mirror.DamageCalc
                     .monsterAttackDamage(state, move.damage, m);

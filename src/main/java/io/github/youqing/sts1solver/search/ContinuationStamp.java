@@ -43,8 +43,10 @@ public final class ContinuationStamp {
      * 文本版本号。任何字段口径变化都必须改它，老 continuation 会因此全部失效（安全方向）。
      *
      * <p>v2：手牌改成**保序**（v1 是排序后的无序多重集），与蓝本 {@code AppendLivePile} 一致。
+     * <p>v3：怪物多一个 {@code stolenGold}（抢錢怪手里还攥着多少金币）——
+     * 它现在参与最终排序，必须逐字段比对。
      */
-    public static final String VERSION = "sts1-cont-v2";
+    public static final String VERSION = "sts1-cont-v3";
 
     private static final char FIELD_SEP = ';';
     private static final char PAIR_SEP = '=';
@@ -284,6 +286,7 @@ public final class ContinuationStamp {
             num(p + ".invincibleMax", m.invincibleMax);
             num(p + ".pendingMoveId", m.pendingMoveId);
             num(p + ".intentDmg", m.intentDmg);
+            num(p + ".stolenGold", m.stolenGold);
             add(p + ".intentAttack", m.intentAttack);
 
             num(p + ".moveHistory.size", m.moveHistory.size());
