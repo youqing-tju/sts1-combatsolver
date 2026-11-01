@@ -11,6 +11,18 @@ public enum SolverPotionDirective {
     DISABLED,
     FORCE;
 
+    /** 面板文案（用户看得懂的那种写法，不是枚举常量名）。 */
+    public String label() {
+        switch (this) {
+            case DISABLED:
+                return "Disabled";
+            case FORCE:
+                return "Force";
+            default:
+                return "Smart";
+        }
+    }
+
     public static SolverPotionDirective parse(String raw) {
         if (raw == null) {
             return null;

@@ -50,6 +50,20 @@ public final class RouteStep {
         this.choiceIndex = choiceIndex;
     }
 
+    /**
+     * 这一步喝的是不是**这一格这一瓶**。
+     *
+     * <p>执行层必须用它校验：两瓶同 ID 的药水时，只按名字找会喝错格，
+     * 而用户按 Force/Disabled 锁的正是「哪一格」。
+     */
+    public boolean matchesPotionAt(int liveSlot, String livePotionId) {
+        return potion
+                && potionSlot >= 0
+                && potionSlot == liveSlot
+                && cardKey != null
+                && cardKey.equals(livePotionId);
+    }
+
     /** 喝药步骤（带槽位）。 */
     public static RouteStep potion(String potionId, int slot, int targetIndex, int choiceIndex) {
         return new RouteStep(false, true, potionId, slot, targetIndex, choiceIndex);

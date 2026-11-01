@@ -53,10 +53,41 @@ public final class StrategyStatusSnapshot {
      */
     private static final String EMPTY_SLOT_ID = "Potion Slot";
 
+    /**
+     * 一个药水槽的**结构化**视图（给可交互面板用）。
+     *
+     * <p>为什么不能只给字符串：D5 之后药水区是真实控件，面板要知道「点哪一格、点的是哪瓶、
+     * 能不能点」。从展示文案里反解这些字段迟早会错位。
+     */
+    public static final class PotionSlotView {
+        /** 槽位号，**1 基**（与面板文案 {@code 药[1]} 一致）。 */
+        public final int slot;
+        public final String potionId;
+        public final String text;
+        /** 这瓶能不能被主动使用（原版 {@code canUse}）；被动药水没有可点的控件。 */
+        public final boolean searchable;
+
+        PotionSlotView(int slot, String potionId, String text, boolean searchable) {
+            this.slot = slot;
+            this.potionId = potionId;
+            this.text = text;
+            this.searchable = searchable;
+        }
+    }
+
     private final List<String> lines;
+    private final List<PotionSlotView> potionSlots;
+    private final List<String> otherLines;
+
+    private StrategyStatusSnapshot(List<String> lines, List<PotionSlotView> potionSlots,
+                                   List<String> otherLines) {
+        this.lines = Collections.unmodifiableList(new ArrayList<String>(lines));
+        this.potionSlots = Collections.unmodifiableList(new ArrayList<PotionSlotView>(potionSlots));
+        this.otherLines = Collections.unmodifiableList(new ArrayList<String>(otherLines));
+    }
 
     private StrategyStatusSnapshot(List<String> lines) {
-        this.lines = Collections.unmodifiableList(new ArrayList<String>(lines));
+        this(lines, Collections.<PotionSlotView>emptyList(), lines);
     }
 
     /**
@@ -66,34 +97,50 @@ public final class StrategyStatusSnapshot {
      */
     public static StrategyStatusSnapshot from(SimState state) {
         List<String> out = new ArrayList<String>();
+        List<PotionSlotView> slots = new ArrayList<PotionSlotView>();
         if (state == null) {
-            return new StrategyStatusSnapshot(out);
+            return new StrategyStatusSnapshot(out, slots, out);
         }
-        appendPotions(state, out);
-        appendRelics(state, out);
-        appendGrowth(state, out);
-        return new StrategyStatusSnapshot(out);
+        appendPotions(state, out, slots);
+        List<String> others = new ArrayList<String>();
+        appendRelics(state, others);
+        appendGrowth(state, others);
+        out.addAll(others);
+        return new StrategyStatusSnapshot(out, slots, others);
     }
 
-    /** 只读行，按展示顺序。 */
+    /** 只读行，按展示顺序（含药水行，保持旧口径）。 */
     public List<String> lines() {
         return lines;
     }
 
+    /** 可交互的药水槽视图（面板的 D5 控件用）。 */
+    public List<PotionSlotView> potionSlots() {
+        return potionSlots;
+    }
+
+    /** 药水以外的行（遗物 / 成长）；这两块仍然只读。 */
+    public List<String> otherLines() {
+        return otherLines;
+    }
+
     // ------------------------------------------------------------------ 药水
 
-    private static void appendPotions(SimState state, List<String> out) {
+    private static void appendPotions(SimState state, List<String> out,
+                                      List<PotionSlotView> slots) {
         // 药水槽是定长列表，空格是 null；potionSlots 与 potions.size() 正常一致，
         // 取最大值是为了「刚构造的 SimState（没 capture 过）」也能显示满槽。
-        int slots = Math.max(state.potions.size(), state.potionSlots);
+        int slotCount = Math.max(state.potions.size(), state.potionSlots);
         int empty = 0;
-        for (int i = 0; i < slots; i++) {
+        for (int i = 0; i < slotCount; i++) {
             String id = i < state.potions.size() ? state.potions.get(i) : null;
             if (id == null || EMPTY_SLOT_ID.equals(id)) {
                 empty++;
                 continue;
             }
-            out.add(potionLine(i + 1, id));
+            String text = potionLine(i + 1, id);
+            out.add(text);
+            slots.add(new PotionSlotView(i + 1, id, text, Potions.canUse(id)));
         }
         if (empty > 0) {
             out.add("药空槽 ×" + empty);

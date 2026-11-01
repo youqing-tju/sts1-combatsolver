@@ -77,6 +77,13 @@ public final class AsyncSearch {
          * （终局、或只够打这一回合）。
          */
         public final ContinuationPlan continuations;
+        /**
+         * 这次结果是用哪一代药水策略算的（{@code AutoPilot.policyRevision}）。
+         *
+         * <p>⚠️ 只比 fingerprint 是不够的：用户改完策略后局面指纹不变，
+         * 但「哪条路线合规」已经变了 —— 拿旧策略的答案执行会违反他刚设的 Force/Disabled。
+         */
+        public final long policyRevision;
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit) {
@@ -95,14 +102,16 @@ public final class AsyncSearch {
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
                String noveltyStop) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
-                    hitNodeLimit, false, noveltyStop == null ? "off" : noveltyStop);
+                    hitNodeLimit, false, noveltyStop == null ? "off" : noveltyStop,
+                    "", "", ContinuationPlan.empty(), 0L);
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
                boolean failed, String noveltyStop) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
-                    hitNodeLimit, failed, noveltyStop, "");
+                    hitNodeLimit, failed, noveltyStop, "", "",
+                    ContinuationPlan.empty(), 0L);
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
@@ -110,13 +119,13 @@ public final class AsyncSearch {
                boolean failed, String noveltyStop, String portfolioAdopted) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
                     hitNodeLimit, failed, noveltyStop, portfolioAdopted, "",
-                    ContinuationPlan.empty());
+                    ContinuationPlan.empty(), 0L);
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
                boolean failed, String noveltyStop, String portfolioAdopted, String stopReason,
-               ContinuationPlan continuations) {
+               ContinuationPlan continuations, long policyRevision) {
             this.fingerprint = fingerprint;
             this.stopReason = stopReason == null ? "" : stopReason;
             this.action = action;
@@ -133,6 +142,7 @@ public final class AsyncSearch {
             this.portfolioAdopted = portfolioAdopted == null ? "" : portfolioAdopted;
             this.continuations = continuations == null
                     ? ContinuationPlan.empty() : continuations;
+            this.policyRevision = policyRevision;
         }
     }
 
@@ -157,6 +167,8 @@ public final class AsyncSearch {
      * 会得到「一半旧一半新」的约束（而且是在另一条线程上读，没有任何同步保证）。
      */
     private static PotionStrategySnapshot requestPotionStrategy;
+    /** 这次请求的策略代际；结果原样带回，主线程据此判时效。 */
+    private static long requestPolicyRevision;
     private static boolean running;
 
     private static volatile Result ready;
@@ -192,6 +204,7 @@ public final class AsyncSearch {
             boolean novelty;
             boolean portfolio;
             PotionStrategySnapshot potionStrategy;
+            long policyRevision;
             String fingerprint;
             synchronized (LOCK) {
                 while (request == null) {
@@ -212,6 +225,7 @@ public final class AsyncSearch {
                 novelty = requestNovelty;
                 portfolio = requestPortfolio;
                 potionStrategy = requestPotionStrategy;
+                policyRevision = requestPolicyRevision;
                 fingerprint = requestFingerprint;
                 request = null;
                 requestFingerprint = null;
@@ -235,7 +249,7 @@ public final class AsyncSearch {
                         solver.lastDepth, solver.lastMillis, solver.lastLeaves,
                         solver.lastSteps, nodeLimit, solver.hitNodeLimit, false,
                         solver.lastNoveltyStop, solver.lastPortfolioAdopted, solver.lastStopReason,
-                        solver.lastContinuations);
+                        solver.lastContinuations, policyRevision);
             } catch (Throwable t) {
                 Trace.error("background search failed", t);
                 result = new Result(fingerprint, null, 0, 0, 0, 0, 0,
@@ -289,6 +303,16 @@ public final class AsyncSearch {
                               int width, int depth, long budgetMillis,
                               int nodeLimit, int cardBranches, boolean novelty,
                               boolean portfolio, PotionStrategySnapshot potionStrategy) {
+        submit(root, fingerprint, energy, hand, width, depth, budgetMillis, nodeLimit,
+                cardBranches, novelty, portfolio, potionStrategy, 0L);
+    }
+
+    /** 同上，额外带上药水策略代际（{@code AutoPilot.policyRevision}）。 */
+    public static void submit(SimState root, String fingerprint, int energy, int hand,
+                              int width, int depth, long budgetMillis,
+                              int nodeLimit, int cardBranches, boolean novelty,
+                              boolean portfolio, PotionStrategySnapshot potionStrategy,
+                              long policyRevision) {
         start();
         synchronized (LOCK) {
             request = root;
@@ -303,6 +327,7 @@ public final class AsyncSearch {
             requestNovelty = novelty;
             requestPortfolio = portfolio;
             requestPotionStrategy = potionStrategy;
+            requestPolicyRevision = policyRevision;
             LOCK.notifyAll();
         }
     }
@@ -327,6 +352,7 @@ public final class AsyncSearch {
             request = null;
             requestFingerprint = null;
             requestPotionStrategy = null;
+            requestPolicyRevision = 0L;
         }
         ready = null;
     }

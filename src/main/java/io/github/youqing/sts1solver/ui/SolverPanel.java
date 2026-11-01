@@ -365,8 +365,8 @@ public final class SolverPanel {
      */
     private static void appendStrategyRows(java.util.List<Row> out) {
         out.add(new Row(strategyExpanded
-                ? "策略现状（只读，不会修改搜索） [-]"
-                : "策略现状（只读） [+]",
+                ? "策略（药水可点 · 遗物/成长只读） [-]"
+                : "策略（药水可点） [+]",
                 new Color(0.86f, 0.78f, 0.62f, 1f), false,
                 Row.Kind.STRATEGY_TOGGLE, -1, true));
         if (!strategyExpanded) {
@@ -378,7 +378,17 @@ public final class SolverPanel {
                     new Color(0.55f, 0.55f, 0.60f, 1f), false));
             return;
         }
-        for (String line : strategyStatus.lines()) {
+        // 药水区是**真实控制器**（D5）；遗物/成长仍是只读事实行。
+        boolean locked = AutoPilot.potionControlsLocked();
+        for (PotionStrategyRows.Row row : PotionStrategyRows.build(
+                strategyStatus.potionSlots(), SolverConfig.potionStrategy(), locked)) {
+            Color color = row.clickable()
+                    ? new Color(0.78f, 0.88f, 1.0f, 1f)
+                    : new Color(0.62f, 0.62f, 0.68f, 1f);
+            out.add(new Row(row.label(), color, false, Row.Kind.POTION,
+                    row.clickable(), row.slot - 1, row.potionId));
+        }
+        for (String line : strategyStatus.otherLines()) {
             out.add(new Row(line, new Color(0.70f, 0.70f, 0.76f, 1f), false));
         }
     }
@@ -405,7 +415,9 @@ public final class SolverPanel {
             /** 「策略现状（只读）」折叠标题。 */
             STRATEGY_TOGGLE,
             /** 路线预览的一行（绝对回合号，下一刀接执行）。 */
-            ROUTE
+            ROUTE,
+            /** 药水区的一行：**真实控件**（点击循环 Smart → Disabled → Force）。 */
+            POTION
         }
 
         final String text;
@@ -416,19 +428,35 @@ public final class SolverPanel {
         final int targetTurn;
         /** 这一行现在能不能点（没有 END_TURN 的尾行不能承诺「打完此回合」）。 */
         final boolean clickable;
+        /** 药水行的目标槽位（**0 基**，与策略键一致）；非 POTION 行为 -1。 */
+        final int potionSlot;
+        /** 药水行的药水 ID；非 POTION 行为 null。 */
+        final String potionId;
 
         Row(String text, Color color, boolean title) {
-            this(text, color, title, Kind.TEXT, -1, false);
+            this(text, color, title, Kind.TEXT, -1, false, -1, null);
         }
 
         Row(String text, Color color, boolean title, Kind kind, int targetTurn,
             boolean clickable) {
+            this(text, color, title, kind, targetTurn, clickable, -1, null);
+        }
+
+        Row(String text, Color color, boolean title, Kind kind, boolean clickable,
+            int potionSlot, String potionId) {
+            this(text, color, title, kind, -1, clickable, potionSlot, potionId);
+        }
+
+        Row(String text, Color color, boolean title, Kind kind, int targetTurn,
+            boolean clickable, int potionSlot, String potionId) {
             this.text = text;
             this.color = color;
             this.title = title;
             this.kind = kind;
             this.targetTurn = targetTurn;
             this.clickable = clickable;
+            this.potionSlot = potionSlot;
+            this.potionId = potionId;
         }
     }
 
@@ -695,6 +723,18 @@ public final class SolverPanel {
                 Trace.info("panel strategy section "
                         + (strategyExpanded ? "expanded" : "collapsed")
                         + " rows=" + (laidOutRows == null ? 0 : laidOutRows.length));
+                return true;
+            }
+            if (row.kind == Row.Kind.POTION) {
+                // 不可点（被动药水 / 执行中锁定）也吃掉这次点击，别穿透到下层
+                if (row.clickable) {
+                    AutoPilot.cyclePotionDirective(row.potionSlot, row.potionId);
+                } else {
+                    Trace.info("panel potion row " + row.potionSlot + " not clickable"
+                            + " (AUTO deploying or non-searchable potion)");
+                }
+                layoutDirty = true;
+                ensureLayout();
                 return true;
             }
             if (row.kind == Row.Kind.ROUTE) {

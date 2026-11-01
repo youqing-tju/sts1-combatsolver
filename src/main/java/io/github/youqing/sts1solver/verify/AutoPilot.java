@@ -141,6 +141,7 @@ public final class AutoPilot {
         strategySnapshotDirty = false;
         screenWasUp = false;
         potionPolicyLogged = false;
+        strategySnapshot = null;
         Trace.info("AUTO state reset (combat boundary)");
     }
 
@@ -253,6 +254,130 @@ public final class AutoPilot {
     /** 这个回合是否已经越过停止目标（tick 与单测共用同一条判据）。 */
     static boolean shouldStopAt(int turnNow) {
         return boundedTarget.shouldStop(turnNow);
+    }
+
+    // ---------------------------------------------------------- 药水策略（D5）
+
+    /** 当前药水策略代际（搜索结果按它判时效）。 */
+    public static long policyRevision() {
+        return policyRevision;
+    }
+
+    /**
+     * 自动部署/执行中是否锁定药水控件。
+     *
+     * <p>用户已拍板：AUTO 接管期间**拒绝**修改策略。原因不是 UI 洁癖 ——
+     * 一次搜索可能算好几秒，中途换策略会让「已经排好队的步骤」和「新策略」互相矛盾，
+     * 症状是「我设了 Disabled，它这一回合还是喝了」。
+     */
+    public static boolean potionControlsLocked() {
+        return enabled;
+    }
+
+    /** 上一次策略改动的结果（诊断用）。 */
+    public static String lastPolicyAction() {
+        return lastPolicyAction;
+    }
+
+    /**
+     * 一个后台结果能不能采纳：{@code null} = 可以，否则是不采纳的原因。
+     *
+     * <p>两道闸缺一不可：
+     * <ul>
+     *   <li>{@code policy_revision} —— 局面没变但策略变了，旧答案可能已经违规；</li>
+     *   <li>{@code fingerprint} —— 局面已经走了，答案算的是别的局面。</li>
+     * </ul>
+     */
+    static String rejectionReason(String fingerprint, long revision, String liveFingerprint) {
+        if (revision != policyRevision) {
+            return "policy_revision";
+        }
+        if (liveFingerprint != null && !liveFingerprint.equals(fingerprint)) {
+            return "fingerprint";
+        }
+        return null;
+    }
+
+    /**
+     * 点一下某一格药水：Smart → Disabled → Force → Smart。
+     *
+     * <p>越界/空槽/被动药水一律拒绝（面板本就不该给出可点控件，这里是第二道闸）。
+     */
+    public static boolean cyclePotionDirective(int slot, String potionId) {
+        if (potionId == null || potionId.isEmpty()) {
+            return false;
+        }
+        if (potionControlsLocked()) {
+            lastPolicyAction = "rejected:executing";
+            Trace.info("POTION_POLICY rejected: AUTO is deploying (slot " + slot + ")");
+            return false;
+        }
+        io.github.youqing.sts1solver.search.PotionStrategySnapshot current =
+                io.github.youqing.sts1solver.config.SolverConfig.potionStrategy();
+        io.github.youqing.sts1solver.search.SolverPotionDirective next =
+                io.github.youqing.sts1solver.ui.PotionStrategyRows.cycle(
+                        current.directiveFor(slot, potionId));
+        return applyPotionPolicy(current.withDirective(slot, potionId, next),
+                "slot " + slot + ":" + potionId + " -> " + next);
+    }
+
+    /** 套一个预设（只作用于当前存在且可搜索的药水）。 */
+    public static boolean applyPotionPreset(
+            io.github.youqing.sts1solver.search.SolverPotionPreset preset) {
+        if (potionControlsLocked()) {
+            lastPolicyAction = "rejected:executing";
+            Trace.info("POTION_POLICY rejected preset " + preset + ": AUTO is deploying");
+            return false;
+        }
+        if (preset == null || strategySnapshot == null) {
+            lastPolicyAction = "rejected:no_snapshot";
+            return false;
+        }
+        java.util.List<io.github.youqing.sts1solver.search.PotionStrategySnapshot.SlotStatus> slots =
+                new java.util.ArrayList<
+                        io.github.youqing.sts1solver.search.PotionStrategySnapshot.SlotStatus>();
+        for (io.github.youqing.sts1solver.ui.StrategyStatusSnapshot.PotionSlotView view
+                : strategySnapshot.potionSlots()) {
+            slots.add(new io.github.youqing.sts1solver.search.PotionStrategySnapshot.SlotStatus(
+                    view.slot - 1, view.potionId, view.searchable));
+        }
+        io.github.youqing.sts1solver.search.PotionStrategySnapshot current =
+                io.github.youqing.sts1solver.config.SolverConfig.potionStrategy();
+        return applyPotionPolicy(current.withPreset(preset, slots), "preset " + preset);
+    }
+
+    /**
+     * 落一份新策略：保存 → 代际 +1 → 清 continuation/预览 → 按「自动计算」决定要不要立刻重算。
+     *
+     * <p>清 continuation 是硬要求：旧世界线是按旧策略排的，继续复用等于绕过用户刚改的设置。
+     */
+    private static boolean applyPotionPolicy(
+            io.github.youqing.sts1solver.search.PotionStrategySnapshot snapshot, String why) {
+        io.github.youqing.sts1solver.config.SolverConfig.applyPotionStrategy(snapshot);
+        policyRevision++;
+        // 旧结果/旧世界线一律作废（即使局面指纹没变）
+        io.github.youqing.sts1solver.search.AsyncSearch.reset();
+        clearPlan();
+        boolean recompute = io.github.youqing.sts1solver.config.SolverConfig.autoStart();
+        if (recompute) {
+            lastPolicyAction = "saved+recompute";
+            try {
+                if (AbstractDungeon.player != null) {
+                    submitSearch(AbstractDungeon.player);   // Manual 重搜
+                }
+            } catch (Throwable t) {
+                // 不在战斗里（或单测环境）时 AbstractDungeon 还没初始化：只记录，不影响保存
+                Trace.warn("potion policy recompute skipped: " + t);
+            }
+            Trace.info("POTION_POLICY " + why + " revision=" + policyRevision
+                    + " -> manual recompute");
+        } else {
+            lastPolicyAction = "saved";
+            Trace.info("POTION_POLICY " + why + " revision=" + policyRevision
+                    + " (auto-compute off, saved only)");
+        }
+        panelRevision++;
+        return true;
     }
 
     /** 主线程读取真实绝对玩家回合；拿不到返回 0（调用方据此拒绝设置目标）。 */
@@ -507,6 +632,17 @@ public final class AutoPilot {
     private static String lastSearchShape = "";
     /** 药水策略只在第一次提交时打一行，避免每次搜索刷屏。 */
     private static boolean potionPolicyLogged;
+    /**
+     * 药水策略代际：每次改动 +1。
+     *
+     * <p>搜索结果必须带着**同一代**才允许采纳。只比指纹不够 —— 改策略不改局面，
+     * 旧答案在新策略下可能已经违规（例如刚把某瓶设成 Disabled）。
+     */
+    private static long policyRevision;
+    /** 上一次策略改动的结果：{@code saved} / {@code saved+recompute} / {@code rejected:executing}。 */
+    private static String lastPolicyAction = "";
+    /** 最近一次策略现状快照（预设要按当前槽位算，不能靠渲染路径现抓）。 */
+    private static io.github.youqing.sts1solver.ui.StrategyStatusSnapshot strategySnapshot;
 
     /**
      * 「策略现状」缓存是否已经过时（打牌 / 喝药 / 选牌完成后置 true）。
@@ -585,8 +721,8 @@ public final class AutoPilot {
     private static void publishTurnSnapshot(io.github.youqing.sts1solver.sim.SimState snap,
                                             int turn) {
         io.github.youqing.sts1solver.ui.SolverPanel.setTurnLine(turnLineOf(snap, turn));
-        io.github.youqing.sts1solver.ui.SolverPanel.setStrategyStatus(
-                io.github.youqing.sts1solver.ui.StrategyStatusSnapshot.from(snap));
+        strategySnapshot = io.github.youqing.sts1solver.ui.StrategyStatusSnapshot.from(snap);
+        io.github.youqing.sts1solver.ui.SolverPanel.setStrategyStatus(strategySnapshot);
     }
 
     /**
@@ -666,8 +802,8 @@ public final class AutoPilot {
             strategySnapshotDirty = false;
             io.github.youqing.sts1solver.sim.SimState snap =
                     io.github.youqing.sts1solver.sim.SimState.capture();
-            io.github.youqing.sts1solver.ui.SolverPanel.setStrategyStatus(
-                    io.github.youqing.sts1solver.ui.StrategyStatusSnapshot.from(snap));
+            strategySnapshot = io.github.youqing.sts1solver.ui.StrategyStatusSnapshot.from(snap);
+            io.github.youqing.sts1solver.ui.SolverPanel.setStrategyStatus(strategySnapshot);
             Trace.info("STRATEGY snapshot refreshed mid-turn  T" + snap.turn
                     + " hp " + snap.hp + "/" + snap.maxHp
                     + " potions " + snap.potions.size() + "/" + snap.potionSlots
@@ -887,15 +1023,30 @@ public final class AutoPilot {
         if (player.potions == null) {
             return rejectStep(step, "has no potion belt");
         }
+        // 先按 (slot, id) 精确匹配：两瓶同 ID 时只按名字找会喝错格，
+        // 而用户设的 Force/Disabled 锁的正是「哪一格」。
         com.megacrit.cardcrawl.potions.AbstractPotion potion = null;
-        for (com.megacrit.cardcrawl.potions.AbstractPotion p : player.potions) {
-            if (p != null && step.cardKey != null && step.cardKey.equals(p.ID)) {
-                potion = p;
-                break;
+        if (step.potionSlot >= 0) {
+            for (com.megacrit.cardcrawl.potions.AbstractPotion p : player.potions) {
+                if (p != null && p.slot == step.potionSlot
+                        && step.matchesPotionAt(p.slot, p.ID)) {
+                    potion = p;
+                    break;
+                }
             }
-        }
-        if (potion == null) {
-            return rejectStep(step, "is not in the belt");
+            if (potion == null) {
+                return rejectStep(step, "slot " + step.potionSlot + " no longer holds that potion");
+            }
+        } else {
+            for (com.megacrit.cardcrawl.potions.AbstractPotion p : player.potions) {
+                if (p != null && step.cardKey != null && step.cardKey.equals(p.ID)) {
+                    potion = p;
+                    break;
+                }
+            }
+            if (potion == null) {
+                return rejectStep(step, "is not in the belt");
+            }
         }
         if (!potion.canUse()) {
             return rejectStep(step, "cannot be used now");
@@ -979,8 +1130,15 @@ public final class AutoPilot {
         if (result == null) {
             return null;
         }
-        String fingerprint = currentFingerprint();
-        if (fingerprint != null && !fingerprint.equals(result.fingerprint)) {
+        String reason = rejectionReason(result.fingerprint, result.policyRevision,
+                currentFingerprint());
+        if ("policy_revision".equals(reason)) {
+            // 局面没变、策略变了：旧答案在新策略下可能已违规，必须作废
+            Trace.info("PLAN discarded (potion policy revision " + result.policyRevision
+                    + " != " + policyRevision + ")");
+            return null;
+        }
+        if (reason != null) {
             Trace.info("PLAN discarded (state moved on since it was computed)");
             return null;
         }
@@ -1284,7 +1442,8 @@ public final class AutoPilot {
                     budget.timeMillis, budget.nodeLimit, budget.cardBranches,
                     io.github.youqing.sts1solver.config.SolverConfig.novelty(),
                     io.github.youqing.sts1solver.config.SolverConfig.portfolio(),
-                    io.github.youqing.sts1solver.config.SolverConfig.potionStrategy());
+                    io.github.youqing.sts1solver.config.SolverConfig.potionStrategy(),
+                    policyRevision);
         } catch (Throwable t) {
             Trace.warn("submit search failed: " + t);
         }
