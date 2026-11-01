@@ -1,20 +1,22 @@
-# STS1 战斗求解器 · 交接说明（2026-11-01 20:28 版）
+# STS1 战斗求解器 · 交接说明（2026-11-01 22:45 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-01 21:05，测试 **692 条全绿**（0 fail / 0 err，15 skipped），
-> 代码 HEAD = 纠偏四刀 + 抢錢怪一刀（`44e8ae6` → `ff2e6ee` → `8c429ac` → `652ae13` → `747f7a8`），未 push。
-> 已安装 `build 1101-204319`（含抢錢怪建模）。⚠️ 游戏进程 49456 是**安装前**启动的，
-> 要重启 MTS 才会加载新 jar。
+> **当前状态**：2026-11-01 22:45，测试 **696 条全绿**（0 fail / 0 err，15 skipped），
+> 代码 HEAD = `de9de4b`，未 push。
+> 已安装 `build 1101-222554`；⚠️ 游戏进程是**装之前**启动的，**必须重启 MTS** 才生效。
 >
 > 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做**。
-> `docs/plans/2026-11-01-strict-blueprint-parity.md` 的 Task 1–4 **已全部执行完**：
-> 撤销默认冻结 / 单步剔除 / 无生还禁打、删除有界 AUTO 与伪 Adopt/Freeze、
-> Continuation 改为「best 选边界 + 最终路线回放捕获」、药水策略恢复蓝本组合与失败语义。
-> 逐项结果见 `docs/research/blueprint-parity.md`「附：2026-11-01 来源审计」的**结果**列。
+> 20:28 之前：严格纠偏 Task 1–5 全部落地（`44e8ae6` / `ff2e6ee` / `8c429ac` / `652ae13` / `638e970`）。
+> 20:28 之后：**真机连着打了 5 局，按日志修掉 8 个真 bug**（见 §十一）。
+> 这一段的教训是：自动化全绿只证明口径自洽，**不证明影子准** —— 8 个 bug 全是真机日志暴露的。
 >
-> 🔴 **本轮全部真机项仍是 0 项**：jar 未重装、未进游戏。自动化全绿不等于 parity（旧教训）。
+> 🔴 **用户 22:41 拍的下一阶段主线**：**不能光赢，要「战损最小 + 收益最大」的赢法**，与蓝本一致。
+> 现成差距见 §九第 3 条（`FinalPlanOrdering` 17 键，我们只落了 9 键，缺成长/收益那一段）。
 >
+> 🔴 **用户 22:41 拍板（决策 A）**：**不新增**「未找到生还路线就交还控制」的闸 ——
+> 蓝本没有这条（`Survives` 只是排序键，`FinalPlanOrdering.cs:250-252`），
+> 停手只保留 `DeathTurn` 与 `LiveRisk` 两道。
 > 真机日志实测（`2026-11-01.log`，旧 build）：234 次规划 / **48 次 miss / 0 次命中**。
 > 用 497 个快照做相邻回合配对复现（97 对）定位到两个硬 bug 并已修：
 > ① 玩家虚体 ID 是 **`IntangiblePlayer`**（`IntangiblePlayerPower`，javap 核实），
@@ -448,21 +450,28 @@ private void callEndOfTurnActions() {
 
 ## 九、下一轮怎么开工
 
-**唯一主线：严格蓝本纠偏**。施工计划与执行提示词：
-- `docs/plans/2026-11-01-strict-blueprint-parity.md`
-- `docs/plans/2026-11-01-next-round-prompt.md`
+> 上一份施工计划 `docs/plans/2026-11-01-strict-blueprint-parity.md` 的 Task 1–4 已全部完成，
+> Task 5 的审计表已带结果列。**下一阶段的主线是「赢得更省」**（用户 22:41 拍板）。
 
-Task 1–4 已完成（见 `blueprint-parity.md` 结果列），**剩下的是 Task 5 的收尾与 Task 6 的验证**：
+1. **先装再验**：`./gradlew test --offline`（应为 696 绿）→ `./gradlew jar` → `tools/install.ps1`
+   → **重启 MTS**。不重启就是旧盘，前面所有修复都白搭（本轮踩了两次）。
+2. **真机验收本夜 8 条**（§十一 表格逐条对应）：多段意图、神化不升状态、木乃伊候选、
+   觉醒者半死/REBIRTH、无活怪结束回合、开局发牌不抢跑、回合末风险按真规则推演、抢錢怪可杀。
+3. 🔴 **路线质量 = 战损最小 + 收益最大**（新主线）。现状：`BeamSolver.better()` 落了 9 个键
+   （Won → Survives → DeathSaveUseCount → 被偷金币 → StrategicHpDeficit → CombatEndedTurn →
+   EnemyHp → Score → Depth），蓝本 `FinalPlanOrdering.cs:253-271` 是 **17 个键**，
+   中间缺的正是「收益」那一段：`GrowthHpCredit` / `GrowthRewardCount` / `PolicyHpDeficit` /
+   `PotionStrategicCost` / `ActionCount`。**先按蓝本逐键核对再补，不许自选子集**。
+4. **镜像失配清理**（真机 145 次对拍里 30 次失配）：`Plated Armor` 递减差 1~4（多段时每段递减）、
+   `Reaper` 回血量差 1~2、`Headbutt` 弃牌堆顺序导致按 index 取错牌、`Barricade` 量对不上。
+5. **未做就登记未做**：`AdoptRoute`、`RouteFrozen`、`SolverProgress.play_depth`、
+   `PotionRewardOutlook`、琥珀限制、`SolverTheftPolicy.LetEscape` 的 UI 开关。
 
-1. ``git status`` 干净、``./gradlew test --offline`` 679 绿；先 ``./gradlew jar`` + ``tools/install.ps1``
-   把新 jar 装上，否则真机跑的还是旧盘。
-2. 真机验收（`blueprint-parity.md` 末「结果列」逐条对应）：默认无冻结、有新回合要么
-   `SEARCH_REUSED` 要么 `SEARCH_REUSE_MISS reason=…` 后根重算、单步不可用/药水槽漂移不剔步、
-   仅「全都不生还」不触发停手、改策略后旧 continuation 作废且配置里只剩 `directive=` 行。
-3. 真机命中率仍未知（纠偏前 97 对配对 **0 命中**，首差 `playerPowers` → `energy` →
-   `discardPile` → `hand` → `block`）。按新回放捕获再取一轮日志，用离线配对工具复算。
-4. 未做的蓝本机制**明确登记为未做**，不要补半成品：`AdoptRoute`、`RouteFrozen`、
-   `SolverProgress` 的 play_depth、`PotionRewardOutlook`、琥珀限制。
+### 已拍板（本轮新增）
+
+- **决策 A（2026-11-01 22:41）**：不新增「无生还路线 → 交还控制」的闸。蓝本没有
+  （`FinalPlanOrdering.cs:250-252` 里 `Survives` 只是排序键）。停手只保留 `DeathTurn` + `LiveRisk`，
+  且后者已改成**按真实规则推演整回合**（死亡豁免/多段/易伤都算进去）。
 
 ### 🔴 自创清单（不是“登记后继续”，而是必须撤销/返工）
 
@@ -520,3 +529,24 @@ Task 1–4 已完成（见 `blueprint-parity.md` 结果列），**剩下的是 T
 
 **回退方式**：四个 commit 相互独立且都在 `master` 本地（未 push）。
 `git revert 652ae13 8c429ac ff2e6ee 44e8ae6` 可整体回到 `73f44c8` 的旧语义（旧测试会一起回来）。
+
+---
+
+## 十一、2026-11-01 夜间真机修复（20:28 → 22:45）
+
+> 这一段的**全部结论都来自真机日志 + `solver-snapshots/turn-*.json`**，不是自动化测试发现的。
+> 每一行都能在日志里指回现场；日记细节见 `记录.txt` 第 55–64 条。
+
+| # | 症状（真机原话/日志） | 根因 | 修法 | commit |
+|---|---|---|---|---|
+| 1 | 「遇到抢劫的就只会防御，白白被偷钱」 | 影子根本没建模偷钱；最终排序也没有资源键 | `SimMonster.stolenGold` + `SimState.outstandingStolenGold()`；`better()` 加「被偷金币」键（排在战略血量赤字**之前**，照 `FinalPlanOrdering.cs:253-256`） | `747f7a8` |
+| 2 | 「又自己自动走向死亡」（1 血 34 格挡被打死） | `getIntentDmg()` 只给**一段**伤害，地精首领是 3 段；捕获侧把一段当总数 | `SimState.totalIntent()`：按 `damage` 列表推段数（同值才算多段），捕获成总伤害 | `d1623eb` |
+| 3 | 失配：`Wound+ vs Wound`、`CurseOfTheBell+ vs Curse` | 神化调用 `upgradeAllPiles` 时漏了 `canUpgrade` 判据 | 逐张按原版 `AbstractCard.canUpgrade()`（诅咒/状态升不了） | `312933a` |
+| 4 | 「干瘪之手镜像有失配吗」 | 候选判据写成「或」（`cost>0 \|\| costForTurn>0`），原版是**与**；候选数一变，`random(0,size-1)` 抽到另一张 | 改「与」，并把我们的 `costForTurn=-1` 哨兵翻成有效费用 | `e2160ac` |
+| 5 | 「打完觉醒者 1 阶段就不打了」 | 觉醒者半死时 `currentHealth==0`，`firstAliveMonster()` 返回 null，`tick()` 直接 return；而敌方回合只有结束回合才推进 → **死锁** | 无活怪但 `areMonstersDead()` 为假 → 走按钮路径结束回合 | `2d2e10e` |
+| 6 | 「一连跳过两个回合 / 第一回合啥都不干」 | 二阶段把 turn 重置成 1，发牌没落地时 hand=0，当帧就结束回合（日志 `empty hand #1/#2, draw=35/30`） | 空手牌 + 牌堆有牌 + 本回合没动作过 → 先等最多 90 帧；打完了仍立刻结束 | `68302f4` |
+| 7 | 「有蜥蜴尾巴还不会死，控制就交还了」 | 回合末风险闸用 `projectedHpOf` 一阶减法，**不认死亡豁免** | 改成真跑 `CombatFlow.endTurn`（与搜索同引擎）；推不动才退回估计 | `de9de4b` |
+| 8 | boss 战 406 ms 就以 `stop=victory` 收工 | 换形态只挂在 `hit()`，AoE 走 `hitAndReturnDealt` 绕过 → 觉醒者被当真死 → 假胜利 | `maybeAwaken` 挪进 `hitAndReturnDealt`（所有伤害来源都过） | `de9de4b` |
+
+**未闭环**（下一阶段）：`Plated Armor` 递减差 1~4 / `Reaper` 回血差 1~2 / `Headbutt` 弃牌堆顺序 /
+`Barricade` 量对不上；以及 §九第 3 条的「收益最大化」17 键补齐。
