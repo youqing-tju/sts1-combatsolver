@@ -52,6 +52,16 @@ public final class AutoPilot {
      */
     private static int noProgressEndTurns;
     private static final int NO_PROGRESS_LIMIT = 12;
+    /**
+     * 手牌为 0 但牌堆里还有牌的连续帧数（只在「本回合还没动作过」时累计）。
+     *
+     * <p>用来区分「发牌动画还没落地」和「真的抽不到牌」：
+     * 前者等一帧就好，后者等 {@link #EMPTY_HAND_WAIT_FRAMES} 帧后照常结束回合。
+     */
+    private static int emptyHandFrames;
+    private static final int EMPTY_HAND_WAIT_FRAMES = 90;
+    /** 最近一次由我们出手的回合号（打牌/喝药）。手牌空时用它区分「刚开局」和「打完了」。 */
+    private static int lastActionTurn = Integer.MIN_VALUE;
 
     /**
      * 本回合被游戏拒绝过的牌（「入队了但一直留在手上」）。
@@ -115,6 +125,8 @@ public final class AutoPilot {
         queuedCard = null;
         queuedFrames = 0;
         noProgressEndTurns = 0;
+        emptyHandFrames = 0;
+        lastActionTurn = Integer.MIN_VALUE;
         endPhase = 0;
         endPhaseFrames = 0;
         blockedThisTurn.clear();
@@ -448,6 +460,18 @@ public final class AutoPilot {
                 if (!CombatCapture.isCaptured()) {
                     return;
                 }
+                // 🔴 2026-11-01 真机事故（觉醒者二阶段）：战斗把 turn 重置成 1，玩家回合
+                // 刚开始、发牌动画还没落地时 hand 就是 0，而我们当帧就结束回合 ——
+                // 连着两个回合「开局即结束」，一张牌都没打（日志：empty hand #1/#2, draw=35/30）。
+                // 判据：**本回合还没出过任何动作** + 牌堆里还有牌 + 没被 No Draw 封着 → 先等。
+                boolean drawPending = player.drawPile != null && player.drawPile.size() > 0
+                        && !player.hasPower("No Draw");
+                if (drawPending && lastActionTurn != turnNow
+                        && emptyHandFrames < EMPTY_HAND_WAIT_FRAMES) {
+                    emptyHandFrames++;
+                    return;
+                }
+                emptyHandFrames = 0;
                 noProgressEndTurns++;
                 if (noProgressEndTurns > NO_PROGRESS_LIMIT) {
                     Trace.warn("AUTO stopped: " + noProgressEndTurns + " turns in a row with an empty hand"
@@ -469,6 +493,8 @@ public final class AutoPilot {
                 cooldown = 45;
                 return;
             }
+            // 手牌回来了：等待计数归零（下次「空手牌」重新从 0 数帧）
+            emptyHandFrames = 0;
             // 玩家正在手动选牌/拖动时让位，避免两边同时入队
             if (player.hoveredCard != null || player.isDraggingCard) {
                 return;
@@ -1087,6 +1113,7 @@ public final class AutoPilot {
         player.adjustPotionPositions();
         // 药水槽、能力、血量都可能被这一瓶改掉 → 面板的策略现状要重算
         strategySnapshotDirty = true;
+        lastActionTurn = currentTurn();
         // 药水效果不在对拍台架的跟踪范围里（台架只跟「打牌」）：作废基线，
         // 否则下一张牌的影子还停在喝药前，差出来的正是药水抽的牌/打的伤害。
         ShadowTracker.invalidateBaseline("potion " + step.cardKey);
@@ -1177,6 +1204,7 @@ public final class AutoPilot {
         queuedCard = chosen;
         queuedFrames = 0;
         noProgressEndTurns = 0;
+        lastActionTurn = currentTurn();
         // 有进展了：本回合的漂移计数归零（见 deploymentDrift 的失败路径保护）
         deployDriftsThisTurn = 0;
         // 这一手落地后局面就变了（手牌/能量/能力），面板的策略现状要重算
