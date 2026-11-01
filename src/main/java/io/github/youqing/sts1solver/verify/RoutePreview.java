@@ -21,8 +21,10 @@ import io.github.youqing.sts1solver.search.RouteStep;
  * 行号是绝对回合 {@code T{originTurn + n}}，行身份是 {@link Turn}，当前下一手靠
  * {@code step == nextStep} 的**引用相等**画箭头。
  *
- * <p>⚠️ 它不是「执行承诺」：本项目每个回合都会按真局面重搜（蓝本的
- * {@code AdoptCurrentRoute} / 跨回合冻结路线我们没实现）。界面文案必须写清「每回合重算」。
+ * <p>⚠️ 它不是「执行承诺」，但也不是「每回合都会重算」：满不满足续跑由
+ * {@code ContinuationPlan} 的**精确状态文本**决定 —— 真机状态与上一回合预测逐字段相等时
+ * 沿这条路线继续（{@code SEARCH_REUSED}），只有对不上才重搜（{@code SEARCH_REUSE_MISS}）。
+ * 蓝本的「冻结路线」（{@code AdoptRoute}）仍然没有实现：我们不冻结，每回合都校验。
  */
 public final class RoutePreview {
 

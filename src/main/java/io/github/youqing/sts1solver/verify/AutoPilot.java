@@ -203,7 +203,7 @@ public final class AutoPilot {
      * <p>⚠️ 这是**项目自定义扩展**，不是蓝本的 {@code ApplyRoute} / {@code AdoptRoute}：
      * 蓝本根本没有 {@code ApplyRoute}，它的路线行 {@code MouseFilter = Ignore}（不可点）。
      * 我们只设置一个<b>绝对停止回合</b>，不冻结路线、不按旧预测跨回合照打 ——
-     * 每回合仍然按真局面重搜，只是停的边界由用户指定。
+     * 每回合按真局面**校验**（逐字段相等就续跑、否则重搜），停的边界由用户指定。
      *
      * <p>行为（对应设计 §5.2）：
      * <ol>
@@ -219,7 +219,7 @@ public final class AutoPilot {
      */
     public static boolean runUntil(int targetTurn) {
         int turnNow = currentTurn();
-        if (!boundedTarget.request(targetTurn, turnNow)) {
+        if (!armBoundedTarget(targetTurn, turnNow)) {
             Trace.warn("AUTO bounded request rejected: target=T" + targetTurn
                     + " current=T" + turnNow + " (stale target or invalid turn)");
             return false;
@@ -237,11 +237,21 @@ public final class AutoPilot {
     /**
      * 有界 AUTO 的目标回合；普通无界 AUTO 返回 {@code -1}。
      *
-     * <p>面板据此写 {@code AUTO → Tn（每回合重算）}。注意它<b>不</b>代表
-     * 「路线已冻结」：预览随时可能因为重算被清空，目标本身不变。
+     * <p>面板据此写 {@code AUTO → Tn（逐回合校验）}。注意它<b>不</b>代表
+     * 「路线已冻结」：对不上就重搜，预览可能被清空，但目标本身不变。
      */
     public static int stopAfterTurn() {
         return boundedTarget.targetTurn();
+    }
+
+    /** 装填停止目标（{@code current} 由调用方给，便于脱离真机测试）。 */
+    static boolean armBoundedTarget(int targetTurn, int current) {
+        return boundedTarget.request(targetTurn, current);
+    }
+
+    /** 这个回合是否已经越过停止目标（tick 与单测共用同一条判据）。 */
+    static boolean shouldStopAt(int turnNow) {
+        return boundedTarget.shouldStop(turnNow);
     }
 
     /** 主线程读取真实绝对玩家回合；拿不到返回 0（调用方据此拒绝设置目标）。 */
@@ -290,7 +300,7 @@ public final class AutoPilot {
         //   ② 必须在任何搜索 / 出牌 / 喝药 / END_TURN **之前** —— 晚一步就会在 Tn+1 多打一手，
         //      用户看到的是「说了停在 Tn，结果多打了一张」；
         //   ③ 不能只放在回合变化清计划处 —— 那里可能继续本 tick 出牌。
-        if (boundedTarget.shouldStop(turnNow)) {
+        if (shouldStopAt(turnNow)) {
             int stoppedAt = boundedTarget.targetTurn();
             stopAuto("bounded complete");
             Trace.info("AUTO bounded stop after T" + stoppedAt
@@ -461,6 +471,20 @@ public final class AutoPilot {
      * 否则每出一手后续回合都会重排编号，用户看到的 T2 下一秒就变成另一件事。
      */
     private static RoutePreview preview;
+    /**
+     * 采纳这条路线时的**完整**步骤（含已经打过的回合）。
+     *
+     * <p>续跑命中时要从这里按 {@code forecastOffset} 重新裁执行队列 —— 只留 {@code plan}
+     * 那个被 poll 过的队列是裁不出来的（它已经不包含本回合之前的步骤）。
+     */
+    private static java.util.List<io.github.youqing.sts1solver.search.RouteStep> planSteps =
+            java.util.Collections.emptyList();
+    /**
+     * 跨回合续跑判定（纯数据）。命中 = 这个回合不搜索，直接按上一回合算出的世界线打。
+     *
+     * <p>缓存的生命周期跟着 {@link #clearPlan()} 走：本回合计划一失效，那条世界线就不再可信。
+     */
+    private static final ContinuationDecision continuation = new ContinuationDecision();
     /**
      * 面板内容版本号：任何会改变行集合/行文本的变化都递增。
      *
@@ -677,8 +701,15 @@ public final class AutoPilot {
             Trace.info("TURN " + turnNow + " start  hp " + player.currentHealth + "/"
                     + player.maxHealth + "  e" + player.energy.energy + "  hand "
                     + player.hand.size() + "  foes " + aliveMonsters());
-            Trace.info("PLAN dropped: turn " + planTurn + " -> " + turnNow + ", replanning");
-            clearPlan();
+            // 🔴 先试**精确续跑**（蓝本 ContinuationSource）：真机状态与上一回合预测逐字段相等
+            // 就沿原世界线继续，不搜索。这一步以前是「无条件 clearPlan()」——
+            // 于是每回合都重算，搜索推演出来的后续回合**从来没被用上第二次**，
+            // 用户看到的就是「世界线完全没被展开，路线每回合都变」。
+            if (!reuseContinuation(turnNow, liveStampOrNull(),
+                    ShadowTracker.mismatchSequence())) {
+                Trace.info("PLAN dropped: turn " + planTurn + " -> " + turnNow + ", replanning");
+                clearPlan();
+            }
             dumpTurnSnapshot(turnNow);
         }
         // ② 有计划就照计划走（蓝本的「冻结路线 / 执行本回合」）
@@ -750,14 +781,8 @@ public final class AutoPilot {
             Trace.info("SEARCH -> empty plan, end turn");
             return OUTCOME_END_TURN;
         }
-        plan = new java.util.ArrayDeque<io.github.youqing.sts1solver.search.RouteStep>(
-                result.steps);
-        planTurn = turnNow;
-        planMismatchSeq = ShadowTracker.mismatchSequence();
-        // 执行队列和预览都从**完整** steps 建：预览要保留已经打过的步骤，
-        // 这样行号是绝对回合（T4/T5），不是「剩余行数」的 T1/T2。
-        preview = RoutePreview.fromSteps(turnNow, result.steps);
-        panelRevision++;
+        adoptPlan(result.steps, turnNow, result.continuations,
+                ShadowTracker.mismatchSequence());
         planSummary = summarizePlan(result);
         if (!lastSearchShape.isEmpty()) {
             // 面板第一行留一格「刚刚怎么算出来的」：135+base / 26k / 642ms
@@ -1106,12 +1131,114 @@ public final class AutoPilot {
      * <p>⚠️ 它<b>不清</b>有界 AUTO 的停止目标：目标是「打到第几回合」这个绝对边界，
      * 与「照哪条路线打」无关 —— 重算之后目标必须原样保留。
      */
-    private static void clearPlan() {
+    static void clearPlan() {
         plan = null;
         planTurn = -1;
         planSummary = "";
         preview = null;
+        planSteps = java.util.Collections.emptyList();
+        continuation.clear();
         panelRevision++;
+    }
+
+    /**
+     * 采纳一条路线：执行队列、完整预览、跨回合边界**一起**换。
+     *
+     * <p>三者同源是这个方法存在的唯一理由 —— 分开赋值就会留下「预览是新的、边界是旧的」
+     * 这种错配（症状是续跑命中却打出一条搜索没推荐过的路）。
+     */
+    static void adoptPlan(java.util.List<io.github.youqing.sts1solver.search.RouteStep> steps,
+                          int startTurn,
+                          io.github.youqing.sts1solver.search.ContinuationPlan continuations,
+                          int mismatchSequence) {
+        plan = new java.util.ArrayDeque<io.github.youqing.sts1solver.search.RouteStep>(steps);
+        planSteps = new java.util.ArrayList<io.github.youqing.sts1solver.search.RouteStep>(steps);
+        planTurn = startTurn;
+        planMismatchSeq = mismatchSequence;
+        // 执行队列和预览都从**完整** steps 建：预览要保留已经打过的步骤，
+        // 这样行号是绝对回合（T4/T5），不是「剩余行数」的 T1/T2。
+        preview = RoutePreview.fromSteps(startTurn, steps);
+        continuation.adopt(continuations, mismatchSequence);
+        panelRevision++;
+    }
+
+    /**
+     * 新回合的精确续接（**纯数据**，单测可直接驱动）。
+     *
+     * <p>命中：按 {@code forecastOffset} 从完整步骤里裁出本回合及以后的执行队列，
+     * 预览**不动**（已打过的回合继续显示，行号仍是绝对回合）。
+     * miss：返回 false，调用方照旧重搜；日志里带原因与首个字段差异。
+     *
+     * @return true = 命中续跑，不需要搜索
+     */
+    static boolean reuseContinuation(int liveTurn,
+                                     io.github.youqing.sts1solver.search.ContinuationStamp liveStamp,
+                                     int mismatchSequence) {
+        ContinuationDecision.Outcome outcome = continuation.evaluate(
+                liveTurn, liveStamp, mismatchSequence);
+        if (!outcome.isHit()) {
+            Trace.info("SEARCH_REUSE_MISS reason=" + outcome.reason().label
+                    + " first_difference=" + outcome.firstDifference());
+            return false;
+        }
+        int offset = outcome.forecastOffset();
+        if (offset < 0 || offset > planSteps.size()) {
+            // 边界下标与步骤列表对不上 = 内部不一致，宁可重搜也不能乱裁
+            Trace.warn("SEARCH_REUSE_MISS reason=continuation_missing"
+                    + " first_difference=forecastOffset " + offset
+                    + " out of " + planSteps.size() + " steps");
+            continuation.clear();
+            return false;
+        }
+        plan = new java.util.ArrayDeque<io.github.youqing.sts1solver.search.RouteStep>(
+                planSteps.subList(offset, planSteps.size()));
+        planTurn = liveTurn;
+        planMismatchSeq = mismatchSequence;
+        panelRevision++;
+        Trace.info("SEARCH_REUSED from_turn=" + liveTurn
+                + " remaining_turns=" + outcome.remainingTurns()
+                + " remaining_steps=" + plan.size()
+                + " validation=exact_state_text");
+        return true;
+    }
+
+    /** 当前执行队列的剩余步骤（只读副本；给单测与日志用）。 */
+    static java.util.List<io.github.youqing.sts1solver.search.RouteStep> pendingSteps() {
+        return plan == null
+                ? java.util.Collections.<io.github.youqing.sts1solver.search.RouteStep>emptyList()
+                : new java.util.ArrayList<io.github.youqing.sts1solver.search.RouteStep>(plan);
+    }
+
+    /**
+     * 观察到一次出牌：不是我们刚排出去的那张，就记一次「手工输入分歧」。
+     *
+     * <p>覆盖手工点牌，也覆盖遗物/药水的自动出牌（那条路影子不一定跟得上）。
+     * 归因价值在于处置不同：这是**用户/别的通道**动了手，不是镜像算错 ——
+     * 只有 {@code STATE_MISMATCH} 才该被当 bug 查。
+     */
+    public static void onCardPlayedObserved(String key) {
+        if (!enabled) {
+            return;
+        }
+        if (queuedCard != null && key(queuedCard).equals(key)) {
+            return;                     // 我们自己刚排出去的那一张
+        }
+        continuation.markManualDivergence();
+    }
+
+    /**
+     * 主线程抓一次精确状态戳（每回合一次，只在「计划还在但回合已翻页」时调用）。
+     *
+     * <p>渲染路径绝不能调用它 —— {@code capture()} 要扫四个牌堆 + 能力 + 遗物。
+     */
+    private static io.github.youqing.sts1solver.search.ContinuationStamp liveStampOrNull() {
+        try {
+            return io.github.youqing.sts1solver.search.ContinuationStamp.from(
+                    io.github.youqing.sts1solver.sim.SimState.capture());
+        } catch (Throwable t) {
+            Trace.warn("continuation stamp failed: " + t);
+            return null;
+        }
     }
 
     /** 当前局面指纹；抓不到（还没捕获根状态）时返回 null = 不做有效性校验。 */

@@ -32,6 +32,9 @@ public final class CardPlayPatch {
                     // （是游戏侧拒绝，不是我们的钩子出问题）
                     Trace.info("PLAY unmirrored " + key);
                 }
+                // 先告诉执行层「这张是不是我们排的」：不是就记一次手工输入分歧，
+                // 那个回合的跨回合世界线不能再复用（否则会拿预测去套用户改过的局面）。
+                io.github.youqing.sts1solver.verify.AutoPilot.onCardPlayedObserved(key);
                 ShadowTracker.onCardPlayed(card, target);
             } catch (Throwable t) {
                 Trace.error("card play hook failed", t);

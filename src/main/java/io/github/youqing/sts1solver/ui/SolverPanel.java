@@ -337,8 +337,9 @@ public final class SolverPanel {
     /**
      * 状态行里的 AUTO 文案。
      *
-     * <p>有界 AUTO 必须<b>明说</b>「每回合重算」：预览不是执行承诺，第 3 回合打什么
-     * 取决于那时抽到什么牌。预览被重算清空时也不能把目标藏起来，否则用户会以为任务丢了。
+     * <p>有界 AUTO 必须<b>明说</b>「逐回合校验」：预览不是执行承诺 —— 真机状态与预测
+     * 逐字段相等才沿这条路线继续，对不上就重搜。写「每回合重算」已经不符合实际行为
+     * （续跑命中时根本不搜索）。预览被清空时也不能把目标藏起来，否则用户会以为任务丢了。
      */
     private static String autoLabel() {
         int target = AutoPilot.stopAfterTurn();
@@ -351,7 +352,7 @@ public final class SolverPanel {
         RoutePreview preview = AutoPilot.routePreview();
         boolean hasRows = preview != null && !preview.turns().isEmpty();
         return hasRows
-                ? "AUTO → T" + target + "（每回合重算）"
+                ? "AUTO → T" + target + "（逐回合校验）"
                 : "AUTO → T" + target + " · 重算中";
     }
 
