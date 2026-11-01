@@ -2,9 +2,10 @@
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-01 20:28，测试 **679 条全绿**（0 fail / 0 err，15 skipped），
-> 代码 HEAD = 本轮四个纠偏 commit（`44e8ae6` → `ff2e6ee` → `8c429ac` → `652ae13`），未 push。
-> 已安装 `build 1101-202828`（**已含**本轮四个 commit + 文档；等真机启动即可验证）。
+> **当前状态**：2026-11-01 20:43，测试 **688 条全绿**（0 fail / 0 err，15 skipped），
+> 代码 HEAD = 纠偏四刀 + 抢錢怪一刀（`44e8ae6` → `ff2e6ee` → `8c429ac` → `652ae13` → `747f7a8`），未 push。
+> 已安装 `build 1101-204319`（含抢錢怪建模）。⚠️ 游戏进程 49456 是**安装前**启动的，
+> 要重启 MTS 才会加载新 jar。
 >
 > 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做**。
 > `docs/plans/2026-11-01-strict-blueprint-parity.md` 的 Task 1–4 **已全部执行完**：
@@ -511,6 +512,7 @@ Task 1–4 已完成（见 `blueprint-parity.md` 结果列），**剩下的是 T
 | 删除 policyRevision | `652ae13` | `SolverController.cs:1899-2008` | ✅ `PotionPolicyChangeTest`(6) | 未验证 | 已完成 |
 | 无合格候选抛专用异常 | `652ae13` | `FinalPlanOrdering.cs:274-282` | ✅ `unsatisfiedPolicyThrowsDedicatedExceptionInsteadOfPinnedRescueOrNull` | 未验证 | 已完成 |
 | 来源审计与保留项登记 | `638e970` | 见 `blueprint-parity.md` | — | — | 已完成 |
+| 抢錢怪：金币被偷/找回/逃跑 + 排序键 | `747f7a8` | `Looter/Mugger/DamageAction`(javap) + `FinalPlanOrdering.cs:253-256` | ✅ `TheftTest`(6)+`TheftOrderingTest`(3) | 未验证（需重启游戏） | 已完成 |
 
 **未闭环**：① 全部真机项；② 真机跨回合命中率（纠偏前 97 对配对 0 命中）；
 ③ 影子首差 `playerPowers` → `energy` → `discardPile` → `hand` → `block`；
