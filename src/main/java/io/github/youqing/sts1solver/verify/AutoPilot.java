@@ -476,6 +476,28 @@ public final class AutoPilot {
 
             AbstractMonster target = firstAliveMonster();
             if (target == null) {
+                // 🔴 场上没有「活着的」敌人，但房间还在 COMBAT —— 两种情形都不能干等：
+                //   ① 觉醒者这种「半死 → 下个敌方回合复活」的 Boss：它被打到 0 血后
+                //      currentHealth 一直是 0，直到它自己的 takeTurn 里回满；
+                //   ② 死亡动画/召唤的空窗。
+                // 干等的后果是死锁：敌方回合只在我们结束回合之后才推进，
+                // 而结束回合只有玩家（或我们）能按。2026-11-01 真机「打完觉醒者 1 阶段就不打了」
+                // 就是卡在这里（日志停在 `PLAN steps: Heavy Blade+ | END_TURN`、之后 20 秒无动作）。
+                // 只在「战斗真的还没结束」时动手：普通胜利那一刻 areMonstersDead() 会很快变真，
+                // 那时点结束回合会和游戏的 endBattle 抢，所以先让开。
+                AbstractRoom room0 = AbstractDungeon.getCurrRoom();
+                boolean fightStillOn = room0 != null && room0.monsters != null
+                        && !room0.monsters.areMonstersDead();
+                if (!fightStillOn) {
+                    return;
+                }
+                Trace.info("AUTO end turn (no living monster but the fight is not over:"
+                        + " half-dead / revive pending)");
+                if (stopIfEndTurnWouldKill()) {
+                    return;
+                }
+                requestEndTurn(player);
+                cooldown = 30;
                 return;
             }
             int outcome = playOneCard(player, target);
