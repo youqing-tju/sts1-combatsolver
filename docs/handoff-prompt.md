@@ -1,9 +1,9 @@
-# STS1 战斗求解器 · 交接说明（2026-11-01 18:50 版）
+# STS1 战斗求解器 · 交接说明（2026-11-01 19:26 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
 > **当前状态**：2026-11-01 19:15，测试 **670 条全绿**（0 fail / 0 err），
-> 代码 HEAD = `c6233d0`，未 push。本轮新增 105 条（565 → 670）。
+> 代码 HEAD = `c6233d0`（文档在 `ba04343`），未 push。本轮新增 105 条（565 → 670）。
 > 已安装 `build 1101-191346`（md5 `e7a617bd…`，与 `~/.sts1-combatsolver/build/libs/` 一致）。
 >
 > 🔴 **运行模式已改（`c6233d0`）**：默认 = 蓝本 `AdoptRoute` / `RouteFrozen` ——
@@ -17,9 +17,9 @@
 > 我们全程只认 `Intangible` → 影子看不到减伤，`hp` 首差 **45/97**；
 > ② `hpLossCount` 从来没捕获过（恒 0），影子却每次掉血 +1 → 首差 **16/97**。
 > 剩余首差：`playerPowers.size/id` 12+3、`energy` 6、`discardPile` 5、`hand` 2、`block` 2。
-> 用户反馈三条已修（`db60ff7`）：① 无生还路线 → 停手交还控制（蓝本 `StopFullAutoOnDeathTurn`）；
-> ② 回合翻页不再清空预览（消除「路线每回合闪一下」）；③ 路线区行数 3 → 按屏幕自适应（1080p 约 16 行）。
-> 🔴 三条**均未真机验证**。
+> 用户反馈三条已修（`db60ff7`）：① 无生还路线 → 停手交还控制（蓝本 `StopFullAutoOnDeathTurn`，
+> 含一个会让它失效的 off-by-one）；② 回合翻页不再清空预览（消除「路线每回合闪一下」）；
+> ③ 路线区行数 3 → 按屏幕自适应（1080p 约 16 行）。🔴 **三条均未真机验证**。
 > ✅ **回合末触发已在真机验证通过**（2026-11-01 13:17 用户确认）。
 > ✅ **P7（跨回合精确续跑）与 P8（药水策略 D5）已实施，自动化全绿**；
 > 🔴 **两者的真机验收都是 0 项**（用户 2026-11-01 挂起真机），本文件不把自动化通过当作真机闭环。
@@ -62,9 +62,14 @@ STS1（杀戮尖塔）**进程内**战斗求解器，Java 8 ModTheSpire mod。
 
 ### 3.0 一句话现状
 
-测试 **565 全绿**，HEAD `cb5f2e7`，已安装 `build 1101-144558`，未 push。
+测试 **670 全绿**，HEAD `ba04343`，已安装 `build 1101-191346`，未 push。
 **真机只验过一件事**：回合末触发已正常（用户 2026-11-01 13:17 口头确认）。
 其余全部只有自动化或回放证据，**UI 十条验收 0/10**。
+
+🔴 **当前运行模式（2026-11-01 19:13 起）= 蓝本 `AdoptRoute` / `RouteFrozen`**：
+开局算一次整场路线 → **冻结锁死** → 按序打到底。回合起点先校验再出牌，但校验**只作诊断**，
+不触发重算；只有手工干预 / 预计死亡 / 队列走空 / 单回合剔步超限才解冻。
+严格模式（蓝本默认、每回合校验不过就重搜）用 `-Dsts1.adoptRoute=false` 切回，见 §3.4。
 
 ### 3.1 UI 第三/四刀（已交付并 commit）
 
@@ -143,6 +148,31 @@ private void callEndOfTurnActions() {
 
 ---
 
+### 3.4 2026-11-01 晚：模式纠正 + 三个 UI 反馈 + 两个镜像硬 bug
+
+用户三条反馈（原话）：「为什么还是每回合自动重算？」「sts2 中路线一旦计算好就按序执行到底」
+「每回合精准校验也是在执行自动打牌之前……精准校验后把路线冻结（锁死）不允许发生任何变化」。
+
+| commit | 内容 | 证据 |
+|---|---|---|
+| `db60ff7` | ① 无生还路线 → 不部署、停 AUTO、面板红字（蓝本 `StopFullAutoOnDeathTurn`）；② 回合翻页不再清空预览（消除「路线闪一下」）；③ 路线区行数 3 → 按屏幕自适应（1080p≈16） | `NoSurvivingRouteTest`、`SolverPanelRouteLayoutTest`、`BeamSolverDeathTurnTest` |
+| `c6233d0` | **默认改为采纳+冻结**：回合翻页不丢路线、失配只重新对齐、单步走不通只剔一步；**修 `IntangiblePlayer` 与 `hpLossCount`** | `AdoptRouteTest` + 第五节数据 |
+| `7978d95`/`ba04343` | 文档 | — |
+
+**为什么之前每回合重算**（真机日志 `2026-11-01.log`，旧 build）：234 次规划 /
+**48 次 `SEARCH_REUSE_MISS` / 0 次命中**。用 497 个快照做相邻回合配对（97 对）复现，首差排序：
+
+| 首差 | 次数 | 根因（已修/待修） |
+|---|---|---|
+| `hp` | **45/97** | ✅ 已修：玩家虚体 ID 是 `IntangiblePlayer`（`IntangiblePlayerPower`，javap 核实），我们只认 `Intangible` → 影子看不到减伤 |
+| `hpLossCount` | **16/97** | ✅ 已修：从没捕获过（恒 0），影子却每次掉血 +1；改读 `GameActionManager.hpLossThisCombat` |
+| `playerPowers.size/id` | 12 + 3 | ⛔ 待修：能力回合末生命周期（虚体 tick / 临时能力移除）与真机不同步 |
+| `energy` | 6 | ⛔ 待修：回能加成（真机 4 vs 影子 3） |
+| `discardPile` / `hand` / `block` | 5 / 2 / 2 | ⛔ 待修 |
+
+> 这条链的教训：**精确续跑的前提是影子准**。在影子准之前，把「校验」当硬门必然退化成每回合重算；
+> 所以默认先冻结（用户体验优先），校验留作诊断，修影子是下一阶段的事。
+
 ## 四、当前进度与里程碑
 
 | 里程碑 | 状态 |
@@ -160,7 +190,13 @@ private void callEndOfTurnActions() {
 
 ## 五、🔴 未解决的严重问题（按优先级，下一轮从这里开始）
 
-### P7 · 跨回合续跑 —— **已实施（自动化通过，真机未验证）**
+### P7 · 跨回合续跑 —— **已实施，但默认走「采纳+冻结」而不是「严格校验」**
+
+> ⚠️ 2026-11-01 19:13 起：`AutoPilot.ADOPT_ROUTE_TO_THE_END = true`（默认）。
+> 精确状态戳照旧逐回合比对，但**只写日志、不触发重算**。原因见 §3.4：
+> 影子还不够准（97 对配对 0 命中），严格模式等于每回合重算，用户明确不要。
+> 严格模式 = `-Dsts1.adoptRoute=false`。
+
 
 **用户判断（2026-11-01）**：STS2 默认是「算一次，按序打完一整条路线」；我们这边
 「第一回合算出的后续路线完全没用，第二回合重算又是新路线，世界线没被展开」。
@@ -407,44 +443,41 @@ private void callEndOfTurnActions() {
 
 ## 九、下一轮怎么开工
 
-**第一件事：真机验收 P7 + P8（自动化已全绿，真机 0 项）。**
+**主线一：真机验收（0 项 → 全部要验）**。启动：Steam → 游戏目录 `MTS-launch.cmd`
+（不要用 `jre\bin\java.exe -jar mts-launcher.jar`，2026-11-01 用那条路起不来）。
+进战斗先看面板右上角 build 号 = `1101-191346`。
 
-启动：Steam → 游戏目录 `MTS-launch.cmd`（不要用 `jre\bin\java.exe -jar mts-launcher.jar`，
-2026-11-01 用那条路径起不来）。进战斗后先确认面板右上角 build 号是**本次安装的号**。
+| # | 验什么 | 判据 |
+|---|---|---|
+| 1 | **冻结生效** | 开 AUTO 打一场 ≥3 回合战斗：日志只有**一次** `PLAN ready` + 一次 `ROUTE_FROZEN`，之后每回合是 `ROUTE kept turn N -> N+1 (adopt mode)`，**没有新的 `PLAN ready`** |
+| 2 | 路线不闪 | 回合翻页时面板路线**不消失**；若在重算则原地变灰 + 一行「重算中…」 |
+| 3 | 全局路线可见 | 展开后能看到整场战斗所有回合（1080p 约 16 行），超出显示「… 还有 N 回合」 |
+| 4 | 无生还路线 | 预计本回合死的局面：AUTO 自行关闭 + 红字「已暂停执行 · 第 N 回合 预计死亡（操作权已交还）」，**不再继续出牌** |
+| 5 | 手工干预才解冻 | 关 AUTO 手打一张牌再开：日志 `PLAN dropped … (manual divergence)`，然后重新规划一次并再次冻结 |
+| 6 | 药水策略 | 面板药水格点一下循环 Smart→Disabled→Force；设 Disabled 后该槽不再出现 `AUTO potion`；AUTO 执行中点它应被拒绝 |
 
-### P7 验收（跨回合续跑）
+⚠️ 第 1 条若看到「每回合都有 `PLAN ready`」= 冻结没生效，先把 `ROUTE kept` / `PLAN dropped` 两行日志发出来。
 
-1. 打一场**至少三回合**的普通战斗，开 AUTO。
-2. 第 2 回合起，日志应出现 `SEARCH_REUSED from_turn=N remaining_turns=… validation=exact_state_text`，
-   且那一回合**没有**新的 `PLAN ready`；实际出牌应与面板路线一致。
-3. 若出现 `SEARCH_REUSE_MISS reason=state_mismatch first_difference=…`：**把那一行原样记下来**。
-   它指名了第一个不一致的字段（`monsters[0].intentDmg` / `damageBase[0]` / `relics.Lizard Tail` 是高概率项）。
-4. 手工改一手（关 AUTO 打一张牌再开）：应出现 `reason=manual_divergence`，不是 `state_mismatch`。
-5. 点路线行 Tn：续跑命中的情况下仍要在 Tn+1 玩家回合前停（`AUTO bounded stop after Tn`）。
+**主线二：把影子修准（决定以后能不能用严格模式）**。用离线配对复现，**不要靠真机试错**：
 
-### P8 验收（药水策略）
-
-1. 面板「策略（药水可点）」展开 → 点某一格药水，应看到 `Smart → Disabled → Force → Smart`，
-   且日志 `POTION_POLICY slot 0:Fire Potion -> … revision=N`。
-2. 设 `Disabled`：之后**不许**再出现该槽的 `AUTO potion`。
-3. 设 `Force`：最终路线必须含 `POTION[k]`；若那瓶根本喝不了（被动药水），
-   应看到 `POTION_POLICY unsatisfied, no plan this turn`，而不是偷偷喝别的。
-4. 改策略后：旧的 `PLAN` 必须作废（`PLAN discarded (potion policy revision …)`），
-   旧 continuation 不许再用。
-5. AUTO 开着的时候点药水格：应被拒绝（`POTION_POLICY rejected: AUTO is deploying`），
-   配置不变。
+1. 现成方法：拿同一层相邻回合两个快照（`turn-A1F5T2.json` / `turn-A1F5T3.json`），
+   在 T2 上跑搜索 → 取它给 T3 的预测边界 → 与 T3 真机快照比 `ContinuationStamp`，
+   首个差异就是根因（这也是 `2026-11-01` 那轮定位 `IntangiblePlayer` 的手法）。
+2. 剩余首差按优先级：`playerPowers.size/id`（12+3）→ `energy`（6）→ `discardPile`（5）→ `hand`（2）→ `block`（2）。
+3. 判据：配对命中率上升（当前 0/97），且全量测试不降。**不许靠删戳字段凑命中率。**
 
 ### 不要做
 
-- 不要把 `SEARCH_REUSE_MISS` 直接读成「续跑没生效」——先看 `first_difference` 指向哪个字段。
-- 不要用「测试全绿」代替真机勾选；本文件的 ✅ 只在有真机日志时打。
-- 不要为了命中率把 stamp 的字段删掉（那是把「精确校验」降级成「大概齐」，会重演世界线错位）。
+- 不要因为「日志里一堆 `SEARCH_REUSE_MISS`」就宣布续跑坏了 —— 冻结模式下它只影响诊断，不影响出牌。
+- 不要在冻结模式下用「影子失配」当重算理由（那正是用户否掉的每回合重算）。
+- 不要为了命中率把 stamp 的字段删掉；那是把精确校验降级成「大概齐」。
 - 不要新建 `CHANGELOG.md`（这个仓库从来没有过）。
 
-### 历史遗留（仍未闭环，按优先级）
+### 历史遗留（仍未闭环）
 
 1. UI 十条验收（`docs/plans/2026-10-31-ui-parity.md`）——0/10。
-2. 药水三选一卡死修复（`769f919`）与药水闸假阴性修复（`3da4e6c`）的真机复测。
-3. P3 对拍队列污染修复（`319bd6e`）的真机判据：应出现 `DIFF flush …` 且**不再**出现
-   `skipped (previous … still pending)`。
-4. P2 第一嫌疑（最终排序不看 `persistentBuffValue`）—— 需要能赢的样本才准动，见 P2。
+2. 药水三选一卡死修复（`769f919`）、药水闸假阴性修复（`3da4e6c`）、对拍队列修复（`319bd6e`）的真机复测。
+3. P2 第一嫌疑（最终排序不看 `persistentBuffValue`）—— 需要能赢的样本才准动，见 P2。
+4. `BeamSolver.offensiveProgressOf` 把**抽牌堆里的 Body Slam** 也算「格挡=进攻推进」，
+   导致怪物不攻击时也会先出格挡（`turn-A1F16T2` 复现：那一回合格挡纯白给）。
+   改法只有一行（只认手牌），但要先在 497 个快照上跑 paired A/B，有改善才入库。
