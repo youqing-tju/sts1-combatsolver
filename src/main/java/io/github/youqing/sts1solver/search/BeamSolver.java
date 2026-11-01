@@ -549,6 +549,21 @@ public final class BeamSolver {
                     beamNodeLimit, deadline);
         }
 
+        // 蓝本 RunNoveltyPortfolioPass 的最后一步：探索 vs Beam 二选一。
+        // 判据直接用已有的 better()（胜利 > 存活 > 战略掉血少 > …），不另造一套。
+        //
+        // 🔴 这一步必须在后处理**之前**（2026-11-01 真机）：新颖度那条候选是在闸门之前算的，
+        // 它可能带着喝药步骤。以前把二选一放在闸门后面，闸门否掉的药水会被它靠 better()
+        // 又捞回来 —— 日志里 7 次喝药有 6 次是 `POTION_GATE rejected=true` 之后照喝不误。
+        // 蓝本 post-search 链处理的也是「已经定下来的答案」，所以二选一先做才是对的顺序。
+        if (noveltySelected != null && (selected == null || better(noveltySelected, selected))) {
+            selected = noveltySelected;
+            lastNoveltyAdopted = true;
+            // 面板的「depth N turns」是「这条计划铺到第几回合」，只许变大不许变小：
+            // 新颖度那条常常是「本回合内的节点」（turn 不变），直接赋值会显示成 0 回合。
+            lastDepth = Math.max(lastDepth, lastNoveltyTurns);
+        }
+
         // 蓝本 RunZeroCostOpeningRescue（PostSearch.cs:352-392，后处理第 4 趟）：
         // 主搜索的答案是「这回合直接结束」时，再补一趟「先把免费牌打出去会怎样」。
         // 蓝本放在 coordinator 的 post-search 链里，我们这里没有 coordinator，
@@ -559,16 +574,6 @@ public final class BeamSolver {
             // 换完之后「第一步是结束回合」的补搜条件才有机会成立。
             selected = gatePotionSpending(root, selected, deadline);
             selected = zeroCostOpeningRescue(root, selected, deadline);
-        }
-
-        // 蓝本 RunNoveltyPortfolioPass 的最后一步：探索 vs Beam 二选一。
-        // 判据直接用已有的 better()（胜利 > 存活 > 战略掉血少 > …），不另造一套。
-        if (noveltySelected != null && (selected == null || better(noveltySelected, selected))) {
-            selected = noveltySelected;
-            lastNoveltyAdopted = true;
-            // 面板的「depth N turns」是「这条计划铺到第几回合」，只许变大不许变小：
-            // 新颖度那条常常是「本回合内的节点」（turn 不变），直接赋值会显示成 0 回合。
-            lastDepth = Math.max(lastDepth, lastNoveltyTurns);
         }
 
         lastMillis = (System.nanoTime() - startedAt) / 1_000_000L;

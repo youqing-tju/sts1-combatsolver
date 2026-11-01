@@ -1,0 +1,12 @@
+{
+  "meta":{"act":1,"floor":7,"ascension":5,"boss":false},
+  "player":{"hp":53,"maxHp":80,"block":0,"energy":3,"energyPerTurn":3,"deathSaveUsed":false,"deathSaveUseCount":0,"deathSaveHpRestored":0,"powers":{},"powerAux":{}},
+  "hand":[{"id":"Sentinel","up":false,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"},{"id":"Combust","up":true,"cost":1,"costForTurn":-1,"dmg":-1,"type":"POWER"},{"id":"Defend_R","up":true,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"},{"id":"Bash","up":true,"cost":2,"costForTurn":-1,"dmg":10,"type":"ATTACK"},{"id":"Strike_R","up":false,"cost":1,"costForTurn":-1,"dmg":6,"type":"ATTACK"}],
+  "draw":[],
+  "discard":[{"id":"Defend_R","up":false,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"},{"id":"Burning Pact","up":false,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"},{"id":"Defend_R","up":false,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"},{"id":"Defend_R","up":false,"cost":1,"costForTurn":-1,"dmg":-1,"type":"SKILL"},{"id":"Strike_R","up":false,"cost":1,"costForTurn":-1,"dmg":6,"type":"ATTACK"},{"id":"Strike_R","up":false,"cost":1,"costForTurn":-1,"dmg":6,"type":"ATTACK"}],
+  "exhaust":[{"id":"Strike_R","up":false,"cost":1,"costForTurn":-1,"dmg":6,"type":"ATTACK"}],
+  "relics":{"Burning Blood":-1,"NeowsBlessing":-2},
+  "potions":["PowerPotion","EssenceOfSteel",null],
+  "monsters":[{"type":"LouseDefensive","hp":14,"maxHp":14,"block":0,"intentDmg":7,"intentAttack":true,"pendingMoveId":3,"powers":{"Curl Up":7}},{"type":"LouseNormal","hp":10,"maxHp":10,"block":0,"intentDmg":7,"intentAttack":true,"pendingMoveId":3,"powers":{"Curl Up":6}},{"type":"LouseNormal","hp":14,"maxHp":14,"block":0,"intentDmg":6,"intentAttack":true,"pendingMoveId":3,"powers":{"Curl Up":6}}],
+  "rng":{"card":{"counter":0,"s0":2307378064541366815,"s1":8261512392609962871},"monster":{"counter":34,"s0":2341579839428123166,"s1":-4937003244563005458},"monster_hp":{"counter":9,"s0":-7498926404084780988,"s1":1351510333184995518},"ai":{"counter":6,"s0":2824777954704167783,"s1":-1775805884561952905},"shuffle":{"counter":1,"s0":8261512392609962871,"s1":6725677829208816785},"misc":{"counter":3,"s0":-1151100898635408680,"s1":-9102341667855529243}}
+}
