@@ -123,6 +123,24 @@ class NoSurvivingRouteTest {
         assertFalse(AutoPilot.endTurnWouldKillUs(null), "拿不到局面就不拦");
     }
 
+    /**
+     * 多段攻击的意图必须是**总伤害**（2026-11-01 真机事故的回放）。
+     *
+     * <p>现场：1 血、34 格挡，地精首领意图显示 10，实际是 3 段 ×10 再加上小地精 5。
+     * 影子若只按「一段 10」算，就会判定「1 - max(0, 10-34) = 1，安全」→ 结束回合 → 被打死。
+     */
+    @Test
+    void multiHitIntentIsCountedAsTheTotal() {
+        SimState lethal = state(6, 1);
+        lethal.block = 20;
+        lethal.monsters.get(0).intentDmg = 30;      // 3 段 × 10
+        assertTrue(AutoPilot.endTurnWouldKillUs(lethal), "30 伤打 20 挡 -> 死，必须停手");
+
+        SimState safe = lethal.copy();
+        safe.monsters.get(0).intentDmg = 10;        // 只算一段 = 事故现场的错算法
+        assertFalse(AutoPilot.endTurnWouldKillUs(safe));
+    }
+
     /** 回合翻页只把预览标成陈旧（用户报的「每回合闪一下」就是以前直接清空）。 */
     @Test
     void clearingThePlanKeepsThePreviewForDisplay() {

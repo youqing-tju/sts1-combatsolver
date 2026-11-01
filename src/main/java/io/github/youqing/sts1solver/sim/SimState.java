@@ -332,6 +332,12 @@ public final class SimState {
                 } catch (Throwable ignored) {
                     monster.stolenGold = 0;          // 不是抢錢怪（没有这个字段）
                 }
+                // 🔴 多段攻击：`getIntentDmg()` 只给**其中一段**的伤害（javap：GremlinLeader 的
+                // STAB_DMG=6/STAB_AMT=3，takeTurn 连排 3 个 DamageAction 用同一个 damage.get(0)）。
+                // 影子其余地方一律按「本回合总伤害」用这个数（④.6 也是 perHit × hits），
+                // 所以这里必须补上段数，否则地精首领的 3×10 会被算成 10 —— 那正是
+                // 2026-11-01 真机「1 血、34 格挡、判定不会死、结果被打死」的原因。
+                monster.intentDmg = totalIntent(monster.intentDmg, monster.damageBase);
                 // InvinciblePower.maxAmt 是私有字段（powers 表只装当前剩余量）→ 反射读一份上限
                 try {
                     for (com.megacrit.cardcrawl.powers.AbstractPower power : m.powers) {
@@ -416,6 +422,40 @@ public final class SimState {
                 }
             }
         }
+    }
+
+    /**
+     * 原版 {@code damage} 列表里「同一段伤害重复了几次」= 这一招打几段。
+     *
+     * <p>依据（javap）：多段攻击的怪把同一份 {@code DamageInfo} 往 {@code damage} 里加 N 次，
+     * {@code takeTurn} 再连着排 N 个 {@code DamageAction}（GremlinLeader: 3 段 6 点）。
+     * 而有多个**不同**招式的怪（Mugger: 10 / 12 两段不同伤害）条目数不等于段数 ——
+     * 所以只在「所有条目的基础伤害都相同」时才当成多段。
+     *
+     * <p>⚠️ 这是捕获侧的近似：若某只怪有两个伤害值恰好相同的不同招式，会被多算段数。
+     * 方向是**高估来袭伤害**（更保守、更容易停手），比低估到被打死好；
+     * 真正精确的段数只有 {@link MonsterMoves} 的机器知道，而机器要耗 aiRng，捕获时不能调。
+     */
+    /**
+     * 「一段的意图伤害」→「本回合总伤害」。
+     *
+     * <p>捕获侧唯一该用的换算：{@code getIntentDmg()} 给一段，影子其余地方都用总数。
+     */
+    static int totalIntent(int perHit, java.util.List<Integer> damageBases) {
+        return Math.max(0, perHit) * identicalHitCount(damageBases);
+    }
+
+    static int identicalHitCount(java.util.List<Integer> damageBases) {
+        if (damageBases == null || damageBases.size() <= 1) {
+            return 1;
+        }
+        int first = damageBases.get(0) == null ? 0 : damageBases.get(0).intValue();
+        for (Integer base : damageBases) {
+            if (base == null || base.intValue() != first) {
+                return 1;
+            }
+        }
+        return damageBases.size();
     }
 
     private static Integer readIntField(Object target, String name) {

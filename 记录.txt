@@ -118,3 +118,22 @@ STS1 CombatSolver 工程经验记录
     改基础分＝自创，别做。
 59. 缺口：`SolverTheftPolicy.LetEscape` 的 UI 开关没做（默认 PreserveResources 与蓝本一致）；
     `MinimumOutstandingStolenResource` 的乐观下界（「活着的贼手里的都还能追回」）没做。
+
+十二、2026-11-01 20:56 真机死亡复盘（多段攻击被算成一段）
+
+60. 现场（日志 + 快照可复现）：地精首领战，玩家 1 血、34 格挡；首领意图显示 10，
+    影子判定「10 < 34，安全」→ 结束回合 → 实际是 **3 段 × 10**（javap：`STAB_DMG=6`/`STAB_AMT=3`，
+    `takeTurn` 连排 3 个 `DamageAction`），加上小地精 5 → 打死。
+61. 根因：`AbstractMonster.getIntentDmg()` 只返回 `intentDmg` 字段 = `damage.get(0).output`，
+    也就是**一段**的伤害。而影子内部（`CombatFlow` ④.6）一律按 `perHit × hits` 写总数。
+    只有**真机捕获**这一路把「一段」当成了「总数」→ 所有基于 live 状态的判断都低估 N 倍。
+62. 修法：`SimState.capture()` 用 `totalIntent(getIntentDmg(), damageBase)` 换算成总伤害；
+    段数从 `damage` 列表推：条目基础伤害**全都相同**才算多段（GremlinLeader 3×6 ✓，
+    Mugger 10/12 ✗）。这是捕获侧的近似，方向是**高估**来袭伤害（更容易停手），
+    精确段数只有机器知道，而机器要耗 aiRng，捕获时不能调。
+63. 教训：任何「真机侧」和「模拟侧」都读同一个字段时，必须先确认两边**口径一致**（总伤害 vs 单段）。
+    这类不一致不会报错，只会让 AI 安静地被多段怪打死。
+64. 仍未闭环（同一场战斗暴露的另一个 bug）：`Headbutt` 取牌后 `discard[4]: Flame Barrier+ vs Headbutt`
+    —— 影子与实机的弃牌堆顺序不一致，按 index 取牌会取错；随后 `DEPLOY_REPLAN` 重算。
+    以及每回合 `SEARCH_REUSE_MISS reason=state_mismatch first_difference=block`（恒定 +9），
+    说明格挡结转（Calipers）与实机有系统性差异。
