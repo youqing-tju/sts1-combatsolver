@@ -1,19 +1,14 @@
-# STS1 战斗求解器 · 交接说明（2026-11-01 15:00 版）
+# STS1 战斗求解器 · 交接说明（2026-11-01 18:50 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-01 15:05，测试 **565 条全绿**（0 fail / 0 err），
-> 代码 HEAD = `3da4e6c`（本文档与 P7 登记在 `cb5f2e7` 及之后），未 push。
-> 已安装 `build 1101-144558`。
-> ✅ **回合末触发已在真机验证通过**（2026-11-01 13:17 用户确认：灼烧/多层护甲/金属化/奥利哈刚
-> 这类「回合结束触发」现在真机正常）。`6ea8014` 从「候选修复」转为**已验证**。
-> ⚠️ 但**修复的具体验证明细（四项各自的 HP/block 差值、敌方阶段是否重复）未留证**，
-> 只有用户的定性确认；UI 十条验收仍是 **0/10**。
-> ✅ **药水闸门假阴性已修**（`3da4e6c`，见 P6.1）：闸门拒绝后新颖度通道会把药水捞回来，
-> 真机 9 次喝药里 6 次是这种。**未真机复测**。
-> 🔴 **P7 是本轮最重要的结构性发现**：蓝本算一次路线后，后续回合**复用**同一份推演
-> （`ContinuationSource` / `SEARCH_REUSED`），我们每回合 `clearPlan()` 全丢 ——
-> 「世界线没被展开」就是这个。**未实施**。
+> **当前状态**：2026-11-01 18:50，测试 **652 条全绿**（0 fail / 0 err），
+> 代码 HEAD = `decdba9`，未 push。本轮新增 87 条（565 → 652）。
+> 已安装 `build 1101-184536`（md5 与 `~/.sts1-combatsolver/build/libs/` 一致）。
+> ✅ **回合末触发已在真机验证通过**（2026-11-01 13:17 用户确认）。
+> ✅ **P7（跨回合精确续跑）与 P8（药水策略 D5）已实施，自动化全绿**；
+> 🔴 **两者的真机验收都是 0 项**（用户 2026-11-01 挂起真机），本文件不把自动化通过当作真机闭环。
+> ⚠️ UI 十条验收仍是 **0/10**；药水三选一修复（`769f919`）与药水闸假阴性修复（`3da4e6c`）同样未真机复测。
 
 ---
 
@@ -142,7 +137,7 @@ private void callEndOfTurnActions() {
 | M3.3 怪物镜像 Act 3 | 🔶 55/68 只 |
 | M3.4 药水镜像 | 🔶 21/50+ |
 | M3.5 遗物镜像 | 🔶 47 件 |
-| M4-1 完整路线面板 | 🔶 绝对回合预览 + 点击打到 Tn；**蓝本 `Continuation` 续跑 / `AdoptRoute` 冻结路线均未做（见 P7）** |
+| M4-1 完整路线面板 | 🔶 绝对回合预览 + 点击打到 Tn + **跨回合精确续跑（P7，自动化通过、真机未验证）**；`AdoptRoute` 冻结路线仍不做（用户已拍板不做） |
 | M4-2 预算档位 / M4-3 AUTO 执行 / M4-5 稳定性 | ✅ |
 | M4-6 局外收益 UI / M5 验收（全自动 20 场） | ❌ |
 
@@ -150,35 +145,50 @@ private void callEndOfTurnActions() {
 
 ## 五、🔴 未解决的严重问题（按优先级，下一轮从这里开始）
 
-### P7 · 路线续跑没复刻 —— 每回合把上一回合算出来的整条未来丢掉（**最高优先，未实施**）
+### P7 · 跨回合续跑 —— **已实施（自动化通过，真机未验证）**
 
-**用户判断（2026-11-01 14:45，与真人使用体验一致）**：STS2 的默认行为是「算一次，按序打完
-一整条路线」；我们这边「第一回合算出来的后续路线完全没用，第二回合重算又是新路线，
-世界线完全没被展开，达不到全知口径」。
+**用户判断（2026-11-01）**：STS2 默认是「算一次，按序打完一整条路线」；我们这边
+「第一回合算出的后续路线完全没用，第二回合重算又是新路线，世界线没被展开」。
 
-**蓝本机制（逐行核实）**：
+**蓝本机制（逐行核实）**：`SolverController.cs:1078-1082` 回合开始先
+`ContinuationSource.TryCreateContinuation`；`:1084-1112` 命中就不搜索、打
+`SEARCH_REUSED … validation=exact_state_text` 直接按原路线部署；`:1115-1140` 不命中才重算并归因
+`ManualDivergence / ContinuationMissing / StateMismatch`；`:175`
+`UnexpectedReplanCount = StateMismatch + DeploymentDrift`（这两种视为**不该发生**）。
 
-| 位置 | 事实 |
+**本轮落地（6 个 commit）**：
+
+| 位置 | 内容 |
 |---|---|
-| `Runtime/SolverController.cs:1078-1082` | 回合开始（`SearchReason.AutoTurnStart`）先试 `ContinuationSource.TryCreateContinuation(liveStamp, hp, battleDamage, out reused)` |
-| `:1084-1112` | 命中就 **不搜索**：`ContinuationsReused++`、打日志 `SEARCH_REUSED from_turn=… remaining_turns=… validation=exact_state_text`，直接 `StartDeployment(reused)` 按原路线部署 |
-| `:1115-1140` | 不命中才重算，并且**归因**：`ManualDivergence`（玩家手改过）/ `ContinuationMissing`（缓存里没这一回合）/ `StateMismatch`（推演与实机不一致） |
-| `SolverController.cs:175` | `UnexpectedReplanCount = StateMismatch + DeploymentDrift` —— 蓝本把这两种重算视为**不该发生**，会写进 bug report |
-| `Runtime/SolverController.cs:136` | `SetRouteFrozen()` + `SolverOverlay.cs:1504` 的「冻结路线」按钮：连每回合的校验都跳过，纯按路线走到底 |
+| `search/ContinuationStamp.java` | 精确状态文本（**不是哈希**）：回合/资源、四牌堆（手牌按无序多重集、其余保序）、药水槽位、玩家 Power（保施加顺序）+ powerAux、遗物 counter、怪物（hp/block/intent/moveHistory/pendingMove 全部语义载荷/invincibleMax/damageBase）、六路 RNG（counter+state0+state1）。差异诊断精确到 `drawPile[3].upgraded` 这一级 |
+| `search/CachedContinuation.java` + `ContinuationPlan.java` | 边界资格：只有 `END_TURN` 跨回合、玩家活着、敌人没全灭、后面确有动作才缓存；`lookup` 返回 `HIT / CONTINUATION_MISSING / STATE_MISMATCH` |
+| `search/BeamSolver.java` `publishFinalRoute()` | 从**所有后处理之后**的最终 `selected` 一次性发布「动作序列 + 可执行步骤 + 回合边界」，三者同源 |
+| `search/AsyncSearch.Result.continuations` | 纯数据跨线程交给主线程 |
+| `verify/ContinuationDecision.java` | 四种 miss 归因（含 `DEPLOYMENT_DRIFT` 走 `ShadowTracker.mismatchSequence`）；**手工分歧优先于状态差异**（否则会把人引去查镜像） |
+| `verify/AutoPilot.java` | 回合翻页处先试 `reuseContinuation`：命中按 `forecastOffset` 裁执行队列、**预览保留**、打 `SEARCH_REUSED`，不搜索；miss 打 `SEARCH_REUSE_MISS reason=… first_difference=…` 再重搜 |
 
-**我们的现状**：`AutoPilot` 只在**本回合**内持有计划，回合翻页就 `clearPlan()` 重算
-（`verify/AutoPilot.java:680`）。所以：
-- 搜索确实算到了 13~16 步 / depth 6~15 回合（日志 `PLAN ready` 可见），
-  但**跨回合的那一段每次都被扔掉**，那份推演从来没被用上第二次；
-- 今天真机 160 次规划里 **77 次是回合翻页重算**，正是被丢掉的次数；
-- 因此「深搜」实际上只在**单回合内**兑现，跨回合完全是重来 —— 这就是「世界线没被展开」。
+**⚠️ 真机未验证**（用户 2026-11-01 挂起真机）。最需要盯的一条风险：
+`ContinuationStamp` 按设计纳入 `intentDmg / damageBase / relics counter`，如果预测侧这些值与
+真机有系统性偏差（未镜像怪物的意图、召唤物的卡面伤害、蜥蜴尾巴 counter），会出现**持续 miss**。
+日志里会直接给出 `SEARCH_REUSE_MISS reason=state_mismatch first_difference=monsters[0].intentDmg …`——
+那就是下一条要修的地方，不要当成「续跑没生效」草草放过。
 
-**施工依据已就绪（2026-11-01，仍未实施）**：用户已拍板「精确状态续跑，复用最终
-`SearchNode` 链」。设计与 TDD 任务书分别是
-`docs/plans/2026-11-01-continuation-potion-design.md` 和
-`docs/plans/2026-11-01-continuation-potion.md`；执行提示词为
-`docs/plans/2026-11-01-next-round-prompt.md`。核心是最终路线的精确边界状态、命中免搜索、
-miss 按 `ManualDivergence / ContinuationMissing / StateMismatch` 归因；不是只保留动作队列。
+### P8 · 药水策略（D5）—— **已实施（自动化通过，真机未验证）**
+
+蓝本那套 `SolverPotionPolicy`（Disabled/Smart/RequireAtLeastOne）+ 每槽
+`SolverPotionDirective`（Smart/Disabled/Force）+ 四预设，本轮全部搬过来并**接进搜索**：
+
+- `search/PotionStrategySnapshot.java`：不可变快照，持久化键 `(slot, potionId)`，Smart = 删覆盖；
+- `search/PotionUsePolicy.java`：蓝本 `IsEligible` 逐行翻译（STS1 无 BossHpRelief / 琥珀，两条分支不实现）；
+- `BeamSolver`：候选展开最底层就拦掉违禁药水（worker/novelty/portfolio/基线/补搜全部继承），
+  最终再跑一次 `evaluateFinalRoute`；**Force 不合格就做一次有界「钉住这瓶」补搜，仍不合格返回 null**
+  （显式「没有满足约束的计划」，不静默退回违规路线）；
+- `AutoPilot`：`policyRevision` 代际 + `AsyncSearch` 请求/结果携带，采纳时**指纹与代际一起校验**；
+  策略改动 → 保存 + 代际+1 + 清 continuation/预览；**AUTO 执行中拒绝修改**；
+- 面板药水区改为**真实控件**（点击 Smart→Disabled→Force），遗物/成长仍只读。
+
+**⚠️ 真机未验证**。另外要提前知道：`Smart` 档在当前成本公式下**普通战斗基本不喝药**
+（买不回 9 血就不喝）—— 这是蓝本口径，不是 bug；要「该喝就喝」得改全局档位。
 
 ### P1 · 「搜索早早穷尽」——**这个诊断已被推翻**（2026-11-01 用真机快照实测）
 
@@ -341,7 +351,9 @@ miss 按 `ManualDivergence / ContinuationMissing / StateMismatch` 归因；不�
 - **D2**：`patches/EndTurnProbe.java` 暂留（纯只读日志），等 UI 验收做完再决定删或改成显式开关。
 - **D3**：**P1 的旧结论作废**（「open 表耗尽/剪枝太狠」），实测 123/123 是 `horizon`。
   不要再拿它当施工依据；`horizon` 是正常终止。
-- **D4**：**P7（路线续跑）是下一轮最高优先**。用户明确：STS2 的默认是「算一次、按序打完整条路线」，
+- **D5 已落地（2026-11-01）**：全局三档 + 每槽三态 + 四预设 + `policyRevision`；执行中拒绝改策略。
+- **D6 已落地**：药水区是真实控件，遗物/成长仍只读；不新建 `CHANGELOG.md`。
+- **D4（历史）**：**P7（路线续跑）是下一轮最高优先**。用户明确：STS2 的默认是「算一次、按序打完整条路线」，
   我们每回合丢计划 = 跨回合推演从未被用上，这是「世界线没被展开」的结构性原因，不是调预算能解决的。
 - **D5**：**完整药水策略要搬**。用户已批准全局三档、每槽三态、四预设、持久化、policyRevision
   和全搜索链最终答案约束；自动部署/执行中拒绝修改。不得只搬 UI 或全局三档。
@@ -380,27 +392,44 @@ miss 按 `ManualDivergence / ContinuationMissing / StateMismatch` 归因；不�
 
 ## 九、下一轮怎么开工
 
-**启动游戏（已验证可用的路径，2026-11-01 13:09 走通）**
+**第一件事：真机验收 P7 + P8（自动化已全绿，真机 0 项）。**
 
-1. 用户启动 Steam（或 `Start-Process '<steam 目录>\steam.exe'`，等 30 秒登录完）。
-2. 在游戏目录运行 `MTS-launch.cmd`。
-   ⚠️ 2026-11-01 01:12 用 `jre\bin\java.exe -jar mts-launcher.jar` 绕过**起不来**，别再用那条。
-3. 进战斗看面板右上角 build 号 = **`1101-144558`**（ModTheSpire 只在启动时读 mods 目录，
-   中途换 jar 不生效）。build 号不对就别测，先确认安装。
+启动：Steam → 游戏目录 `MTS-launch.cmd`（不要用 `jre\bin\java.exe -jar mts-launcher.jar`，
+2026-11-01 用那条路径起不来）。进战斗后先确认面板右上角 build 号是**本次安装的号**。
 
-**目前积压的真机项（0 项已执行，等任务书排序）**
+### P7 验收（跨回合续跑）
 
-| 项 | 判据 |
-|---|---|
-| 药水闸假阴性（`3da4e6c`） | 日志里 `POTION_GATE … rejected=true` 之后**不应**再出现 `AUTO potion` |
-| 药水三选一卡死（`769f919`） | 出现 `REWARD pick #n <card>  cursor->x,y` 之后**不应**再有 `REWARD pick still blocked` |
-| 对拍队列（`319bd6e`） | 连续出牌应出现 `DIFF flush …`，**不应**再出现 `skipped (previous … still pending)` |
-| 回合末（`6ea8014`） | 已口头确认，若要补证：同一 `turn` 两行 `EOT` 的 `block=` 差值 |
-| UI 十条 | `docs/plans/2026-10-31-ui-parity.md` Task 4 Step 2 |
+1. 打一场**至少三回合**的普通战斗，开 AUTO。
+2. 第 2 回合起，日志应出现 `SEARCH_REUSED from_turn=N remaining_turns=… validation=exact_state_text`，
+   且那一回合**没有**新的 `PLAN ready`；实际出牌应与面板路线一致。
+3. 若出现 `SEARCH_REUSE_MISS reason=state_mismatch first_difference=…`：**把那一行原样记下来**。
+   它指名了第一个不一致的字段（`monsters[0].intentDmg` / `damageBase[0]` / `relics.Lizard Tail` 是高概率项）。
+4. 手工改一手（关 AUTO 打一张牌再开）：应出现 `reason=manual_divergence`，不是 `state_mismatch`。
+5. 点路线行 Tn：续跑命中的情况下仍要在 Tn+1 玩家回合前停（`AUTO bounded stop after Tn`）。
 
-**不要做**
+### P8 验收（药水策略）
 
-- 不要把 `horizon` 读成「剪枝太狠」（已被 123 快照实测推翻）。
-- 不要用 `lastSelectedScore >= 1e10` 判胜负（用 `lastSelectedVictory`）。
-- 不要因为「日志里没有 pending skip」就宣布 P3 通过（先确认那段确实跑到过）。
-- 不要在任务书下来之前自己开新战线（用户 2026-11-01 明确要求）。
+1. 面板「策略（药水可点）」展开 → 点某一格药水，应看到 `Smart → Disabled → Force → Smart`，
+   且日志 `POTION_POLICY slot 0:Fire Potion -> … revision=N`。
+2. 设 `Disabled`：之后**不许**再出现该槽的 `AUTO potion`。
+3. 设 `Force`：最终路线必须含 `POTION[k]`；若那瓶根本喝不了（被动药水），
+   应看到 `POTION_POLICY unsatisfied, no plan this turn`，而不是偷偷喝别的。
+4. 改策略后：旧的 `PLAN` 必须作废（`PLAN discarded (potion policy revision …)`），
+   旧 continuation 不许再用。
+5. AUTO 开着的时候点药水格：应被拒绝（`POTION_POLICY rejected: AUTO is deploying`），
+   配置不变。
+
+### 不要做
+
+- 不要把 `SEARCH_REUSE_MISS` 直接读成「续跑没生效」——先看 `first_difference` 指向哪个字段。
+- 不要用「测试全绿」代替真机勾选；本文件的 ✅ 只在有真机日志时打。
+- 不要为了命中率把 stamp 的字段删掉（那是把「精确校验」降级成「大概齐」，会重演世界线错位）。
+- 不要新建 `CHANGELOG.md`（这个仓库从来没有过）。
+
+### 历史遗留（仍未闭环，按优先级）
+
+1. UI 十条验收（`docs/plans/2026-10-31-ui-parity.md`）——0/10。
+2. 药水三选一卡死修复（`769f919`）与药水闸假阴性修复（`3da4e6c`）的真机复测。
+3. P3 对拍队列污染修复（`319bd6e`）的真机判据：应出现 `DIFF flush …` 且**不再**出现
+   `skipped (previous … still pending)`。
+4. P2 第一嫌疑（最终排序不看 `persistentBuffValue`）—— 需要能赢的样本才准动，见 P2。

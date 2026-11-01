@@ -535,3 +535,42 @@ git commit -m "docs: record continuation and potion strategy verification"
 ```
 
 **最终汇报格式：** `任务 | commit | 自动化结果 | 真机/回放结果 | 证据位置 | 状态`，随后列关键文件、未闭环问题、回退方式。不得只写“测试全绿”。
+
+---
+
+## 实施结果（2026-11-01 18:50 填写；只写实际发生的）
+
+**基线**：起点 `23e5021`，`./gradlew test --offline` = **565 / 0 / 0**。
+**终点**：HEAD `decdba9`，测试 **652 / 0 / 0**（+87）。`./gradlew jar --offline` 成功，
+`git diff --check` 干净。**未 push**。
+
+| Task | commit | 自动化 | 真机 | 说明 |
+|---|---|---|---|---|
+| 1 精确 stamp | `69053aa` | +11 条（`ContinuationStampTest`） | 未验证 | 单入口 `from(SimState)`；覆盖回合/资源/四牌堆/药水槽/Power(保序)+aux/遗物/怪物(含 pendingMove 全载荷)/六路 RNG；差异精确到 `drawPile[3].upgraded` |
+| 2 边界模型 | `f27fb51` | +7 条（`ContinuationPlanTest`） | 未验证 | 只有 END_TURN 跨回合 + 活着 + 敌人未全灭 + 有后续动作才缓存；父链不一致显式抛 |
+| 3 最终 selected 产出 | `2a7cc76` | +5 条（`BeamSolverContinuationTest`） | 未验证 | `publishFinalRoute` 三者同源；药水闸/补搜替换候选后 continuation 跟着换（用重放逐回合核对 stamp） |
+| 4 AutoPilot 续跑 | `8167930` | +10 条（`AutoPilotContinuationTest`） | 未验证 | 命中免搜索、预览保留、四种 miss 归因、有界目标不清；`CardPlayPatch` 记手工分歧 |
+| 5 策略值对象/持久化 | `5ef998d` | +13 条（快照 12 + 策略资格 8 + 配置 5，含 `RouteStep` 槽位） | 未验证 | Smart=删覆盖；坏配置退回全 Smart；临时目录落盘测试 |
+| 6 全链约束 | `dce7cfa` | +12 条（传播 6 + 最终答案 5 + 默认等价 1） | 未验证 | 最底层拦截 + 最终复核；Force 不合格 → 钉住补搜 → null |
+| 7 revision/UI/槽位 | `decdba9` | +13 条（revision 9 + 面板控件 7） | 未验证 | 指纹+代际双校验；执行中拒绝；点击循环；`(slot,id)` 绑定 |
+
+### 与计划的偏差（都已就地解决，未改产品语义）
+
+1. **`RouteStep` 的 `potionSlot` 挪到 Task 5**（计划写在 Task 6）：`evaluateFinalRoute` 从
+   Task 5 起就要按 `(slot,id)` 判 Force，没有槽位字段根本写不出那条测试。
+2. **`PotionStrategySnapshot` 增加 `toStorageString()/parse()`**（计划只提「SolverConfig 持久化」）：
+   `SpireConfig` 没有 `getProperties()`，要落「任意槽位覆盖」只能序列化成一个字符串键；
+   顺手让配置测试可以完全脱离真机（临时目录 + `java.util.Properties`）。
+3. **`AutoPilot.tick` 的「有界停止」判定抽成 `shouldStopAt()`**（位置未动）：为了让
+   「续跑不许清目标」可测，同时保证生产路径与单测共用同一条判据。
+4. **`beamPass` 也会发布 `lastRoute/lastSteps`**（既有行为）：`enforcePotionStrategy`
+   返回 null 时必须显式清空，否则会把一条不满足约束的路线留在 `lastSteps` 里；
+   已在清理处写明原因。
+5. **面板文案**：`AUTO → Tn（每回合重算）` → `（逐回合校验）`；策略区标题从
+   「只读」改为「药水可点 · 遗物/成长只读」。旧文案已是错误陈述。
+
+### 未闭环（真机挂起，按用户要求不硬跑）
+
+- P7：真机 0/5（三回合战斗命中、手工分歧归因、state mismatch 首个差异、有界停止、reset 清理）。
+- P8：真机 0/5（三档、单槽 Force/Disabled、OnlyForced、改策略后旧结果不落地、执行中拒绝）。
+- UI 十条、药水三选一（`769f919`）、药水闸假阴性（`3da4e6c`）、P3 对拍队列（`319bd6e`）同样未复测。
