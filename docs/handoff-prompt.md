@@ -12,7 +12,8 @@
 > 这一段的教训是：自动化全绿只证明口径自洽，**不证明影子准** —— 8 个 bug 全是真机日志暴露的。
 >
 > 🔴 **用户 22:41 拍的下一阶段主线**：**不能光赢，要「战损最小 + 收益最大」的赢法**，与蓝本一致。
-> 现成差距见 §九第 3 条（`FinalPlanOrdering` 17 键，我们只落了 9 键，缺成长/收益那一段）。
+> 现成差距见 §九第 3 条（源码实为 `FinalPlanOrdering` **18 键**，当前落了 9 键，缺成长/收益与统一最终选择链）。
+> 🔴 **最新设计已批准**：只做 `docs/plans/2026-11-01-final-plan-ordering.md`；完整候选池、资格过滤、18 键与必要数据源一起复刻，禁止只扩写 `better()`。
 >
 > 🔴 **用户 22:41 拍板（决策 A）**：**不新增**「未找到生还路线就交还控制」的闸 ——
 > 蓝本没有这条（`Survives` 只是排序键，`FinalPlanOrdering.cs:250-252`），
@@ -416,9 +417,11 @@ private void callEndOfTurnActions() {
 - **D4（历史）**：P7 跨回合 Continuation 是必要机制，但初版的节点链捷径、单入口 stamp、手牌排序均需返工。
 - **D5**：完整药水策略必须按蓝本组合语义复刻；全局 Disabled 不压 Force，全局 policy 不落盘，
   删除本地 policyRevision 与“钉住补搜→null”。执行中拒绝修改仍是蓝本已有行为。
-- **D6（2026-11-01 19:35 最新）**：下一轮只做 `docs/plans/2026-11-01-strict-blueprint-parity.md`。
-  先撤自创执行/UI 机制，再修影子与真机验证；目标内自主施工和本地 commit，不逐项等确认。
+- **D6（历史，已完成）**：严格纠偏 Task 1–5 已落地，不再作为下一轮施工计划。
 - **D7**：交接结构沿用；所有条目必须区分**已证实事实 / 当前假设 / 已实施 / 仍缺验证**四栏。
+- **D8（2026-11-01 22:43 后最新）**：路线质量按用户批准的完整最终选择器复刻，
+  只做 `docs/plans/2026-11-01-final-plan-ordering.md`；蓝本是 18 键，
+  完整候选池、资格过滤、成长/收益/卖血数据源与比较器边界不得拆分豁免。
 
 ---
 
@@ -457,11 +460,13 @@ private void callEndOfTurnActions() {
    → **重启 MTS**。不重启就是旧盘，前面所有修复都白搭（本轮踩了两次）。
 2. **真机验收本夜 8 条**（§十一 表格逐条对应）：多段意图、神化不升状态、木乃伊候选、
    觉醒者半死/REBIRTH、无活怪结束回合、开局发牌不抢跑、回合末风险按真规则推演、抢錢怪可杀。
-3. 🔴 **路线质量 = 战损最小 + 收益最大**（新主线）。现状：`BeamSolver.better()` 落了 9 个键
-   （Won → Survives → DeathSaveUseCount → 被偷金币 → StrategicHpDeficit → CombatEndedTurn →
-   EnemyHp → Score → Depth），蓝本 `FinalPlanOrdering.cs:253-271` 是 **17 个键**，
-   中间缺的正是「收益」那一段：`GrowthHpCredit` / `GrowthRewardCount` / `PolicyHpDeficit` /
-   `PotionStrategicCost` / `ActionCount`。**先按蓝本逐键核对再补，不许自选子集**。
+3. 🔴 **路线质量 = 战损最小 + 收益最大**（新主线，设计已批准）。蓝本
+   `FinalPlanOrdering.cs:253-271` 实为 **18 键**；当前 9 键之外还缺
+   `GrowthHpCredit / GrowthRewardCount / PolicyHpDeficit / HealthResourceCost / LongTermResourceValue /
+   AngerCopiesGenerated / PolicyBoundaryRank / OptionalPotionCount / StrategicSold`。
+   `PotionStrategicCost` 不是独立最终键，`depth` 需用合同证明等于 `ActionCount`。
+   本轮必须连完整候选池、interim/final 比较器边界、统一药水资格和数据源一起做；
+   唯一施工依据 = `docs/plans/2026-11-01-final-plan-ordering.md`，不许只扩写 `better()` 或自选子集。
 4. **镜像失配清理**（真机 145 次对拍里 30 次失配）：`Plated Armor` 递减差 1~4（多段时每段递减）、
    `Reaper` 回血量差 1~2、`Headbutt` 弃牌堆顺序导致按 index 取错牌、`Barricade` 量对不上。
 5. **未做就登记未做**：`AdoptRoute`、`RouteFrozen`、`SolverProgress.play_depth`、
@@ -472,6 +477,8 @@ private void callEndOfTurnActions() {
 - **决策 A（2026-11-01 22:41）**：不新增「无生还路线 → 交还控制」的闸。蓝本没有
   （`FinalPlanOrdering.cs:250-252` 里 `Survives` 只是排序键）。停手只保留 `DeathTurn` + `LiveRisk`，
   且后者已改成**按真实规则推演整回合**（死亡豁免/多段/易伤都算进去）。
+- **决策 B（2026-11-01 22:43 后）**：批准完整 FinalPlanOrdering 复刻设计。
+  不采用“只补缺失排序键”的局部方案；按正式设计和 TDD 任务书施工。
 
 ### 🔴 自创清单（不是“登记后继续”，而是必须撤销/返工）
 
@@ -549,4 +556,4 @@ private void callEndOfTurnActions() {
 | 8 | boss 战 406 ms 就以 `stop=victory` 收工 | 换形态只挂在 `hit()`，AoE 走 `hitAndReturnDealt` 绕过 → 觉醒者被当真死 → 假胜利 | `maybeAwaken` 挪进 `hitAndReturnDealt`（所有伤害来源都过） | `de9de4b` |
 
 **未闭环**（下一阶段）：`Plated Armor` 递减差 1~4 / `Reaper` 回血差 1~2 / `Headbutt` 弃牌堆顺序 /
-`Barricade` 量对不上；以及 §九第 3 条的「收益最大化」17 键补齐。
+`Barricade` 量对不上；以及 §九第 3 条的「收益最大化」完整 18 键与最终选择链复刻。

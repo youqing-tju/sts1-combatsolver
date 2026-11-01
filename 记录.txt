@@ -154,4 +154,13 @@ STS1 CombatSolver 工程经验记录
 70. 换形态/召唤这类「写在 damage() 里」的机制，必须挂在**所有**扣血入口（`hitAndReturnDealt`），
     只挂 `hit()` 会被 AoE/荆棘/毒绕过 —— 后果是假胜利、搜索 0.4 秒收工。
 71. 用户 22:41 拍板 A：不加「无生还就交还控制」的闸（蓝本没有）。下一阶段主线是
-    「战损最小 + 收益最大」的赢法，按 FinalPlanOrdering 17 键逐键补齐，不许自选子集。
+    「战损最小 + 收益最大」的赢法，按 FinalPlanOrdering 全键逐键补齐，不许自选子集。
+72. 最终排序审计必须逐行数源码：`FinalPlanOrdering.cs:253-271` 是 1 个 OrderBy + 17 个 ThenBy
+    = **18 键**，不是交接曾写的 17。PotionStrategicCost 只参与资格/其他比较器，
+    独立最终键是 OptionalPotionCount；不要再让旧简写进入代码注释或任务书。
+73. 最终选择不是“给 better() 加几个 if”：FinalPlanOrdering、interim、Beam retention 是不同比较器；
+    必须先有完整 completed+frontier，再资格过滤，最后跑 18 键。只保留 bestTerminal 会丢掉
+    真正更优的世界线；先选一条再补救也会让 novelty/补搜把否决路线捞回来。
+74. 收益和卖血都要有事件账本：Feed/Hand of Greed/Anger 在真实效果成功处记数；
+    StrategicSold 用同组最低可达掉血与战斗 committed，不能从总掉血或结果金币/最大生命反推。
+    跨回合重搜保留根账本，copy/fork 隔离，新战斗 reset；快照投影与真机实际收益分开报告。

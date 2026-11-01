@@ -21,7 +21,7 @@ read_when:
 | `SolverWeights.cs` 全部常量 | `Score` 里的常量 | ✅ 已复刻（逐值照抄） |
 | `StateEvaluation.cs` 基础分（投影血量 / 最大生命成长 / 已损血量 / 胜负 / 敌方有效血 / 牌库杂质） | `Score.baseTotal()` | ✅ |
 | `BeamRetentionPolicy.Ranking.cs:892` `BeamRankScore`（能量 / 持续成长 / 延迟收益 / 攻击总量成长 / 易伤 / 虚弱 / 力量削减 / 动作数） | `Score.beamTotal()` | ✅ |
-| `FinalPlanOrdering.cs:253-271` 词典序 | `BeamSolver.better()` | 🔶 部分：17 条键里搬了 6 条（有 STS1 对应物的） |
+| `FinalPlanOrdering.cs:253-271` 词典序 | `BeamSolver.better()` + `lastFinalPool` | 🔶 **部分，完整返工已批准未实施**：蓝本实为 **18 键**（1 OrderBy + 17 ThenBy），当前 9 键；另有 interim/final 混用、completed 未全入池、先选单条再药水后处理等结构差异。`PotionStrategicCost` 不是独立最终键。严格按 `docs/plans/2026-11-01-final-plan-ordering.md` 复刻完整候选池、资格过滤、18 键与数据源 |
 | `ActEndingBossPolicy.StrategicHpDeficit` | `BeamSolver.strategicHpDeficit` | ✅（`BossHpRelief.None` 档） |
 | `StateEvaluation.cs` `StrategicEffects` / 逐能力 RetentionValue | `mirror/PowerValuation` + `Score.persistentBuffValue` | 🔶 **部分（2026-10-24）**：`StrategicEffectModel` 的五维模型 + 7 个能力的专门分支已搬（力量/敏捷/恶魔形态/无痛/黑暗拥抱/腐化/荆棘），其余走蓝本自己的默认档 `Scaling(amount)`（`mechanics-reference` §32）。⚠️ 两处近似：`IncomingHitCount` 用怪物只数、`AverageCardValue` 用面板伤害。仍缺：`LatentSetupValue` 逐卡表、`ReplayPotentialValue`（⛔ 无对应）、`DelayedDamage`/`ReactiveDamage`（铁甲无施加源） |
 | `LatentCardSetupValue` 逐卡分值表 | 走默认分支（能力牌 2 点） | 🔶 部分：表是 STS2 卡，不臆造 |
@@ -153,7 +153,8 @@ read_when:
 ## 附：2026-11-01 来源审计（最新规则：禁止自创，蓝本没有 = 不做）
 
 > 2026-11-01 19:35 用户取消此前所有本地例外。下表不是“登记后保留”，而是撤改清单。
-> 唯一施工计划：`docs/plans/2026-11-01-strict-blueprint-parity.md`。
+> 严格纠偏 `2026-11-01-strict-blueprint-parity.md` Task 1–5 已完成。
+> 当前路线质量施工计划：`docs/plans/2026-11-01-final-plan-ordering.md`。
 
 | 当前行为 | 蓝本标准与证据 | 处置 | 结果 |
 |---|---|---|---|

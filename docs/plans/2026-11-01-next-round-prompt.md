@@ -1,65 +1,90 @@
-# STS1 CombatSolver 下一轮施工提示词（严格蓝本纠偏，2026-11-01）
+# STS1 CombatSolver 下一轮施工提示词（完整路线质量，2026-11-01）
 
-你接手 `C:\Users\22757\Desktop\sts1-combatsolver`，分支 `master`。你是执行负责人：直接调查、修改、测试、构建、安装、真机验证并逐项本地 commit，最后交付证据，不停在方案。
+你接手 `C:\Users\22757\Desktop\sts1-combatsolver`，分支 `master`。你是执行负责人：在既定目标内直接调查、修改、测试、构建、安装、真机验证并逐项本地 commit，最后交付证据，不停在方案。
 
 ## 一、最高硬规则
 
 **禁止自创，一切以蓝本为标准复刻。蓝本没有 = 不做。**
 
-- 不允许用“用户此前要求”“最小等价”“本地扩展”“项目自定义”“UI 适配”作为保留自创行为的理由；最新指令已经废止这些豁免。
-- STS1/STS2 API 差异只允许改变翻译方式，不允许改变机制、默认值、约束强弱、状态顺序或失败语义。
-- 每项行为动工前先给蓝本 `file:line`；找不到就明确写“蓝本没有”，不要实现。
-- STS1 原版行为补正必须另给 `javap` 证据，不能冒充 CombatSolver parity。
+- 不允许用“用户此前要求 / 最小等价 / 本地扩展 / 项目自定义 / UI 适配”豁免。
+- STS1/STS2 API 差异只改变翻译方式，不改变机制、默认值、约束强弱、状态顺序或失败语义。
+- 每项行为动工前定位蓝本 `file:line`；STS1 原版数值/生命周期另给 `javap` 证据。
+- 本项目不嫌慢，只嫌牌打得臭；不得为耗时砍预算、宽度、深度或机制。
 
-## 二、开工必读与基线
+## 二、开工必读与当前基线
 
 按顺序读：
+
 1. `docs/handoff-prompt.md`
-2. `docs/plans/2026-11-01-strict-blueprint-parity.md`（本轮唯一施工计划）
-3. `docs/research/blueprint-parity.md`
-4. 根目录 `记录.txt`
+2. `docs/plans/2026-11-01-final-plan-ordering-design.md`（用户已批准）
+3. `docs/plans/2026-11-01-final-plan-ordering.md`（本轮唯一施工计划）
+4. `docs/research/blueprint-parity.md`
+5. 根目录 `记录.txt`
 
-旧 `2026-11-01-continuation-potion-design.md` 与旧施工提示词中的本地简化**已废止，不得继续作为依据**。
+当前代码 HEAD `de9de4b`，文档 HEAD `1214068`；交接称 **696 tests 全绿**，已安装 `build 1101-222554` 但需重启 MTS。先亲自核对 Git 和测试，不直接相信交接。
 
-执行：
-```bash
-git status --short --branch
-git log -8 --oneline
-./gradlew test --offline
-```
-最近文档 HEAD `a927e8c`，此前 672 tests 全绿；其中若干测试钉的是自创语义，不能当作 parity 证据。保留他人改动，禁止 `reset --hard`。
+旧 strict 纠偏 Task 1–5 已完成，不再作为本轮施工计划；旧 P7/D5/UI 计划不得复活。
 
-## 三、本轮顺序
+## 三、本轮目标与关键纠偏
 
-严格按纠偏计划 Task 1 → 6：
+目标：**不能光赢，要“战损最小 + 收益最大”的赢法。**
 
-1. **撤销默认采纳冻结、单步剔除、无生还禁打**。默认恢复精确 Continuation；部署漂移从根重算；DeathTurn/LiveRisk 两个蓝本停手机制保留。
-2. **撤销本地有界 AUTO 与伪 Adopt/Freeze**。AdoptRoute 和 RouteFrozen 不得混写；不能完整复刻就明确未做，不做半吊子模式。
-3. **Continuation 按蓝本返工**：best 只选边界、最终路线回放捕获；`CaptureLive`/`CapturePredicted` 分侧归一化；四个牌堆全部保序；禁止删字段凑命中。
-4. **药水策略按蓝本返工**：全局 Disabled 不压显式 Force；全局 policy 不落盘；删除自造 policyRevision；统一候选池资格过滤，无合格路线抛专用异常；删除“钉住补搜→null”。
-5. **全量来源审计**：代码、注释、测试和文档里的“项目自定义/用户规则/本地扩展”逐项移除或给出蓝本证据。
-6. 全量测试、jar、安装、真机验收、双评审、文档闭环。
+权威蓝本是 `reference/sts2-combatsolver/src/Search/CombatBeamSolver.FinalPlanOrdering.cs`。
 
-**先撤自创，再修影子。** 不继续用冻结或剔步掩盖 `SEARCH_REUSE_MISS`，不为了提高命中率删 stamp 字段。
+🔴 先纠正交接中的两个事实错误：
 
-## 四、授权与底线
+1. `FinalPlanOrdering.cs:253-271` 是 **18 键**（1 个 OrderBy + 17 个 ThenBy），不是 17。
+2. `PotionStrategicCost` **不是独立最终排序键**；独立键是 `OptionalPotionCount`。不得自造第 19 键。
 
-- 既定目标内代码、测试、诊断、重构、构建、安装、真机验证和本地 commit 自主完成，不逐项等确认。
-- 恢复蓝本语义不需要 paired A/B 证明更好；parity 就是验收。不得用旧 A/B 或“用户以前喜欢”阻止纠偏。
-- 不 push，不擅自删除用户文件，不用遗留 SolverMod/sts-agent 资产。
-- 不砍预算、宽度、深度或搜索机制；真机对象不进后台，渲染不 capture。
-- 旧测试若断言自创行为，改成蓝本反向合同并看到 RED→GREEN；不得只删测试。
-- 严格区分自动化、回放和真机；未运行写未验证。
+当前 STS1 是 9 键，但本轮不是简单补 9 个 `if`：
 
-## 五、提交与最终汇报
+- 最终 FinalPlanOrdering、搜索中 interim、Beam retention 必须分开。
+- `lastFinalPool` 当前没有保存全部 completed，需恢复蓝本完整候选池。
+- 当前“先选一条 → 药水闸 → 补搜 → 复核”需按蓝本统一资格链返工。
+- 当前 Survives、CombatEndedTurn、StrategicHpDeficit 等既有口径也要重验，不能只加新键。
 
-每个 Task 独立 commit。每轮：
+## 四、严格按 Task 0 → 8 施工
+
+1. **Task 0**：封存旧实现快照基线；安装重启后复测夜间 8 项。
+2. **Task 1**：纯数据 FinalPlanOrdering，18 键逐行 TDD。
+3. **Task 2**：Feed / Hand of Greed / Anger 的真实事件账本、copy/fork 与跨重搜基线。
+4. **Task 3**：逐回合 FutureSoldHp + BattleDamageTracker，恢复 StrategicSold。
+5. **Task 4**：全部 completed + frontier，区分 interim/final，候选自带 Boundary。
+6. **Task 5**：统一药水资格、forced-only/无药基线、post-search 与专用异常。
+7. **Task 6**：串并行、novelty、portfolio、continuation 和最终发布一致性。
+8. **Task 7**：同一批快照 paired A/B，比较胜负、战损、收益与路线变化。
+9. **Task 8**：真机、规范/质量双评审、handoff/parity/结果闭环。
+
+每个 Task 先 RED 再 GREEN，独立 commit；具体文件、测试与命令严格照施工计划，不自选子集。
+
+## 五、默认值与范围底线
+
+- 默认成长预算为 0、遗物目标为空：免费成长可比较，但不许自造卖血换 GrowthHpCredit。
+- 只映射 STS1 同名且 javap 核实的 Feed / Hand of Greed / Anger；不搬 STS2 独有来源。
+- StrategicSold 不是总掉血；按同组最低可达掉血 + 战斗 committed 实现。
+- 每候选 Boundary 不得用全局 lastStopReason 冒充。
+- 不加 persistentBuffValue 额外最终键，不实现默认冻结、无生还禁打、点 Tn、本地 UI 控制器。
+- 最终 lastRoute / lastSteps / continuations 必须来自同一最终选中路线。
+
+## 六、授权与证据纪律
+
+- 目标内代码、测试、诊断、重构、构建、安装、真机和本地 commit 自主完成，不逐项等确认。
+- 真机对象只留主线程；后台搜索只用纯数据；渲染不 capture。
+- 不 push，不删除用户文件，不用遗留 SolverMod/sts-agent 资产。
+- paired A/B 用来发现回归，不用来调换蓝本顺序或创造新权重；相关快照不得伪称独立样本。
+- 自动化、快照投影、真机结果分开写；未验证就写未验证。
+- 旧测试若钉住 17 键、局部池或本地闸门，改成蓝本反向合同，不直接删除。
+
+## 七、最终交付
+
+每轮跑：
+
 ```bash
 ./gradlew test --offline
 ./gradlew jar --offline
 git diff --check
 ```
 
-更新 `docs/handoff-prompt.md`、`docs/research/blueprint-parity.md` 和纠偏计划的实际结果。最终表格：`纠偏项 | commit | 蓝本证据 | 自动化 | 真机 | 状态`，随后列未闭环问题和回退方式。
+最终表格：`改动 | commit | 蓝本证据 | 自动化 | 快照 A/B | 真机 | 状态`。另列未闭环、风险和回退方式。更新 handoff、blueprint-parity、施工计划和 `记录.txt`。
 
-现在直接开始：核对 Git、跑基线，从 Task 1 的“默认不冻结、失配重算、单步不可用 root replan”失败测试开始。
+现在直接开始：核对 Git → 跑 696 基线与旧快照输出 → 从 Task 0 开始。
