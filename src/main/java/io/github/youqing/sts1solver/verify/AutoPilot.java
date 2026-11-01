@@ -275,6 +275,50 @@ public final class AutoPilot {
         return deathTurn > 0 && turnNow > 0 && deathTurn == turnNow;
     }
 
+    /** 面板：没有生还路线（用户规则：这种时候禁止自动出牌）。 */
+    static String noSurvivingNotice() {
+        return "未找到生还路线 · 已禁止自动出牌（操作权已交还）";
+    }
+
+    /** 面板：回合末实时风险投影会死（蓝本 {@code StopFullAutoOnLiveRiskDeath}）。 */
+    static String liveRiskNotice(int hp, int incoming) {
+        return "预计本回合会死 · 已交还控制（hp " + hp + " 对来袭 " + incoming + "）";
+    }
+
+    /**
+     * 没有生还路线 -> 不部署、停手、提示。
+     *
+     * <p>蓝本 {@code FinalPlanOrdering} 把 {@code Survives}（{@code !PlayerDead && ProjectedPlayerHp > 0}）
+     * 排在胜负债之后的第一键；搜不到生还路线时，用户明确要求**禁止自动出牌**，
+     * 不许「反正都是死，随便挑一条打」。
+     *
+     * @return true = 已停手（调用方不要再执行任何步骤）
+     */
+    static boolean applyNoSurvivingRouteStop(boolean survives) {
+        if (survives) {
+            return false;
+        }
+        io.github.youqing.sts1solver.ui.SolverPanel.setNotice(noSurvivingNotice());
+        clearPlan();
+        Trace.warn("FULL_AUTO_STOP reason=no_surviving_route (搜索里没有任何生还路线，禁止自动出牌)");
+        stopAuto("no surviving route");
+        return true;
+    }
+
+    /**
+     * 回合末实时风险：现在就结束回合会不会死（蓝本 {@code LiveEndTurnRiskEvaluator}）。
+     *
+     * <p>蓝本在**结束回合之前**用实机局面重算一次来袭伤害；会死就关掉全自动、交还控制。
+     * 我们不需要重跑搜索 —— {@link io.github.youqing.sts1solver.search.Score#projectedHpOf}
+     * 就是「hp - max(0, 来袭 - 格挡)」，和蓝本 {@code ProjectedPlayerHp} 同一口径。
+     */
+    static boolean endTurnWouldKillUs(io.github.youqing.sts1solver.sim.SimState live) {
+        if (live == null) {
+            return false;
+        }
+        return io.github.youqing.sts1solver.search.Score.projectedHpOf(live) <= 0;
+    }
+
     /** 面板上的交还控制提示（与蓝本措辞对齐：{@code 已暂停执行 / 第 N 回合 预计死亡}）。 */
     static String deathNotice(int deathTurn) {
         return "已暂停执行 · 第 " + deathTurn + " 回合 预计死亡（当前方案预计本回合死亡，操作权已交还）";
@@ -576,6 +620,9 @@ public final class AutoPilot {
                 } else {
                     Trace.info("AUTO end turn (search says end)  " + describeHand(player));
                 }
+                if (stopIfEndTurnWouldKill()) {
+                    return;
+                }
                 requestEndTurn(player);
                 cooldown = 30;
                 return;
@@ -589,12 +636,48 @@ public final class AutoPilot {
                     return;
                 }
                 Trace.info("AUTO end turn (nothing playable)  " + describeHand(player));
+                if (stopIfEndTurnWouldKill()) {
+                    return;
+                }
                 requestEndTurn(player);
                 cooldown = 30;
             }
         } catch (Throwable t) {
             Trace.error("auto pilot failed", t);
             stopAuto("exception: " + t);
+        }
+    }
+
+    /**
+     * 结束回合前的最后一道闸（蓝本 {@code LiveEndTurnRiskEvaluator}）：
+     * 实机局面投影会死就**不结束回合**，直接交还控制。
+     *
+     * <p>为什么要拦：搜索说「结束回合」是它的判断，但实机此时可能已经和预测不同
+     * （我们冻结了路线、不再重算）。这一枪是**不花搜索预算**的安全网。
+     */
+    private static boolean stopIfEndTurnWouldKill() {
+        try {
+            io.github.youqing.sts1solver.sim.SimState live =
+                    io.github.youqing.sts1solver.sim.SimState.capture();
+            if (!endTurnWouldKillUs(live)) {
+                return false;
+            }
+            int incoming = 0;
+            for (io.github.youqing.sts1solver.sim.SimMonster m : live.monsters) {
+                if (m.hp > 0 && m.intentDmg > 0) {
+                    incoming += m.intentDmg;
+                }
+            }
+            io.github.youqing.sts1solver.ui.SolverPanel.setNotice(
+                    liveRiskNotice(live.hp, incoming));
+            Trace.warn("FULL_AUTO_STOP reason=live_risk_death hp=" + live.hp
+                    + " block=" + live.block + " incoming=" + incoming
+                    + "  (结束回合会死，交还控制)");
+            stopAuto("live end-turn risk: death");
+            return true;
+        } catch (Throwable t) {
+            Trace.warn("live end-turn risk check failed: " + t);
+            return false;                 // 判不了就别拦，保持原行为
         }
     }
 
@@ -977,6 +1060,10 @@ public final class AutoPilot {
 
         // 蓝本顺序：先判「这一回合就死」→ 不部署；再判失败/空计划。
         if (applyDeathTurnStop(result.deathTurn, turnNow)) {
+            return OUTCOME_WAITING;
+        }
+        // 用户规则（两次强调）：没有生还路线就禁止自动出牌，不许挑一条死路打。
+        if (applyNoSurvivingRouteStop(result.survives)) {
             return OUTCOME_WAITING;
         }
         if (result.failed) {

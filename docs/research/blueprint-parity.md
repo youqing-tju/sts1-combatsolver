@@ -147,3 +147,26 @@ read_when:
 
 > ⚠️ 施工纪律：一次只搬一项，搬完在本文档把状态改成 ✅，并在 `mechanics-reference.md`
 > 记一条「照抄了哪几行、改了哪几处」。**不自己加机制、不自己出量化结论。**
+
+---
+
+## 附：2026-11-01 晚间改动的**来源审计**（禁止自创 → 逐条标来源）
+
+> 起因：用户指出「项目书第一条就是禁止自创」。下面把本轮加进执行层的行为逐条对照蓝本，
+> 三类分开写：**【蓝本】**（有源码依据，给行号）/ **【蓝本·但默认值不同】** / **【项目自定义】**（蓝本没有）。
+
+| 行为 | 蓝本依据 | 分类 |
+|---|---|---|
+| 冻结路线 = 算一次、按序打到底 | `Runtime/SolverController.cs:136 SetRouteFrozen()`、`UI/SolverOverlay.cs:1504`「冻结路线」按钮、`SearchTakeoverKind.AdoptRoute` | 【蓝本】功能存在 |
+| **默认就冻结** | 蓝本默认 `ShouldAutomaticallySearchNextTurn = FullAutoEnabled \|\| AutomaticCalculationEnabled && !RouteFrozen`，即**默认不冻结**、冻结是用户按按钮 | 【蓝本·但默认值不同】—— 我们把默认设成冻结（用户要求「一口气打完」） |
+| 冻结时仍逐回合比对精确状态戳（只记日志） | 蓝本冻结后跳过校验；只有非冻结模式才比对 | 【项目自定义】诊断增强，不影响出牌 |
+| **单步走不通只剔掉这一步、继续走** | 蓝本 `deployment_unplayable=live_reason_log+root_replan` → **从根重算** | 【项目自定义】—— 与蓝本相反，理由：影子不够准时从根重算=每回合重算 |
+| `DeathTurn == 当前回合` → 不部署、关全自动、提示 | `SolverController.cs:2783` `_stopFullAutoOnDeathTurn`（默认 true）+ `SolverOverlay.ShowFullAutoStoppedAtDeathTurn` | 【蓝本】✅ |
+| 回合末实时风险投影会死 → 不结束回合、交还控制 | `LiveEndTurnRiskEvaluator.Evaluate` + `StopFullAutoOnLiveRiskDeath`（`SolverController.cs:3086-3110`） | 【蓝本】✅（我们用 `Score.projectedHpOf` 等价复现，不重跑搜索） |
+| **搜不到生还路线 → 禁止自动出牌** | 蓝本只有排序键 `Survives`（`FinalPlanOrdering.cs:350-352`），**没有**「不生还就不部署」的闸 | 【项目自定义·用户明确要求 2026-11-01 ×2】 |
+| 路线不闪（陈旧预览保留）/ 路线区按屏幕高度 16 行 | 蓝本 overlay 是滚动 3 列布局（`cached_route_rows` / `route_scroll=true`） | 【UI 适配】非 parity，目标是「一屏看全路线」 |
+| 药水全局档位 / 每槽指令 / 四预设 / `policyRevision` | `PotionUsePolicy.cs`、`PotionStrategySnapshot.cs`、`SolverSettings.cs` | 【蓝本】✅（2026-11-01 白天，见正文对应行） |
+
+**结论**：本轮真正「自创」的只有 3 处 —— 冻结设为默认、单步剔除法、无生还路线禁止出牌。
+前两处有明确用户指令，第三处是用户两次强调的产品规则；三处都已在代码注释里标注来源，
+不再冒充 parity。**下一轮若要严格 parity，把 `ADOPT_ROUTE_TO_THE_END` 关掉即可回到蓝本默认。**

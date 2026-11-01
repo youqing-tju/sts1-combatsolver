@@ -199,6 +199,18 @@ public final class BeamSolver {
      */
     public int lastDeathTurn = -1;
 
+    /**
+     * 这条最终路线**能不能活下来**（蓝本 {@code FinalPlanOrdering} 的第一键 {@code Survives}：
+     * {@code !PlayerDead && ProjectedPlayerHp > 0}）。
+     *
+     * <p>判据与 {@link #better} 里的 {@code alive} **完全一致**，否则会出现
+     * 「排序时认为 A 更好、资格检查却说 A 会死」这种自相矛盾。
+     *
+     * <p>🔴 用户规则（2026-11-01 两次强调）：**没有生还路线就禁止自动出牌**。
+     * 所以这个字段是执行侧的硬门，不是提示。
+     */
+    public boolean lastSelectedSurvives;
+
     /** 最终路线是否满足策略（{@code false} 且 {@link #lastPolicyViolation} 非空 = 显式无解）。 */
     public boolean lastPolicySatisfied = true;
     /** 违规明细（人类可读，进日志与面板）。 */
@@ -548,6 +560,7 @@ public final class BeamSolver {
         lastPolicySatisfied = true;
         lastPolicyViolation = "";
         lastDeathTurn = -1;
+        lastSelectedSurvives = false;
 
         // 固定前缀先单独验一遍：验不过就整条作废（蓝本 ApplyFixedPrefix 的 null 分支）。
         // 放在这里是为了**别让搜索跑完整趟才发现前缀是废的**，也避免下面的加宽循环误判成「没打赢」。
@@ -1245,6 +1258,8 @@ public final class BeamSolver {
         lastRoute = routeOf(selected);
         lastSteps = stepsOf(selected);
         lastDeathTurn = deathTurnOf(selected);
+        lastSelectedSurvives = selected.state.hp > 0
+                && Score.projectedHpOf(selected.state) > 0;
         try {
             lastContinuations = ContinuationPlan.fromFinalRoute(routeNodesOf(selected));
         } catch (RuntimeException t) {
@@ -2222,6 +2237,7 @@ public final class BeamSolver {
         lastSteps = new java.util.ArrayList<RouteStep>();
         lastContinuations = ContinuationPlan.empty();
         lastDeathTurn = -1;
+        lastSelectedSurvives = false;
         Trace.warn("POTION_POLICY unsatisfied, no plan this turn: " + lastPolicyViolation);
         return null;
     }

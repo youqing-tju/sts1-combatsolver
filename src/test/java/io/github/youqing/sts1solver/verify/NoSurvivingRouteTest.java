@@ -84,6 +84,40 @@ class NoSurvivingRouteTest {
         assertTrue(AutoPilot.enabled(), "还没到那一回合，不该停");
     }
 
+    /** 用户规则：没有生还路线 -> 禁止自动出牌（蓝本没有这一条，属于项目自定义，见审计表）。 */
+    @Test
+    void noSurvivingRouteStopsAutoPlay() {
+        AutoPilot.toggle();
+        assertTrue(AutoPilot.enabled());
+
+        assertTrue(AutoPilot.applyNoSurvivingRouteStop(false));
+        assertFalse(AutoPilot.enabled(), "没有生还路线就不许继续自动出牌");
+        assertTrue(AutoPilot.noSurvivingNotice().contains("未找到生还路线"),
+                AutoPilot.noSurvivingNotice());
+
+        AutoPilot.toggle();
+        assertFalse(AutoPilot.applyNoSurvivingRouteStop(true), "有生还路线就不拦");
+        assertTrue(AutoPilot.enabled());
+    }
+
+    /** 蓝本 LiveEndTurnRiskEvaluator 的等价物：投影会死就不许结束回合。 */
+    @Test
+    void endTurnRiskUsesProjectedHp() {
+        SimState lethal = state(3, 5);
+        lethal.monsters.get(0).intentDmg = 10;
+        assertTrue(AutoPilot.endTurnWouldKillUs(lethal), "5 血挨 10 -> 会死");
+
+        SimState blocked = state(3, 5);
+        blocked.monsters.get(0).intentDmg = 10;
+        blocked.block = 8;
+        assertFalse(AutoPilot.endTurnWouldKillUs(blocked), "8 格挡之后只掉 2 -> 不会死");
+
+        SimState safe = state(3, 40);
+        safe.monsters.get(0).intentDmg = 10;
+        assertFalse(AutoPilot.endTurnWouldKillUs(safe));
+        assertFalse(AutoPilot.endTurnWouldKillUs(null), "拿不到局面就不拦");
+    }
+
     /** 回合翻页只把预览标成陈旧（用户报的「每回合闪一下」就是以前直接清空）。 */
     @Test
     void clearingThePlanKeepsThePreviewForDisplay() {

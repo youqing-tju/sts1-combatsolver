@@ -91,6 +91,13 @@ public final class AsyncSearch {
          * 而是停掉 AUTO、把操作权交还玩家（蓝本 {@code StopFullAutoOnDeathTurn}，默认开）。
          */
         public final int deathTurn;
+        /**
+         * 这条路线**能不能活下来**（蓝本 {@code Survives}）。
+         *
+         * <p>{@code false} = 搜索里根本没有生还路线。按用户规则，这种时候**禁止自动出牌**，
+         * 交还控制并显示原因 —— 不许「反正都是死，随便打一条」。
+         */
+        public final boolean survives;
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit) {
@@ -110,7 +117,7 @@ public final class AsyncSearch {
                String noveltyStop) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
                     hitNodeLimit, false, noveltyStop == null ? "off" : noveltyStop,
-                    "", "", ContinuationPlan.empty(), 0L, -1);
+                    "", "", ContinuationPlan.empty(), 0L, -1, false);
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
@@ -118,7 +125,7 @@ public final class AsyncSearch {
                boolean failed, String noveltyStop) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
                     hitNodeLimit, failed, noveltyStop, "", "",
-                    ContinuationPlan.empty(), 0L, -1);
+                    ContinuationPlan.empty(), 0L, -1, false);
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
@@ -126,13 +133,14 @@ public final class AsyncSearch {
                boolean failed, String noveltyStop, String portfolioAdopted) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
                     hitNodeLimit, failed, noveltyStop, portfolioAdopted, "",
-                    ContinuationPlan.empty(), 0L, -1);
+                    ContinuationPlan.empty(), 0L, -1, false);
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
                boolean failed, String noveltyStop, String portfolioAdopted, String stopReason,
-               ContinuationPlan continuations, long policyRevision, int deathTurn) {
+               ContinuationPlan continuations, long policyRevision, int deathTurn,
+               boolean survives) {
             this.fingerprint = fingerprint;
             this.stopReason = stopReason == null ? "" : stopReason;
             this.action = action;
@@ -151,6 +159,7 @@ public final class AsyncSearch {
                     ? ContinuationPlan.empty() : continuations;
             this.policyRevision = policyRevision;
             this.deathTurn = deathTurn;
+            this.survives = survives;
         }
     }
 
@@ -257,7 +266,8 @@ public final class AsyncSearch {
                         solver.lastDepth, solver.lastMillis, solver.lastLeaves,
                         solver.lastSteps, nodeLimit, solver.hitNodeLimit, false,
                         solver.lastNoveltyStop, solver.lastPortfolioAdopted, solver.lastStopReason,
-                        solver.lastContinuations, policyRevision, solver.lastDeathTurn);
+                        solver.lastContinuations, policyRevision, solver.lastDeathTurn,
+                        solver.lastSelectedSurvives);
             } catch (Throwable t) {
                 Trace.error("background search failed", t);
                 result = new Result(fingerprint, null, 0, 0, 0, 0, 0,
