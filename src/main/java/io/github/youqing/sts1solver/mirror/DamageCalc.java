@@ -182,7 +182,6 @@ public final class DamageCalc {
         applyThorns(state, target);
         applyMalleable(target);
         maybeRerollCompulsive(state, target, damage);
-        maybeAwaken(target);
     }
 
     /**
@@ -432,6 +431,11 @@ public final class DamageCalc {
         if (hpBefore > 0 && target.hp <= 0 && target.stolenGold > 0) {
             target.stolenGold = 0;
         }
+        // 觉醒者换形态：**所有**扣血路径都要过这一关（原版写在 AwakenedOne.damage 里，
+        // 不管伤害来自卡牌、AoE 循环、荆棘反伤还是毒）。以前只挂在 hit()，
+        // 于是 AoE（Effects 里直接调 hitAndReturnDealt）打死它时会被当成真死 ——
+        // 搜索当场判「全灭 = 胜利」提前收工（真机 2026-11-01：`stop=victory`, 6533/500000 节点, 406ms）。
+        maybeAwaken(target);
         return remaining;
     }
 

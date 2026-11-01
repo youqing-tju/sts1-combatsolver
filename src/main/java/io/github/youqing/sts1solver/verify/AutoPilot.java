@@ -218,10 +218,35 @@ public final class AutoPilot {
      * 就是「hp - max(0, 来袭 - 格挡)」，和蓝本 {@code ProjectedPlayerHp} 同一口径。
      */
     static boolean endTurnWouldKillUs(io.github.youqing.sts1solver.sim.SimState live) {
+        return endTurnWouldKillUs(live, 5);
+    }
+
+    /**
+     * 回合末风险：**真的把这一回合推演一遍**，看推演完玩家是不是死了。
+     *
+     * <p>为什么不再用 {@code projectedHpOf} 那个一阶估计：它只看「血量 − (来袭 − 格挡)」，
+     * 于是**死亡豁免完全没被算进去** —— 2026-11-01 真机：身上有蜥蜴尾巴、血量 1，
+     * 闸门判「会死」，把控制交还了，可实际上尾巴会把人拉回来。
+     * 蓝本的 {@code LiveEndTurnRiskEvaluator} 也是跑一遍 {@code SimulatedCombatState}
+     * 的回合末流程再读血量，不是拿意图数字做减法。
+     *
+     * <p>推演走 {@code CombatFlow.endTurn}（和搜索同一个引擎），所以死亡豁免、多段、
+     * 易伤、回合末能力/遗物全部按真实规则结算。推不动（未知牌/异常）才退回一阶估计。
+     */
+    static boolean endTurnWouldKillUs(io.github.youqing.sts1solver.sim.SimState live,
+                                      int handSize) {
         if (live == null) {
             return false;
         }
-        return io.github.youqing.sts1solver.search.Score.projectedHpOf(live) <= 0;
+        try {
+            io.github.youqing.sts1solver.sim.SimState copy = live.copy();
+            io.github.youqing.sts1solver.sim.CombatFlow.endTurn(
+                    copy, copy.energyPerTurnOrEnergy(), handSize);
+            return copy.hp <= 0;
+        } catch (Throwable t) {
+            Trace.warn("live end-turn simulation failed, falling back to projection: " + t);
+            return io.github.youqing.sts1solver.search.Score.projectedHpOf(live) <= 0;
+        }
     }
 
     /** 面板上的交还控制提示（与蓝本措辞对齐：{@code 已暂停执行 / 第 N 回合 预计死亡}）。 */
@@ -519,7 +544,7 @@ public final class AutoPilot {
                 }
                 Trace.info("AUTO end turn (no living monster but the fight is not over:"
                         + " half-dead / revive pending)");
-                if (stopIfEndTurnWouldKill()) {
+                if (stopIfEndTurnWouldKill(player)) {
                     return;
                 }
                 requestEndTurn(player);
@@ -540,7 +565,7 @@ public final class AutoPilot {
                 } else {
                     Trace.info("AUTO end turn (search says end)  " + describeHand(player));
                 }
-                if (stopIfEndTurnWouldKill()) {
+                if (stopIfEndTurnWouldKill(player)) {
                     return;
                 }
                 requestEndTurn(player);
@@ -556,7 +581,7 @@ public final class AutoPilot {
                     return;
                 }
                 Trace.info("AUTO end turn (nothing playable)  " + describeHand(player));
-                if (stopIfEndTurnWouldKill()) {
+                if (stopIfEndTurnWouldKill(player)) {
                     return;
                 }
                 requestEndTurn(player);
@@ -576,11 +601,12 @@ public final class AutoPilot {
      * （意图、力量、虚弱都会改口）。蓝本因此在**真的结束回合之前**用实机局面重算一次。
      * 这一枪是**不花搜索预算**的安全网。
      */
-    private static boolean stopIfEndTurnWouldKill() {
+    private static boolean stopIfEndTurnWouldKill(AbstractPlayer player) {
         try {
             io.github.youqing.sts1solver.sim.SimState live =
                     io.github.youqing.sts1solver.sim.SimState.capture();
-            if (!endTurnWouldKillUs(live)) {
+            int handSize = player == null ? 5 : player.gameHandSize;
+            if (!endTurnWouldKillUs(live, handSize)) {
                 return false;
             }
             int incoming = 0;

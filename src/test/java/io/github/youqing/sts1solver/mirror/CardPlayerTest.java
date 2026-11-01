@@ -574,6 +574,34 @@ class CardPlayerTest {
      * <p>2026-11-01 真机失配原文：
      * {@code hand(unordered)[3]: Wound+(-2) vs Wound(-2)}、{@code draw[5]: CurseOfTheBell+ vs CurseOfTheBell}。
      */
+    /**
+     * 觉醒者被 **AoE / 荆棘 / 毒**（走 {@code hitAndReturnDealt}、不经 {@code hit()}）打空血时，
+     * 也必须进入「半死 → 下回合 REBIRTH」而不是真死。
+     *
+     * <p>2026-11-01 真机：搜索在 6533/500000 节点、406ms 就以 {@code stop=victory} 收工 ——
+     * 因为它把觉醒者按普通怪直接判死了。原版写在 {@code AwakenedOne.damage} 里，
+     * 与伤害来源无关。
+     */
+    @Test
+    void awakenedOneGoesHalfDeadWhateverKilledIt() {
+        SimState s = new SimState();
+        s.hp = 50;
+        s.maxHp = 80;
+        io.github.youqing.sts1solver.sim.SimMonster boss =
+                new io.github.youqing.sts1solver.sim.SimMonster("AwakenedOne", 5, 300, 0,
+                        new java.util.TreeMap<String, Integer>());
+        boss.powers.put("Unawakened", Integer.valueOf(-1));
+        s.monsters.add(boss);
+
+        io.github.youqing.sts1solver.mirror.DamageCalc.hitAndReturnDealt(s, boss, 999);
+
+        assertEquals(1, boss.hp, "半死：血留 1，不是 0（0 会被当尸体跳过）");
+        assertTrue(boss.powers.containsKey("Half Dead"));
+        org.junit.jupiter.api.Assertions.assertFalse(boss.powers.containsKey("Unawakened"),
+                "Unawakened 已摘掉 = 已经在二形态路上");
+        assertEquals(3, boss.pendingMoveId, "下一招被钉成 REBIRTH(3)");
+    }
+
     @Test
     void apotheosisSkipsStatusesAndCurses() {
         SimState s = combat("Apotheosis", "Strike_R");

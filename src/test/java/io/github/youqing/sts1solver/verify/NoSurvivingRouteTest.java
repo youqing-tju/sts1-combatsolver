@@ -141,6 +141,34 @@ class NoSurvivingRouteTest {
         assertFalse(AutoPilot.endTurnWouldKillUs(safe));
     }
 
+    /**
+     * 有蜥蜴尾巴（死亡豁免）时**不算会死** —— 闸门必须按真实规则推演一遍，不能只看血量减法。
+     *
+     * <p>2026-11-01 真机：1 血、身上有尾巴，闸门判「会死」→ 交还控制；
+     * 可实际上尾巴会把人拉回 50% 血。原版 {@code AbstractPlayer.damage} 的救命分支
+     * （蜥蜴尾巴 / 瓶中仙子）在仿真里已经建模（{@code DeathSaveRelic}），
+     * 所以只要闸门走一遍 {@code CombatFlow.endTurn} 就能得到正确答案。
+     */
+    @Test
+    void deathSaveRelicTurnsTheLethalVerdictIntoSurvival() {
+        SimState lethal = state(6, 1);
+        lethal.maxHp = 80;
+        lethal.block = 0;
+        lethal.monsters.get(0).intentDmg = 30;
+
+        assertTrue(AutoPilot.endTurnWouldKillUs(lethal), "没有尾巴时：1 血挨 30 -> 死");
+
+        SimState withTail = lethal.copy();
+        withTail.relics.put("Lizard Tail", Integer.valueOf(-1));
+        assertFalse(AutoPilot.endTurnWouldKillUs(withTail),
+                "有蜥蜴尾巴就该判「不会死」——尾巴会把人拉回 50% 血");
+
+        SimState tailSpent = withTail.copy();
+        tailSpent.deathSaveUsed = true;
+        assertTrue(AutoPilot.endTurnWouldKillUs(tailSpent),
+                "尾巴已经用掉了就不再有豁免，照旧判死");
+    }
+
     /** 回合翻页只把预览标成陈旧（用户报的「每回合闪一下」就是以前直接清空）。 */
     @Test
     void clearingThePlanKeepsThePreviewForDisplay() {
