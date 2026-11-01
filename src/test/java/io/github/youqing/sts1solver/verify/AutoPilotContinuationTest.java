@@ -210,40 +210,43 @@ class AutoPilotContinuationTest {
     void combatResetClearsContinuation() {
         FakeRoute route = new FakeRoute();
         AutoPilot.installRoute(route.steps, 1, route.plan, 0);
-        AutoPilot.armBoundedTarget(3, 1);
 
         AutoPilot.reset();
 
         assertFalse(AutoPilot.reuseContinuation(2, route.t2, 0), "换战斗后旧世界线必须失效");
-        assertEquals(-1, AutoPilot.stopAfterTurn(), "战斗边界也要清停止目标");
+        assertTrue(AutoPilot.pendingSteps().isEmpty(), "执行队列也要清空");
     }
 
+    /**
+     * 续跑命中之后，队列只剩「本回合及以后」——这是蓝本 {@code TryCreateContinuation}
+     * 的语义（保留原 best route，按 StartTurnNumber 切掉本回合之前的动作）。
+     */
     @Test
-    void boundedTargetStillStopsAfterTargetEnemyPhaseOnReuse() {
+    void reuseKeepsOnlyCurrentAndLaterTurns() {
         FakeRoute route = new FakeRoute();
         AutoPilot.installRoute(route.steps, 1, route.plan, 0);
-        assertTrue(AutoPilot.armBoundedTarget(3, 1));
 
-        assertTrue(AutoPilot.reuseContinuation(2, route.t2, 0), "T2 应当命中续跑");
+        assertTrue(AutoPilot.reuseContinuation(2, route.t2, 0));
+        assertEquals(route.steps.size() - 2, AutoPilot.pendingSteps().size(),
+                "T1 的两步（出牌 + END_TURN）已经执行过，队列里不该再有");
 
-        assertEquals(3, AutoPilot.stopAfterTurn(), "续跑不许清掉有界目标");
-        assertFalse(AutoPilot.shouldStopAt(2), "T2 还在目标内");
-        assertFalse(AutoPilot.shouldStopAt(3),
-                "T3 的 END_TURN 与敌方阶段要先跑完，停在 T3 是「停早半回合」");
-        assertTrue(AutoPilot.shouldStopAt(4), "进了 T4 才交还控制");
+        assertTrue(AutoPilot.reuseContinuation(3, route.t3, 0));
+        assertEquals(route.steps.size() - 4, AutoPilot.pendingSteps().size());
     }
 
+    /**
+     * 重算之后，旧世界线的缓存必须真的失效 —— 否则下一帧会拿半条缓存去续，
+     * 执行出一条搜索从未推荐过的路。
+     */
     @Test
-    void reuseMissDoesNotClearBoundedTarget() {
+    void reuseMissInvalidatesTheWorldlineForGood() {
         FakeRoute route = new FakeRoute();
         AutoPilot.installRoute(route.steps, 1, route.plan, 0);
-        assertTrue(AutoPilot.armBoundedTarget(3, 1));
 
         assertFalse(AutoPilot.reuseContinuation(2, ContinuationStamp.from(state(2, 47)), 0),
                 "状态对不上当然要重搜");
 
-        assertEquals(3, AutoPilot.stopAfterTurn(), "重搜不许清掉有界目标");
-        // miss 会把这条世界线的缓存清掉：下一帧再问一次仍是 miss，不会拿半条缓存去续
-        assertFalse(AutoPilot.reuseContinuation(2, route.t2, 0));
+        assertFalse(AutoPilot.reuseContinuation(2, route.t2, 0),
+                "miss 已把这条世界线的缓存清掉，不许「再问一次就成了」");
     }
 }

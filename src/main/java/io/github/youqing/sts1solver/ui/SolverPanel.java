@@ -341,9 +341,9 @@ public final class SolverPanel {
             if (summary != null && !summary.isEmpty()) {
                 out.add(new Row(summary, new Color(0.92f, 0.86f, 0.6f, 1f), false));
             }
-            // 行号来自预览里的**绝对**回合（T4/T5），不再从剩余队列现场编号（那会写成 T1/T2）
+            // 行号来自预览里的**绝对**回合（T4/T5），不再从剩余队列现场编号（那会写成 T1/T2）。
+            // 这些行是**只读**的：蓝本的路线行 MouseFilter = Ignore，没有任何「点 Tn 打到 Tn」的入口。
             RouteStep next = AutoPilot.nextRouteStep();
-            int targetTurn = AutoPilot.stopAfterTurn();
             int total = preview.turns().size();
             int shown = Math.min(planRowLimit, total);
             for (int i = 0; i < shown; i++) {
@@ -352,22 +352,15 @@ public final class SolverPanel {
                 if (stale) {
                     // 重算期间：路线留在原地但整体变灰，用户知道「这不是最新的」
                     color = new Color(0.50f, 0.52f, 0.58f, 1f);
-                } else if (!turn.canTarget()) {
-                    // 没有 END_TURN 的尾行：不能承诺「打完此回合」，所以暗色且不可点
+                } else if (!turn.endsTurn()) {
+                    // 没有 END_TURN 的尾行：这条路线没把这个回合走完，暗色提示「未收敛」
                     color = new Color(0.45f, 0.48f, 0.55f, 1f);
                 } else if (i == 0) {
                     color = new Color(0.75f, 0.92f, 1f, 1f);
                 } else {
                     color = new Color(0.55f, 0.68f, 0.82f, 1f);
                 }
-                String text = turn.text(next);
-                if (targetTurn >= 0 && targetTurn == turn.absoluteTurn()) {
-                    // 当前目标行：金色 + ◎，与状态区的 AUTO → Tn 对应
-                    text = "◎ " + text;
-                    color = new Color(1f, 0.84f, 0.35f, 1f);
-                }
-                out.add(new Row(text, color, false, Row.Kind.ROUTE,
-                        turn.absoluteTurn(), turn.canTarget() && !stale));
+                out.add(new Row(turn.text(next), color, false));
             }
             if (total > shown) {
                 out.add(new Row("… 还有 " + (total - shown) + " 回合（面板高度上限）",
@@ -397,26 +390,9 @@ public final class SolverPanel {
         return out.toArray(new Row[0]);
     }
 
-    /**
-     * 状态行里的 AUTO 文案。
-     *
-     * <p>有界 AUTO 必须<b>明说</b>「逐回合校验」：预览不是执行承诺 —— 真机状态与预测
-     * 逐字段相等才沿这条路线继续，对不上就重搜。写「每回合重算」已经不符合实际行为
-     * （续跑命中时根本不搜索）。预览被清空时也不能把目标藏起来，否则用户会以为任务丢了。
-     */
+    /** 状态行里的 AUTO 文案（蓝本只有 FullAuto 开/关两个状态）。 */
     private static String autoLabel() {
-        int target = AutoPilot.stopAfterTurn();
-        if (!AutoPilot.enabled()) {
-            return "AUTO OFF";
-        }
-        if (target < 0) {
-            return "AUTO ON";
-        }
-        RoutePreview preview = AutoPilot.routePreview();
-        boolean hasRows = preview != null && !preview.turns().isEmpty();
-        return hasRows
-                ? "AUTO → T" + target + "（逐回合校验）"
-                : "AUTO → T" + target + " · 重算中";
+        return AutoPilot.enabled() ? "AUTO ON" : "AUTO OFF";
     }
 
     /**
@@ -431,7 +407,7 @@ public final class SolverPanel {
                 ? "策略（药水可点 · 遗物/成长只读） [-]"
                 : "策略（药水可点） [+]",
                 new Color(0.86f, 0.78f, 0.62f, 1f), false,
-                Row.Kind.STRATEGY_TOGGLE, -1, true));
+                Row.Kind.STRATEGY_TOGGLE, true, -1, null));
         if (!strategyExpanded) {
             return;
         }
@@ -473,12 +449,10 @@ public final class SolverPanel {
 
         /** 行的种类。{@code TEXT} 只画不点；其余是可点区域。 */
         enum Kind {
-            /** 纯文本行。 */
+            /** 纯文本行（路线预览也走这一类：蓝本的路线行不可点）。 */
             TEXT,
             /** 「策略现状（只读）」折叠标题。 */
             STRATEGY_TOGGLE,
-            /** 路线预览的一行（绝对回合号，下一刀接执行）。 */
-            ROUTE,
             /** 药水区的一行：**真实控件**（点击循环 Smart → Disabled → Force）。 */
             POTION
         }
@@ -487,9 +461,7 @@ public final class SolverPanel {
         final Color color;
         final boolean title;
         final Kind kind;
-        /** 这行指向的绝对回合号；非 ROUTE 行为 -1。 */
-        final int targetTurn;
-        /** 这一行现在能不能点（没有 END_TURN 的尾行不能承诺「打完此回合」）。 */
+        /** 这一行现在能不能点（只有药水控件会用到）。 */
         final boolean clickable;
         /** 药水行的目标槽位（**0 基**，与策略键一致）；非 POTION 行为 -1。 */
         final int potionSlot;
@@ -497,26 +469,15 @@ public final class SolverPanel {
         final String potionId;
 
         Row(String text, Color color, boolean title) {
-            this(text, color, title, Kind.TEXT, -1, false, -1, null);
-        }
-
-        Row(String text, Color color, boolean title, Kind kind, int targetTurn,
-            boolean clickable) {
-            this(text, color, title, kind, targetTurn, clickable, -1, null);
+            this(text, color, title, Kind.TEXT, false, -1, null);
         }
 
         Row(String text, Color color, boolean title, Kind kind, boolean clickable,
             int potionSlot, String potionId) {
-            this(text, color, title, kind, -1, clickable, potionSlot, potionId);
-        }
-
-        Row(String text, Color color, boolean title, Kind kind, int targetTurn,
-            boolean clickable, int potionSlot, String potionId) {
             this.text = text;
             this.color = color;
             this.title = title;
             this.kind = kind;
-            this.targetTurn = targetTurn;
             this.clickable = clickable;
             this.potionSlot = potionSlot;
             this.potionId = potionId;
@@ -799,22 +760,6 @@ public final class SolverPanel {
                 } else {
                     Trace.info("panel potion row " + row.potionSlot + " not clickable"
                             + " (AUTO deploying or non-searchable potion)");
-                }
-                layoutDirty = true;
-                ensureLayout();
-                return true;
-            }
-            if (row.kind == Row.Kind.ROUTE) {
-                // 不可点的行（没有 END_TURN 的尾行、或预览已过期）也**吃掉**这次点击：
-                // 让它落到下面的按钮/拖拽上才是真正的事故。
-                if (!row.clickable || row.targetTurn < AutoPilot.currentTurn()) {
-                    Trace.info("panel route row T" + row.targetTurn + " not targetable"
-                            + " (clickable=" + row.clickable + ")");
-                    return true;
-                }
-                // 执行层会再校验一次真实回合（不能只信 UI 的行数据）
-                if (AutoPilot.runUntil(row.targetTurn)) {
-                    Trace.info("panel route row T" + row.targetTurn + " -> bounded AUTO");
                 }
                 layoutDirty = true;
                 ensureLayout();

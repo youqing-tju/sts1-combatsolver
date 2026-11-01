@@ -37,14 +37,6 @@ public final class AutoPilot {
     private static int cooldown;
 
     /**
-     * 有界 AUTO 的停止边界（{@code -1} = 无界）。
-     *
-     * <p>语义是「打完 Tn 的 END_TURN 与随后敌方阶段，在 Tn+1 玩家回合交还控制」，
-     * 与「照哪条路线打」无关：重算、漂移、喝药都不会清它。
-     */
-    private static final BoundedAutoTarget boundedTarget = new BoundedAutoTarget();
-
-    /**
      * 防重复入队：记住**刚入队的那个卡牌对象本身**。
      *
      * <p>⚠️ 不能用牌名判断。实测：烧牌契约打完后，枯木树枝又会塞回一张同名牌，
@@ -136,8 +128,6 @@ public final class AutoPilot {
         preview = null;
         previewStale = false;
         planSummary = "";
-        // 下一场绝不继承上一场的停止目标（战斗提前胜利/死亡/离开房间都走这里）
-        boundedTarget.clear();
         framesWaitingForPlan = 0;
         reportedMissingMirrors.clear();
         strategySnapshotDirty = false;
@@ -153,16 +143,14 @@ public final class AutoPilot {
             stopAuto("toggled off");
             return;
         }
-        // 手动开启的是**无界** AUTO：只有点路线行才会设置停止目标（见 runUntil）
         prepareEnable();
-        Trace.info("AUTO ON (unbounded)");
+        Trace.info("AUTO ON");
     }
 
     /**
      * 开启 AUTO 前的统一清理。
      *
-     * <p>手动 {@link #toggle()} 与 {@link #runUntil(int)} 必须清同一批东西：
-     * 不清的话上一轮残留的「刚入队的那张牌 / 连续无进展计数」会让新一次开启
+     * <p>不清的话上一轮残留的「刚入队的那张牌 / 连续无进展计数」会让新一次开启
      * 立刻误判卡死（实测：一开就自己关掉）。
      */
     private static void prepareEnable() {
@@ -176,20 +164,11 @@ public final class AutoPilot {
     /**
      * **唯一**关闭 AUTO 的出口。
      *
-     * <p>所有路径（手动按钮、异常、连续卡死、无进展、有界任务完成）都走这里，
-     * 保证「有界目标」不会被下一次开启莫名继承。少绕一处就会出现
-     * 「上一场点到 T7，这一场开 AUTO 打到 T7 自己停了」这种无法解释的行为。
+     * <p>所有路径（手动按钮、异常、连续卡死、无进展、预计死亡、部署漂移）都走这里。
      */
     private static void stopAuto(String reason) {
         boolean wasEnabled = enabled;
-        boolean hadTarget = boundedTarget.isActive();
-        int target = boundedTarget.targetTurn();
         enabled = false;
-        boundedTarget.clear();
-        if (hadTarget) {
-            panelRevision++;      // 目标高亮/状态文案要跟着消失
-            Trace.info("AUTO bounded target T" + target + " cleared (" + reason + ")");
-        }
         if (wasEnabled) {
             Trace.info("AUTO OFF (" + reason + ")");
         }
@@ -199,66 +178,7 @@ public final class AutoPilot {
         stopAuto("disabled");
     }
 
-    // ------------------------------------------------------- 有界 AUTO（打到 Tn）
-
-    /**
-     * 「AUTO 打到 {@code targetTurn} 这一回合末就停」。
-     *
-     * <p>⚠️ 这是**项目自定义扩展**，不是蓝本的 {@code ApplyRoute} / {@code AdoptRoute}：
-     * 蓝本根本没有 {@code ApplyRoute}，它的路线行 {@code MouseFilter = Ignore}（不可点）。
-     * 我们只设置一个<b>绝对停止回合</b>，不冻结路线、不按旧预测跨回合照打 ——
-     * 每回合按真局面**校验**（逐字段相等就续跑、否则重搜），停的边界由用户指定。
-     *
-     * <p>行为（对应设计 §5.2）：
-     * <ol>
-     *   <li>读主线程真实回合；{@code targetTurn} 小于当前回合 = 过期目标 → 不改任何状态，返回 false；</li>
-     *   <li>AUTO 已开：保留开启，替换目标；</li>
-     *   <li>AUTO 未开：按 {@link #prepareEnable()} 开启（<b>不</b>调 toggle()，避免翻转歧义）；</li>
-     *   <li>不取消正在跑的 {@code AsyncSearch}：点击路线不等于撤回搜索。</li>
-     * </ol>
-     *
-     * <p>入口自己重新校验，不能只信任 UI —— 面板行可能来自已经过期的预览。
-     *
-     * @return true = 目标已生效
-     */
-    public static boolean runUntil(int targetTurn) {
-        int turnNow = currentTurn();
-        if (!armBoundedTarget(targetTurn, turnNow)) {
-            Trace.warn("AUTO bounded request rejected: target=T" + targetTurn
-                    + " current=T" + turnNow + " (stale target or invalid turn)");
-            return false;
-        }
-        boolean alreadyOn = enabled;
-        if (!alreadyOn) {
-            prepareEnable();
-        }
-        panelRevision++;          // 状态文案与目标行高亮要重排
-        Trace.info("AUTO bounded start target=T" + targetTurn + " current=T" + turnNow
-                + (alreadyOn ? "  (already on, target replaced)" : ""));
-        return true;
-    }
-
-    /**
-     * 有界 AUTO 的目标回合；普通无界 AUTO 返回 {@code -1}。
-     *
-     * <p>面板据此写 {@code AUTO → Tn（逐回合校验）}。注意它<b>不</b>代表
-     * 「路线已冻结」：对不上就重搜，预览可能被清空，但目标本身不变。
-     */
-    public static int stopAfterTurn() {
-        return boundedTarget.targetTurn();
-    }
-
-    /** 装填停止目标（{@code current} 由调用方给，便于脱离真机测试）。 */
-    static boolean armBoundedTarget(int targetTurn, int current) {
-        return boundedTarget.request(targetTurn, current);
-    }
-
-    /** 这个回合是否已经越过停止目标（tick 与单测共用同一条判据）。 */
-    static boolean shouldStopAt(int turnNow) {
-        return boundedTarget.shouldStop(turnNow);
-    }
-
-    // ------------------------------------------------- 无生还路线：交还控制（蓝本同款）
+    // ------------------------------------- 蓝本的两道停手闸（DeathTurn / LiveRisk）
 
     /**
      * 这条路线的**预计死亡回合**是否就是当前回合。
@@ -472,21 +392,6 @@ public final class AutoPilot {
         // 已经请求过结束回合：等到回合号翻页，期间什么都不做，
         // 否则会在敌方行动还没走完时再点一次结束，怪物一回合动两次。
         if (waitingForNextTurn()) {
-            return;
-        }
-        // 🔴 有界 AUTO 的停止点。
-        //
-        // 位置是三处约束的交点，挪任何一个都会出真机问题：
-        //   ① 必须在 waitingForNextTurn() **之后** —— Tn 的 END_TURN 一入队就停的话，
-        //      敌方阶段还没打完，等于把这个回合劈成两半，怪物行动归属说不清；
-        //   ② 必须在任何搜索 / 出牌 / 喝药 / END_TURN **之前** —— 晚一步就会在 Tn+1 多打一手，
-        //      用户看到的是「说了停在 Tn，结果多打了一张」；
-        //   ③ 不能只放在回合变化清计划处 —— 那里可能继续本 tick 出牌。
-        if (shouldStopAt(turnNow)) {
-            int stoppedAt = boundedTarget.targetTurn();
-            stopAuto("bounded complete");
-            Trace.info("AUTO bounded stop after T" + stoppedAt
-                    + "; control returned at T" + turnNow);
             return;
         }
         if (queuedCard != null) {

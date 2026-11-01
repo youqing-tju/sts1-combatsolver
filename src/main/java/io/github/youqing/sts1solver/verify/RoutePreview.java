@@ -24,7 +24,8 @@ import io.github.youqing.sts1solver.search.RouteStep;
  * <p>⚠️ 它不是「执行承诺」，但也不是「每回合都会重算」：满不满足续跑由
  * {@code ContinuationPlan} 的**精确状态文本**决定 —— 真机状态与上一回合预测逐字段相等时
  * 沿这条路线继续（{@code SEARCH_REUSED}），只有对不上才重搜（{@code SEARCH_REUSE_MISS}）。
- * 蓝本的「冻结路线」（{@code AdoptRoute}）仍然没有实现：我们不冻结，每回合都校验。
+ * 蓝本的「冻结路线」（{@code RouteFrozen}）本轮没有复刻，所以这里也没有与之配套的交互：
+ * 路线行只读，不可点。
  */
 public final class RoutePreview {
 
@@ -62,8 +63,8 @@ public final class RoutePreview {
                 }
             }
         }
-        // 末尾没被 END_TURN 收尾的步骤 = 一条「打完也不知道能否撑到这里」的尾行：
-        // 它不能作为「打完此回合」的目标（canTarget = false）。
+        // 末尾没被 END_TURN 收尾的步骤 = 一条「没走到回合末」的尾行：显示上画暗色，
+        // 表示这份计划在这个回合没有收敛（不是「可以打到这里的按钮」）。
         if (!actions.isEmpty()) {
             out.add(new Turn(turn, false, actions));
         }
@@ -94,12 +95,12 @@ public final class RoutePreview {
         }
 
         /**
-         * 这一行能不能作为「AUTO 打到这个回合末」的目标。
+         * 这一行在计划里是否走到了回合末（以 {@code END_TURN} 收尾）。
          *
-         * <p>只有带 {@code END_TURN} 的回合才算 —— 否则「打完 Tn」这件事在计划里没有终点，
-         * 点它等于承诺一个我们并不知道的回合边界。
+         * <p>只影响显示（未收敛的尾行画暗色）：蓝本的路线行不可点，
+         * 没有「打到这一回合末」这种控制入口。
          */
-        public boolean canTarget() {
+        public boolean endsTurn() {
             return hasEndTurn;
         }
 

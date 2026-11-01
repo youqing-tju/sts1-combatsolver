@@ -33,13 +33,21 @@ class RoutePreviewTest {
         assertEquals("T5 ▸ Defend", preview.turns().get(1).text(null));
     }
 
+    /**
+     * 没有 END_TURN 收尾的尾行照样要显示（它是这条路线的一部分），只是标成「没走到回合末」。
+     *
+     * <p>这里刻意不提供「点这一行打到这里的」语义：蓝本的路线行 {@code MouseFilter = Ignore}，
+     * 没有任何以路线行为入口的停止控制。
+     */
     @Test
-    void onlyTurnWithEndTurnCanBeTargeted() {
+    void trailingTurnWithoutEndTurnIsRenderedButNotConverged() {
         RoutePreview preview = RoutePreview.fromSteps(2,
                 Arrays.asList(card("Strike"), end(), card("Defend")));
 
-        assertTrue(preview.turns().get(0).canTarget());
-        assertFalse(preview.turns().get(1).canTarget());
+        assertEquals(2, preview.turns().size());
+        assertTrue(preview.turns().get(0).endsTurn(), "T2 以 END_TURN 收尾 = 本回合走完");
+        assertFalse(preview.turns().get(1).endsTurn(), "T3 没有 END_TURN = 计划没走到回合末");
+        assertEquals("T3 ▸ Defend", preview.turns().get(1).text(null));
     }
 
     @Test

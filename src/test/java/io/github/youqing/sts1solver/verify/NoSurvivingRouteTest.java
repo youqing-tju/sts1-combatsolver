@@ -66,15 +66,16 @@ class NoSurvivingRouteTest {
     }
 
     @Test
-    void applyingTheStopTurnsAutoOffAndClearsTheTarget() {
+    void applyingTheStopTurnsAutoOff() {
         AutoPilot.toggle();                          // 打开 AUTO（纯标志位）
-        assertTrue(AutoPilot.armBoundedTarget(6, 1));
         assertTrue(AutoPilot.enabled());
+        AutoPilot.installRoute(java.util.Collections.<RouteStep>emptyList(), 1,
+                ContinuationPlan.empty(), 0);
 
         assertTrue(AutoPilot.applyDeathTurnStop(6, 6));
 
         assertFalse(AutoPilot.enabled(), "预计本回合死亡必须停手，不能继续自动打");
-        assertEquals(-1, AutoPilot.stopAfterTurn(), "停手同时交还停止目标");
+        assertTrue(AutoPilot.pendingSteps().isEmpty(), "停手同时清掉执行队列");
     }
 
     @Test

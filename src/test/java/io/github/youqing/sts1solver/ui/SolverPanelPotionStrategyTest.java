@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>为什么不直接实例化 {@code SolverPanel}：它一被加载就会碰 libgdx / {@code AbstractDungeon}
  * 这类真机对象，单测里起不来。所以把「显示什么、能不能点、点完变什么」抽成
- * {@link PotionStrategyRows}，面板只做渲染与命中转发 —— 与 {@code BoundedAutoTarget} 同一手法。
+ * {@link PotionStrategyRows}，面板只做渲染与命中转发。
  */
 class SolverPanelPotionStrategyTest {
 
