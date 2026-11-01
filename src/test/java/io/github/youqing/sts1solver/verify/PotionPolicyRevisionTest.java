@@ -96,10 +96,10 @@ class PotionPolicyRevisionTest {
     @Test
     void directiveChangeClearsContinuationAndRequestsManualSearch() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
         assertTrue(AutoPilot.reuseContinuation(2, route.t2, 0));
 
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
         SolverConfig.toggleAutoStart();            // 打开「自动计算」
         long before = AutoPilot.policyRevision();
         try {
@@ -177,7 +177,7 @@ class PotionPolicyRevisionTest {
     @Test
     void changingPolicyPreventsOldContinuationReuse() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
 
         assertTrue(AutoPilot.cyclePotionDirective(0, "Fire Potion"));
 

@@ -84,20 +84,24 @@ class NoSurvivingRouteTest {
         assertTrue(AutoPilot.enabled(), "还没到那一回合，不该停");
     }
 
-    /** 用户规则：没有生还路线 -> 禁止自动出牌（蓝本没有这一条，属于项目自定义，见审计表）。 */
+    /**
+     * 蓝本只在两种情况下停手：{@code DeathTurn == 本回合}（{@code StopFullAutoOnDeathTurn}）
+     * 和回合末实时风险投影会死（{@code StopFullAutoOnLiveRiskDeath}）。
+     *
+     * <p>{@code Survives=false} **不是**停手条件 —— 它只是 {@code FinalPlanOrdering.cs:250-252}
+     * 的一个排序键（没赢的话活着的排前面）。以前这里额外造了一道「无生还就禁止出牌」的闸，
+     * 蓝本没有，已按纠偏计划移除；这条测试钉住「不许把它加回来」。
+     */
     @Test
-    void noSurvivingRouteStopsAutoPlay() {
+    void noSurvivingRouteDoesNotInventDeploymentBan() {
         AutoPilot.toggle();
         assertTrue(AutoPilot.enabled());
 
-        assertTrue(AutoPilot.applyNoSurvivingRouteStop(false));
-        assertFalse(AutoPilot.enabled(), "没有生还路线就不许继续自动出牌");
-        assertTrue(AutoPilot.noSurvivingNotice().contains("未找到生还路线"),
-                AutoPilot.noSurvivingNotice());
-
-        AutoPilot.toggle();
-        assertFalse(AutoPilot.applyNoSurvivingRouteStop(true), "有生还路线就不拦");
-        assertTrue(AutoPilot.enabled());
+        // 路线预计第 5 回合死，而现在才第 3 回合：蓝本照样部署（Deploy the plan）
+        assertFalse(AutoPilot.applyDeathTurnStop(5, 3),
+                "只有「本回合就死」才拦，更晚的死亡不拦");
+        assertTrue(AutoPilot.enabled(),
+                "Survives=false 不构成停手条件：蓝本没有「无生还路线禁止出牌」这道闸");
     }
 
     /** 蓝本 LiveEndTurnRiskEvaluator 的等价物：投影会死就不许结束回合。 */
@@ -127,7 +131,7 @@ class NoSurvivingRouteTest {
         List<RouteStep> steps = new ArrayList<RouteStep>();
         steps.add(new RouteStep(false, "Strike_R", 0, -1));
 
-        AutoPilot.adoptPlan(steps, 1, ContinuationPlan.empty(), 0);
+        AutoPilot.installRoute(steps, 1, ContinuationPlan.empty(), 0);
         assertFalse(AutoPilot.routePreviewStale(), "刚采纳的路线是最新的");
         assertNotNull(AutoPilot.routePreview());
 

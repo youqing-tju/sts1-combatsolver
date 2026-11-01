@@ -206,8 +206,8 @@ public final class BeamSolver {
      * <p>判据与 {@link #better} 里的 {@code alive} **完全一致**，否则会出现
      * 「排序时认为 A 更好、资格检查却说 A 会死」这种自相矛盾。
      *
-     * <p>🔴 用户规则（2026-11-01 两次强调）：**没有生还路线就禁止自动出牌**。
-     * 所以这个字段是执行侧的硬门，不是提示。
+     * <p>⚠️ 它只是**排序键**（{@code FinalPlanOrdering.cs:250-252}）：没赢的话活着的排前面。
+     * 蓝本没有任何「没有生还路线就禁止出牌」的停手机制 —— 别把它当执行侧硬门。
      */
     public boolean lastSelectedSurvives;
 

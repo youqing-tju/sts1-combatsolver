@@ -100,7 +100,7 @@ class AutoPilotContinuationTest {
     @Test
     void exactNewTurnHitReusesWithoutRequestingSearch() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
 
         assertTrue(AutoPilot.reuseContinuation(2, route.t2, 0), "状态逐字段相等必须命中");
         assertEquals(route.steps.subList(2, route.steps.size()), AutoPilot.pendingSteps(),
@@ -112,7 +112,7 @@ class AutoPilotContinuationTest {
     @Test
     void hitKeepsAbsolutePreviewAndAdvancesNextAction() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
         int turnsBefore = AutoPilot.routePreview().turns().size();
         int firstTurnBefore = AutoPilot.routePreview().turns().get(0).absoluteTurn();
 
@@ -129,7 +129,7 @@ class AutoPilotContinuationTest {
     @Test
     void missingContinuationLogsReasonAndRequestsSearch() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
         assertTrue(AutoPilot.reuseContinuation(2, route.t2, 0));
         assertTrue(AutoPilot.reuseContinuation(3, route.t3, 0),
                 "连着两个回合都该命中 —— 这才叫「世界线被展开」");
@@ -147,7 +147,7 @@ class AutoPilotContinuationTest {
     @Test
     void stateMismatchLogsFirstDifferenceAndRequestsSearch() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
 
         ContinuationStamp drifted = ContinuationStamp.from(state(2, 47));
         assertFalse(AutoPilot.reuseContinuation(2, drifted, 0), "血量不同就不能续跑");
@@ -163,7 +163,7 @@ class AutoPilotContinuationTest {
     @Test
     void manualDivergenceIsNotReportedAsStateMismatch() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
         AutoPilot.toggle();                        // 打开 AUTO（纯标志位，不碰真机）
         AutoPilot.onCardPlayedObserved("Bash");    // 不是我们排的那张 -> 手工输入
 
@@ -179,7 +179,7 @@ class AutoPilotContinuationTest {
     @Test
     void deploymentDriftInvalidatesFutureContinuation() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
 
         assertFalse(AutoPilot.reuseContinuation(2, route.t2, 3),
                 "采纳之后又发生了 3 次镜像失配 = 影子已分叉，不许续跑");
@@ -195,7 +195,7 @@ class AutoPilotContinuationTest {
     @Test
     void inTurnPotionOrChoiceInvalidatesOnlyCurrentWorldline() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
         assertEquals(route.steps.size(), AutoPilot.pendingSteps().size());
 
         // 喝药/三选一之后执行层就是走这条路：整条世界线作废（含边界缓存）
@@ -209,7 +209,7 @@ class AutoPilotContinuationTest {
     @Test
     void combatResetClearsContinuation() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
         AutoPilot.armBoundedTarget(3, 1);
 
         AutoPilot.reset();
@@ -221,7 +221,7 @@ class AutoPilotContinuationTest {
     @Test
     void boundedTargetStillStopsAfterTargetEnemyPhaseOnReuse() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
         assertTrue(AutoPilot.armBoundedTarget(3, 1));
 
         assertTrue(AutoPilot.reuseContinuation(2, route.t2, 0), "T2 应当命中续跑");
@@ -236,7 +236,7 @@ class AutoPilotContinuationTest {
     @Test
     void reuseMissDoesNotClearBoundedTarget() {
         FakeRoute route = new FakeRoute();
-        AutoPilot.adoptPlan(route.steps, 1, route.plan, 0);
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
         assertTrue(AutoPilot.armBoundedTarget(3, 1));
 
         assertFalse(AutoPilot.reuseContinuation(2, ContinuationStamp.from(state(2, 47)), 0),

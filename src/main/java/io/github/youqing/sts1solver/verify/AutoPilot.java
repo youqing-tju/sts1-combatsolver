@@ -74,13 +74,13 @@ public final class AutoPilot {
     private static int stuckStreak;
     private static final int STUCK_STREAK_LIMIT = 3;
 
-    /** 同一步连续被拒的指纹与次数（见 {@link #rejectStep}）。 */
-    private static String lastRejectSignature;
-    private static int rejectStreak;
-    private static final int REJECT_STREAK_LIMIT = 3;
-    /** 本回合从计划里剔掉了几步；剔太多说明计划整体跑不动。 */
-    private static int droppedStepsThisTurn;
-    private static final int DROPPED_STEPS_LIMIT = 3;
+    /**
+     * 本回合从根重算的次数 —— **失败路径保护**，不是玩法机制（见 {@link #deploymentDrift}）。
+     *
+     * <p>每打出一张牌就归零：有进展说明漂移只是偶发，不是「重算→同一步→再重算」的死循环。
+     */
+    private static int deployDriftsThisTurn;
+    private static final int DEPLOY_DRIFT_LIMIT = 12;
 
     /** 回合切换的两段式等待：1=等敌方阶段开始，2=等它结束并回到玩家回合。 */
     private static int endPhase;
@@ -129,9 +129,7 @@ public final class AutoPilot {
         blockedTurn = Integer.MIN_VALUE;
         stuckStreak = 0;
         searchStartedAt = 0;
-        rejectStreak = 0;
-        lastRejectSignature = null;
-        droppedStepsThisTurn = 0;
+        deployDriftsThisTurn = 0;
         io.github.youqing.sts1solver.search.AsyncSearch.reset();
         clearPlan();
         // 换战斗才真的清空预览：这时保留上一场的路线是误导
@@ -275,34 +273,9 @@ public final class AutoPilot {
         return deathTurn > 0 && turnNow > 0 && deathTurn == turnNow;
     }
 
-    /** 面板：没有生还路线（用户规则：这种时候禁止自动出牌）。 */
-    static String noSurvivingNotice() {
-        return "未找到生还路线 · 已禁止自动出牌（操作权已交还）";
-    }
-
     /** 面板：回合末实时风险投影会死（蓝本 {@code StopFullAutoOnLiveRiskDeath}）。 */
     static String liveRiskNotice(int hp, int incoming) {
         return "预计本回合会死 · 已交还控制（hp " + hp + " 对来袭 " + incoming + "）";
-    }
-
-    /**
-     * 没有生还路线 -> 不部署、停手、提示。
-     *
-     * <p>蓝本 {@code FinalPlanOrdering} 把 {@code Survives}（{@code !PlayerDead && ProjectedPlayerHp > 0}）
-     * 排在胜负债之后的第一键；搜不到生还路线时，用户明确要求**禁止自动出牌**，
-     * 不许「反正都是死，随便挑一条打」。
-     *
-     * @return true = 已停手（调用方不要再执行任何步骤）
-     */
-    static boolean applyNoSurvivingRouteStop(boolean survives) {
-        if (survives) {
-            return false;
-        }
-        io.github.youqing.sts1solver.ui.SolverPanel.setNotice(noSurvivingNotice());
-        clearPlan();
-        Trace.warn("FULL_AUTO_STOP reason=no_surviving_route (搜索里没有任何生还路线，禁止自动出牌)");
-        stopAuto("no surviving route");
-        return true;
     }
 
     /**
@@ -490,9 +463,7 @@ public final class AutoPilot {
             blockedTurn = turnNow;
             blockedThisTurn.clear();
             stuckStreak = 0;
-            rejectStreak = 0;
-            lastRejectSignature = null;
-            droppedStepsThisTurn = 0;
+            deployDriftsThisTurn = 0;
         }
         if (cooldown > 0) {
             cooldown--;
@@ -652,8 +623,9 @@ public final class AutoPilot {
      * 结束回合前的最后一道闸（蓝本 {@code LiveEndTurnRiskEvaluator}）：
      * 实机局面投影会死就**不结束回合**，直接交还控制。
      *
-     * <p>为什么要拦：搜索说「结束回合」是它的判断，但实机此时可能已经和预测不同
-     * （我们冻结了路线、不再重算）。这一枪是**不花搜索预算**的安全网。
+     * <p>为什么要拦：搜索的「结束回合」是在推演里判的，实机此刻的来袭伤害可能已经不同
+     * （意图、力量、虚弱都会改口）。蓝本因此在**真的结束回合之前**用实机局面重算一次。
+     * 这一枪是**不花搜索预算**的安全网。
      */
     private static boolean stopIfEndTurnWouldKill() {
         try {
@@ -682,14 +654,12 @@ public final class AutoPilot {
     }
 
     /** 出牌决定的三态。 */
-    private static final int OUTCOME_PLAYED = 0;
-    private static final int OUTCOME_WAITING = 1;
-    private static final int OUTCOME_NOTHING = 2;
-    private static final int OUTCOME_END_TURN = 3;
+    static final int OUTCOME_PLAYED = 0;
+    static final int OUTCOME_WAITING = 1;
+    static final int OUTCOME_NOTHING = 2;
+    static final int OUTCOME_END_TURN = 3;
     /** 计划里的这一步执行不了（手牌对不上/被禁）→ 丢掉计划重算。 */
-    private static final int OUTCOME_REPLAN = 4;
-    /** 这一步已经被剔出计划，但计划本身还能继续走 → 等下一帧，别重算。 */
-    private static final int OUTCOME_SKIP = 5;
+    static final int OUTCOME_REPLAN = 4;
 
     /**
      * 当前正在执行的计划（蓝本的「路线」）。
@@ -736,27 +706,6 @@ public final class AutoPilot {
      */
     private static java.util.List<io.github.youqing.sts1solver.search.RouteStep> planSteps =
             java.util.Collections.emptyList();
-    /**
-     * **采纳整条路线、按序打到底**（蓝本 {@code AdoptRoute} / {@code RouteFrozen} 语义，默认开）。
-     *
-     * <p>用户明确要求（2026-11-01）：「开局花时间把全局路线规划好，然后一口气打完」。
-     * 这也是蓝本的默认体验：一次搜索给出整场战斗的动作序列，之后只是**部署**它，
-     * 不是每回合重开一次搜索。
-     *
-     * <p>⚠️ 与「每回合精确校验」的区别：
-     * <ul>
-     *   <li>开（默认）：回合翻页**不丢路线**，接着执行同一份队列；单步走不通就剔掉那一步继续走。
-     *       精确状态戳仍然逐回合比对，但只作为**诊断**（{@code SEARCH_REUSED} /
-     *       {@code SEARCH_REUSE_MISS … route kept}），不再触发重算。</li>
-     *   <li>关：回到蓝本的「严格模式」——精确戳对不上就重搜。我们的影子还在补
-     *       （真机 97 对配对里 0 命中，首差集中在 hp / hpLossCount / 能力 ID），
-     *       严格模式等于每回合重算，用户看到的就是「路线一直在变」。</li>
-     * </ul>
-     * 什么时候仍然重算（不能省）：用户手工动过手、本回合计划作废、战斗 reset、
-     * 队列走空、单回合剔掉的步数超限。
-     */
-    static final boolean ADOPT_ROUTE_TO_THE_END =
-            !"false".equalsIgnoreCase(System.getProperty("sts1.adoptRoute", "true"));
 
     /**
      * 跨回合续跑判定（纯数据）。命中 = 这个回合不搜索，直接按上一回合算出的世界线打。
@@ -999,45 +948,23 @@ public final class AutoPilot {
             // 用户看到的就是「世界线完全没被展开，路线每回合都变」。
             // 🔴 顺序固定：**先校验，再出牌**。这一步在 playOneCard 的最前面，
             // 任何一张牌入队之前就已经跑完 —— 不存在「打完这一回合再看对不对」。
-            boolean manual = continuation.manualDivergence();
             int planTurnBefore = planTurn;
-            if (!reuseContinuation(turnNow, liveStampOrNull(),
+            if (!onTurnStart(turnNow, liveStampOrNull(),
                     ShadowTracker.mismatchSequence())) {
-                if (keepRouteOnTurnChange(manual)) {
-                    keepRouteAcrossTurns(turnNow);
-                    Trace.info("ROUTE kept turn " + planTurnBefore + " -> " + turnNow
-                            + " (adopt mode: 按序打到底，剩余 " + pendingSteps().size() + " 步)");
-                } else {
-                    Trace.info("PLAN dropped: turn " + planTurnBefore + " -> " + turnNow
-                            + (manual ? " (manual divergence)" : "") + ", replanning");
-                    clearPlan();
-                }
+                Trace.info("PLAN dropped: turn " + planTurnBefore + " -> " + turnNow
+                        + ", replanning from root");
             }
             dumpTurnSnapshot(turnNow);
         }
-        // ② 有计划就照计划走（蓝本的「冻结路线 / 执行本回合」）
+        // ② 有计划就照计划走（本回合的部署）
         if (plan != null && !plan.isEmpty()) {
-            if (droppedStepsThisTurn >= DROPPED_STEPS_LIMIT) {
-                // 剔掉这么多次说明这条路线在本回合根本跑不动（药水槽对不上、
-                // 手牌被复制成同名多张……）。别再来回重算，退回逐张兜底。
-                Trace.info("PLAN unusable this turn (" + droppedStepsThisTurn
-                        + " steps dropped) -> per-card fallback");
-                return fallbackPlay(player, attackTarget);
-            }
             int outcome = executePlannedStep(player, attackTarget);
-            if (outcome == OUTCOME_SKIP) {
-                return OUTCOME_WAITING;   // 这一步已剔除，下一帧按剩下的计划走
-            }
             if (outcome != OUTCOME_REPLAN) {
                 return outcome;
             }
-            if (ADOPT_ROUTE_TO_THE_END) {
-                // 采纳模式：这一步走不通就等 rejectStep 把它剔掉（连续 3 帧），
-                // **不**整条重算 —— 重算等于每回合重来，正是用户不要的东西。
-                Trace.info("ROUTE step unusable -> retry/drop (adopt mode), route kept");
-                return OUTCOME_WAITING;
-            }
-            clearPlan();      // 严格模式：计划失效（手牌对不上/被拒），丢掉重算
+            // 部署漂移：{@link #deploymentDrift} 已经把整条队列作废并交了 REPLAN，
+            // 下一帧走 ③ 提交一次根搜索（蓝本 SearchReason.DeploymentDrift 同义）。
+            return OUTCOME_WAITING;
         }
 
         // ③ 没有计划：等后台整场规划的结果，没有就提交一次
@@ -1058,12 +985,10 @@ public final class AutoPilot {
         }
         framesWaitingForPlan = 0;
 
-        // 蓝本顺序：先判「这一回合就死」→ 不部署；再判失败/空计划。
+        // 蓝本顺序：先判「这一回合就死」→ 不部署（StopFullAutoOnDeathTurn）；再判失败/空计划。
+        // 注意：`Survives` **不是**停手条件 —— 它在蓝本里只是最终排序的一个键
+        // （FinalPlanOrdering.cs:250-252），没有任何「没有生还路线就禁止出牌」的机制。
         if (applyDeathTurnStop(result.deathTurn, turnNow)) {
-            return OUTCOME_WAITING;
-        }
-        // 用户规则（两次强调）：没有生还路线就禁止自动出牌，不许挑一条死路打。
-        if (applyNoSurvivingRouteStop(result.survives)) {
             return OUTCOME_WAITING;
         }
         if (result.failed) {
@@ -1099,18 +1024,12 @@ public final class AutoPilot {
             return OUTCOME_END_TURN;
         }
         io.github.youqing.sts1solver.ui.SolverPanel.setNotice("");
-        adoptPlan(result.steps, turnNow, result.continuations,
+        installRoute(result.steps, turnNow, result.continuations,
                 ShadowTracker.mismatchSequence());
         planSummary = summarizePlan(result);
         if (!lastSearchShape.isEmpty()) {
             // 面板第一行留一格「刚刚怎么算出来的」：135+base / 26k / 642ms
             planSummary = lastSearchShape + "   " + planSummary;
-        }
-        if (ADOPT_ROUTE_TO_THE_END) {
-            planSummary = planSummary + "   [已冻结·按序打到底]";
-            Trace.info("ROUTE_FROZEN steps=" + result.steps.size()
-                    + " turns=" + (result.continuations == null ? 0 : result.continuations.size())
-                    + "  (锁定：不再重算，只有手工干预/预计死亡/队列走空才解冻)");
         }
         // 预算用量 + **停止原因**：horizon = 把整场战斗推演完了（最常见，节点用量很低是正常的），
         // node_limit / time_limit 才是被预算掐断。以前只印 "tree exhausted"，
@@ -1161,21 +1080,10 @@ public final class AutoPilot {
             return OUTCOME_REPLAN;
         }
         // 影子已经和实机分叉（这回合有牌对不上）→ 这份计划剩下的步骤作废。
-        // 不重算就继续照打，等于拿「想象中的局面」指挥真局面（蓝本 DeploymentDrift 同义）。
+        // 蓝本 DeploymentDrift 同义：清 continuation source、结束部署、从根重搜。
         if (ShadowTracker.mismatchSequence() != planMismatchSeq) {
             int drift = ShadowTracker.mismatchSequence() - planMismatchSeq;
-            if (ADOPT_ROUTE_TO_THE_END) {
-                // 影子与实机分叉是**我们的模型**不够准，不是用户改了主意：
-                // 重新对齐序号继续按这条路走（下面每一步仍会按牌名/槽位校验）。
-                planMismatchSeq = ShadowTracker.mismatchSequence();
-                Trace.info("ROUTE kept despite " + drift
-                        + " mirror mismatch(es) (adopt mode)");
-            } else {
-                clearPlan();
-                Trace.info("PLAN dropped: " + drift
-                        + " mirror mismatch(es) since it was computed, replanning");
-                return OUTCOME_REPLAN;
-            }
+            return deploymentDrift(step, drift + " mirror mismatch(es) since it was computed");
         }
         if (step.endTurn) {
             plan.poll();
@@ -1187,14 +1095,14 @@ public final class AutoPilot {
         }
         AbstractCard chosen = firstByKey(player, step.cardKey);
         if (chosen == null) {
-            return rejectStep(step, "is not in hand");
+            return deploymentDrift(step, "is not in hand");
         }
         if (blockedThisTurn.contains(step.cardKey)) {
-            return rejectStep(step, "is blocked this turn");
+            return deploymentDrift(step, "is blocked this turn");
         }
         AbstractMonster target = monsterAt(step.targetIndex, attackTarget);
         if (!chosen.canUse(player, target)) {
-            return rejectStep(step, "not playable now");
+            return deploymentDrift(step, "not playable now");
         }
         chosenTargetIndex = step.targetIndex;
         pendingChoiceIndex = step.choiceIndex;
@@ -1214,7 +1122,7 @@ public final class AutoPilot {
     private static int executePotionStep(AbstractPlayer player, RouteStep step,
                                          AbstractMonster attackTarget) {
         if (player.potions == null) {
-            return rejectStep(step, "has no potion belt");
+            return deploymentDrift(step, "has no potion belt");
         }
         // 先按 (slot, id) 精确匹配：两瓶同 ID 时只按名字找会喝错格，
         // 而用户设的 Force/Disabled 锁的正是「哪一格」。
@@ -1228,7 +1136,7 @@ public final class AutoPilot {
                 }
             }
             if (potion == null) {
-                return rejectStep(step, "slot " + step.potionSlot + " no longer holds that potion");
+                return deploymentDrift(step, "slot " + step.potionSlot + " no longer holds that potion");
             }
         } else {
             for (com.megacrit.cardcrawl.potions.AbstractPotion p : player.potions) {
@@ -1238,16 +1146,16 @@ public final class AutoPilot {
                 }
             }
             if (potion == null) {
-                return rejectStep(step, "is not in the belt");
+                return deploymentDrift(step, "is not in the belt");
             }
         }
         if (!potion.canUse()) {
-            return rejectStep(step, "cannot be used now");
+            return deploymentDrift(step, "cannot be used now");
         }
         AbstractMonster target = potion.targetRequired
                 ? monsterAt(step.targetIndex, attackTarget) : null;
         if (potion.targetRequired && target == null) {
-            return rejectStep(step, "has no valid target");
+            return deploymentDrift(step, "has no valid target");
         }
         // 药水引发的选牌（液态记忆 / 三选一发现）先记下搜索挑的下标，
         // 网格驱动会用它，而不是自己挑第一张。
@@ -1257,7 +1165,7 @@ public final class AutoPilot {
             potion.use(target);
         } catch (Throwable t) {
             Trace.error("AUTO potion " + step.cardKey + " failed", t);
-            return rejectStep(step, "threw on use");
+            return deploymentDrift(step, "threw on use");
         }
         player.removePotion(potion);
         player.adjustPotionPositions();
@@ -1278,42 +1186,6 @@ public final class AutoPilot {
                 + (target == null ? " -> self" : " -> " + target.name));
         cooldown = 24;
         return OUTCOME_PLAYED;
-    }
-
-    /**
-     * 计划里这一步执行不了。
-     *
-     * <p>只返回 REPLAN 是不够的：搜索是确定性的，同一局面重算必然得到同一条路线，
-     * 于是「拒绝 → 重算 → 再拒绝」无限循环（2026-10-30 Boss 战实测空转 100 秒、548 次）。
-     * 所以同一步连续被拒 {@value #REJECT_STREAK_LIMIT} 次就把它从计划里剔掉继续走，
-     * 剔够 {@value #DROPPED_STEPS_LIMIT} 步说明这条计划整体跑不动，本回合退回逐张兜底。
-     */
-    private static int rejectStep(RouteStep step, String why) {
-        Trace.info("PLAN step " + step.cardKey + " " + why + " -> replan");
-        String signature = (step.endTurn ? "E" : step.potion ? "P" : "C") + ":" + step.cardKey;
-        if (signature.equals(lastRejectSignature)) {
-            rejectStreak++;
-        } else {
-            lastRejectSignature = signature;
-            rejectStreak = 1;
-        }
-        if (rejectStreak < REJECT_STREAK_LIMIT) {
-            return OUTCOME_REPLAN;
-        }
-        rejectStreak = 0;
-        lastRejectSignature = null;
-        if (plan != null && !plan.isEmpty()) {
-            plan.poll();
-            panelRevision++;      // 剔掉一步 → 预览里那一行的箭头要移走
-            droppedStepsThisTurn++;
-            if (!step.endTurn && !step.potion && step.cardKey != null) {
-                blockedThisTurn.add(step.cardKey);
-            }
-            Trace.warn("PLAN step " + step.cardKey + " rejected " + REJECT_STREAK_LIMIT
-                    + " times in a row -> dropped from plan ("
-                    + droppedStepsThisTurn + "/" + DROPPED_STEPS_LIMIT + " this turn)");
-        }
-        return OUTCOME_SKIP;
     }
 
     /** 后台结果的取用：指纹对不上就作废（局面已经被别的东西改过）。 */
@@ -1396,6 +1268,8 @@ public final class AutoPilot {
         queuedCard = chosen;
         queuedFrames = 0;
         noProgressEndTurns = 0;
+        // 有进展了：本回合的漂移计数归零（见 deploymentDrift 的失败路径保护）
+        deployDriftsThisTurn = 0;
         // 这一手落地后局面就变了（手牌/能量/能力），面板的策略现状要重算
         strategySnapshotDirty = true;
         Trace.info("AUTO play " + key(chosen) + (target == null ? "" : " -> " + target.name)
@@ -1462,32 +1336,11 @@ public final class AutoPilot {
     }
 
     /**
-     * 回合翻页时要不要**保留**这条路线。
-     *
-     * <p>只有「用户自己动过手」才丢：那一刻路线已经不是他要的了。
-     * 镜像失配、精确戳对不上都属于**我们的模型还不够准**，不该让用户承担重算的代价。
-     */
-    static boolean keepRouteOnTurnChange(boolean manualDivergence) {
-        return ADOPT_ROUTE_TO_THE_END && !manualDivergence;
-    }
-
-    /**
-     * 把路线接到新回合上（采纳模式）：队列原样留着，只推进「这份计划属于哪一回合」。
-     *
-     * <p>⚠️ 不重建队列：整条路线的后续回合**本来就在队列里**，重建反而会丢掉已执行进度。
-     */
-    static void keepRouteAcrossTurns(int turnNow) {
-        planTurn = turnNow;
-        planMismatchSeq = ShadowTracker.mismatchSequence();
-        previewStale = false;
-        panelRevision++;
-    }
-
-    /**
      * 面板上那份路线是不是**上一份**（正在重算）。
      *
-     * <p>回合翻页时我们不再把预览置空，而是标成陈旧：面板把它原地变灰并加一行「重算中」，
+     * <p>回合翻页命中续跑时不清预览；miss 时把预览标成陈旧（面板原地变灰 + 「重算中」），
      * 这样路线不会消失再出现（用户实测「每回合闪一下」）。
+     * 注意「标成陈旧」只是显示层的过渡，执行的队列必须真的清空 —— 两者不能混为一谈。
      */
     public static boolean routePreviewStale() {
         return previewStale;
@@ -1530,12 +1383,16 @@ public final class AutoPilot {
     }
 
     /**
-     * 采纳一条路线：执行队列、完整预览、跨回合边界**一起**换。
+     * 装配一条可执行路线：执行队列、完整预览、跨回合边界**一起**换。
      *
      * <p>三者同源是这个方法存在的唯一理由 —— 分开赋值就会留下「预览是新的、边界是旧的」
      * 这种错配（症状是续跑命中却打出一条搜索没推荐过的路）。
+     *
+     * <p>⚠️ 名字刻意不叫 {@code adopt}：蓝本的 {@code AdoptRoute} 是**另一套机制**
+     * （把整条路线接管为「按序打到底」并关掉自动重算）。这里只是把一次搜索的结果
+     * 装进执行队列，回合边界照样按 {@code ContinuationSource} 精确校验，miss 就重算。
      */
-    static void adoptPlan(java.util.List<io.github.youqing.sts1solver.search.RouteStep> steps,
+    static void installRoute(java.util.List<io.github.youqing.sts1solver.search.RouteStep> steps,
                           int startTurn,
                           io.github.youqing.sts1solver.search.ContinuationPlan continuations,
                           int mismatchSequence) {
@@ -1596,6 +1453,54 @@ public final class AutoPilot {
         return plan == null
                 ? java.util.Collections.<io.github.youqing.sts1solver.search.RouteStep>emptyList()
                 : new java.util.ArrayList<io.github.youqing.sts1solver.search.RouteStep>(plan);
+    }
+
+    /**
+     * 回合开始：能不能接着上一回合算出来的世界线走（蓝本 {@code SolverController.cs:1077-1140}）。
+     *
+     * <p>顺序与蓝本一致 —— {@code ContinuationStamp.CaptureLive} 逐字段命中就续跑；
+     * miss 就是 {@code ContinuationSource = null} + 从根重搜，没有第三条路。
+     * 蓝本这里还有两道归因（{@code ManualDivergence} / {@code ContinuationMissing}），
+     * 由 {@link ContinuationDecision#evaluate} 负责，只影响诊断不影响处置。
+     *
+     * @return true = 命中续跑（调用方不要再搜索）
+     */
+    static boolean onTurnStart(int liveTurn,
+                               io.github.youqing.sts1solver.search.ContinuationStamp liveStamp,
+                               int mismatchSequence) {
+        if (reuseContinuation(liveTurn, liveStamp, mismatchSequence)) {
+            return true;
+        }
+        clearPlan();
+        return false;
+    }
+
+    /**
+     * 部署阶段发现这一步现在做不了（蓝本 {@code DEPLOY_REPLAN}，{@code SolverController.cs:2925-3010}）。
+     *
+     * <p>蓝本的动作只有两个：{@code _combat.ContinuationSource = null} +
+     * {@code RequestSearch(SearchReason.DeploymentDrift)}，然后**结束这次部署**。
+     * 也就是说从头重算，不是把这一步剔掉接着执行剩下的队列 ——
+     * 剔一步等于拿「搜索从未推荐过的剩余序列」去指挥真局面。
+     *
+     * <p>{@code DEPLOY_DRIFT_LIMIT} 是本项目的**失败路径保护**（蓝本直接操作真实状态，
+     * 不存在「镜像说能打、实机说不能打」这种漂移，所以它没有对应机制）：
+     * 同一回合反复从根重算而一张牌都没打出去 = 死循环，直接停手并要求看日志。
+     * 它不改变任何正常路径的语义。
+     *
+     * @return 永远 {@link #OUTCOME_REPLAN}
+     */
+    static int deploymentDrift(io.github.youqing.sts1solver.search.RouteStep step, String why) {
+        Trace.warn("DEPLOY_REPLAN reason=" + why + " step=" + step
+                + " (从根重算，不剔步)");
+        clearPlan();
+        deployDriftsThisTurn++;
+        if (deployDriftsThisTurn >= DEPLOY_DRIFT_LIMIT) {
+            Trace.error("DEPLOY_DRIFT_LOOP: " + deployDriftsThisTurn
+                    + " root replans this turn without playing a single card -> AUTO stopped", null);
+            stopAuto("deployment drift loop");
+        }
+        return OUTCOME_REPLAN;
     }
 
     /**
