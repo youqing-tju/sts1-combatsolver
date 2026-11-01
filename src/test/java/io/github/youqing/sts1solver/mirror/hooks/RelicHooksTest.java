@@ -999,6 +999,31 @@ class RelicHooksTest {
         assertEquals(1, s.rng.get(SimState.RngKind.CARD).counter(), "消耗一次 cardRandomRng");
     }
 
+    /**
+     * 已经「本回合 0 费」的牌**不进**候选（原版三条判据是**与**：cost &gt; 0 &amp;&amp; costForTurn &gt; 0
+     * &amp;&amp; !freeToPlayOnce，字节码 73-104）。
+     *
+     * <p>以前写成「或」，于是候选集合大小变了，{@code random(0, size-1)} 抽到的是另一张，
+     * 之后整条时间线的费用都对不上。这里用手上只有一张「本回合已 0 费」的牌验证：
+     * 候选为空 → **一次 rng 都不该消耗**。
+     */
+    @Test
+    void mummifiedHandSkipsCardsThatAreAlreadyFreeThisTurn() {
+        SimState s = fight();
+        s.relics.put(RelicHooks.MUMMIFIED_HAND, Integer.valueOf(-1));
+        s.rng.put(SimState.RngKind.CARD,
+                io.github.youqing.sts1solver.sim.RngStream.from(555L, 666L, 0));
+        s.hand.add(new io.github.youqing.sts1solver.sim.SimCard("Strike_R", false, 1, 6, "ATTACK")
+                .withCostForTurn(0));
+
+        RelicHooks.onCardUsed(s, new io.github.youqing.sts1solver.sim.SimCard("Inflame", false, 1, 0, "POWER"));
+
+        assertEquals(0, s.rng.get(SimState.RngKind.CARD).counter(),
+                "候选为空时原版直接返回，不掷色子（掷了就会和实机错开）");
+        assertEquals(0, s.hand.get(0).costForTurn);
+        assertEquals(1, s.hand.get(0).cost, "永久费用当然不变");
+    }
+
     /** 橙色药丸：同一回合打齐攻击/技能/能力 → 清掉自己身上所有减益。 */
     @Test
     void orangePelletsClearsDebuffsAfterAllThreeTypes() {

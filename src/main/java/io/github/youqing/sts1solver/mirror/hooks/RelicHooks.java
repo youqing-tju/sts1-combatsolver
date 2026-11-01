@@ -725,8 +725,13 @@ public final class RelicHooks {
      * 木乃伊手（{@code MummifiedHand.onUseCard}）：打出**能力牌**时，
      * 从手牌里随机挑一张「费用 &gt; 0」的牌，把它**本回合**费用设为 0。
      *
-     * <p>原文的口径：候选是 {@code cost > 0 || costForTurn > 0 || freeToPlayOnce} 的牌，
+     * <p>原文的口径（{@code MummifiedHand.onUseCard} 字节码 73-104）：候选是
+     * <b>{@code cost > 0 && costForTurn > 0 && !freeToPlayOnce}</b> 的牌（三条**与**，不是或），
      * 然后 {@code cardRandomRng.random(0, size - 1)}（两端都含）。挑不到就什么都不做。
+     *
+     * <p>⚠️ 2026-11-01 修正：以前写成 {@code cost > 0 || costForTurn > 0}，于是「本回合已经是 0 费」
+     * 的牌也会进候选 —— 候选集合大小一变，{@code random(0, size-1)} 抽到的就是**另一张**，
+     * 之后整条时间线的费用都对不上。{@code freeToPlayOnce} 我们没建模（SimCard 没这个标志）。
      */
     private static void mummifiedHand(SimState state) {
         if (!state.relics.containsKey(MUMMIFIED_HAND)) {
@@ -735,7 +740,10 @@ public final class RelicHooks {
         java.util.List<Integer> candidates = new java.util.ArrayList<Integer>();
         for (int i = 0; i < state.hand.size(); i++) {
             SimCard c = state.hand.get(i);
-            if (c.cost > 0 || c.costForTurn > 0) {
+            // 我们的 costForTurn = -1 是「本回合没有临时改动」的哨兵，原版里没有这个值
+            // （它有牌时恒等于 cost）—— 读的时候按有效费用翻，不能拿 -1 直接比大小。
+            int effective = c.costForTurn >= 0 ? c.costForTurn : c.cost;
+            if (c.cost > 0 && effective > 0) {
                 candidates.add(Integer.valueOf(i));
             }
         }
