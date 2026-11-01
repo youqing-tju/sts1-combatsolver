@@ -2,12 +2,17 @@
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-01 13:20，测试 **564 条全绿**（0 fail / 0 err），HEAD = `5b3590c`，未 push。
+> **当前状态**：2026-11-01 14:50，测试 **565 条全绿**（0 fail / 0 err），HEAD = `3da4e6c`，未 push。
+> 已安装 `build 1101-144558`。
 > ✅ **回合末触发已在真机验证通过**（2026-11-01 13:17 用户确认：灼烧/多层护甲/金属化/奥利哈刚
 > 这类「回合结束触发」现在真机正常）。`6ea8014` 从「候选修复」转为**已验证**。
 > ⚠️ 但**修复的具体验证明细（四项各自的 HP/block 差值、敌方阶段是否重复）未留证**，
 > 只有用户的定性确认；UI 十条验收仍是 **0/10**。
-> 新增未闭环：**药水三选一卡死**（已修，未真机复测）—— 见 §五 P6。
+> ✅ **药水闸门假阴性已修**（`3da4e6c`，见 P6.1）：闸门拒绝后新颖度通道会把药水捞回来，
+> 真机 9 次喝药里 6 次是这种。**未真机复测**。
+> 🔴 **P7 是本轮最重要的结构性发现**：蓝本算一次路线后，后续回合**复用**同一份推演
+> （`ContinuationSource` / `SEARCH_REUSED`），我们每回合 `clearPlan()` 全丢 ——
+> 「世界线没被展开」就是这个。**未实施**。
 
 ---
 
@@ -119,6 +124,34 @@ private void callEndOfTurnActions() {
 
 ## 五、🔴 未解决的严重问题（按优先级，下一轮从这里开始）
 
+### P7 · 路线续跑没复刻 —— 每回合把上一回合算出来的整条未来丢掉（**最高优先，未实施**）
+
+**用户判断（2026-11-01 14:45，与真人使用体验一致）**：STS2 的默认行为是「算一次，按序打完
+一整条路线」；我们这边「第一回合算出来的后续路线完全没用，第二回合重算又是新路线，
+世界线完全没被展开，达不到全知口径」。
+
+**蓝本机制（逐行核实）**：
+
+| 位置 | 事实 |
+|---|---|
+| `Runtime/SolverController.cs:1078-1082` | 回合开始（`SearchReason.AutoTurnStart`）先试 `ContinuationSource.TryCreateContinuation(liveStamp, hp, battleDamage, out reused)` |
+| `:1084-1112` | 命中就 **不搜索**：`ContinuationsReused++`、打日志 `SEARCH_REUSED from_turn=… remaining_turns=… validation=exact_state_text`，直接 `StartDeployment(reused)` 按原路线部署 |
+| `:1115-1140` | 不命中才重算，并且**归因**：`ManualDivergence`（玩家手改过）/ `ContinuationMissing`（缓存里没这一回合）/ `StateMismatch`（推演与实机不一致） |
+| `SolverController.cs:175` | `UnexpectedReplanCount = StateMismatch + DeploymentDrift` —— 蓝本把这两种重算视为**不该发生**，会写进 bug report |
+| `Runtime/SolverController.cs:136` | `SetRouteFrozen()` + `SolverOverlay.cs:1504` 的「冻结路线」按钮：连每回合的校验都跳过，纯按路线走到底 |
+
+**我们的现状**：`AutoPilot` 只在**本回合**内持有计划，回合翻页就 `clearPlan()` 重算
+（`verify/AutoPilot.java:680`）。所以：
+- 搜索确实算到了 13~16 步 / depth 6~15 回合（日志 `PLAN ready` 可见），
+  但**跨回合的那一段每次都被扔掉**，那份推演从来没被用上第二次；
+- 今天真机 160 次规划里 **77 次是回合翻页重算**，正是被丢掉的次数；
+- 因此「深搜」实际上只在**单回合内**兑现，跨回合完全是重来 —— 这就是「世界线没被展开」。
+
+**要做的事（等任务书）**：搬 `Continuation` 缓存（每回合的期望状态 + 该回合该走的动作）、
+回合开始先校验再决定复用/重算、复用命中打 `SEARCH_REUSED`、失败按
+`ManualDivergence / ContinuationMissing / StateMismatch` 归因。没有这一层，
+再加深搜索预算也只是把「一次性的推演」算得更贵。
+
 ### P1 · 「搜索早早穷尽」——**这个诊断已被推翻**（2026-11-01 用真机快照实测）
 
 上一轮写在这里的结论是：「475/475 次带 `tree exhausted`、节点只用 0~10% → open 表过早耗尽、
@@ -206,8 +239,33 @@ private void callEndOfTurnActions() {
 `InputHelper.update()` 每帧用真实鼠标重写坐标，所以覆盖只活当前帧。
 
 ⚠️ 这是**输入仿真**，没有单测可写（要真机界面）；下一轮判据：日志出现
-`REWARD pick #n <card>  cursor->x,y` 之后**不应**再出现
+`REWARD pick #0 <card>  cursor->x,y` 之后**不应**再出现
 `REWARD pick still blocked after N frames`，且喝药后 1 帧内就能出牌。
+
+### P6.1 · 药水闸门假阴性：闸说「别喝」，计划照喝（**已修 `3da4e6c`，未真机复测**）
+
+真机现场（`2026-11-01.log`，9 次喝药里 **6 次**是这种）：
+
+```
+14:31:22.722  POTION_GATE cost=9 hp_saved=0 potions=1 rejected=true   ← 闸说别喝
+14:31:22.730  PLAN steps: Strike | POTION:ColorlessPotion | …        ← 计划里还在喝
+14:31:23.363  AUTO potion ColorlessPotion (slot 0)                   ← 真喝了
+```
+
+根因：`BeamSolver.bestFirstAction` 的顺序是「**闸门 → 0 费补搜 → 新颖度二选一**」。
+新颖度那条候选是在闸门**之前**算的、带着喝药步骤，`better()` 一比较就能把闸门否掉的路线
+换回来 —— 闸门等于白跑。
+
+量化（`-Dbatch` 扫 107 个有药水的真机快照，真机档位 宽 135 / 节点 50 万 / 分支 72 / 深度 500）：
+闸门拒绝 9 次、其中 **4 次被捞回**（`A1F4T2 / A1F7T2 / A1F13T2 / A2F20T3`，全部 `novelty=true`）。
+
+修法：把二选一挪到后处理**之前**（蓝本 post-search 链处理的也是「已定下来的答案」）。
+回归：`PotionGateBeatsNoveltyTest` + 真机夹具 `src/test/resources/golden/act1-potion-gate-novelty.json`
+（2026-11-01 13:12 A1F7T2，修前 RED「闸门拒绝之后路线里仍有喝药」→ 修后 GREEN）。
+
+⚠️ 副作用（要团队拍板）：闸门生效后**普通战斗里基本不会喝药**（买不回 9 血就不喝）。
+这与蓝本一致（药水是稀缺资源），但要「该喝就喝」必须搬蓝本的 `SolverPotionPolicy`
+档位（Smart / RequireAtLeastOne / Disabled），**未搬**。
 
 ### P5 · 影子数值缺口 —— **已修（commit `90ad057`），且旧结论有一处是错的**
 
