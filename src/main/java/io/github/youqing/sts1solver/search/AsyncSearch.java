@@ -150,6 +150,13 @@ public final class AsyncSearch {
     private static int requestCardBranches;
     private static boolean requestNovelty;
     private static boolean requestPortfolio;
+    /**
+     * 这次请求用的药水策略**快照**。
+     *
+     * <p>后台只读它，不读 {@code SolverConfig} 的可变字段 —— 否则用户在算到一半时改策略，
+     * 会得到「一半旧一半新」的约束（而且是在另一条线程上读，没有任何同步保证）。
+     */
+    private static PotionStrategySnapshot requestPotionStrategy;
     private static boolean running;
 
     private static volatile Result ready;
@@ -184,6 +191,7 @@ public final class AsyncSearch {
             int cardBranches;
             boolean novelty;
             boolean portfolio;
+            PotionStrategySnapshot potionStrategy;
             String fingerprint;
             synchronized (LOCK) {
                 while (request == null) {
@@ -203,6 +211,7 @@ public final class AsyncSearch {
                 cardBranches = requestCardBranches;
                 novelty = requestNovelty;
                 portfolio = requestPortfolio;
+                potionStrategy = requestPotionStrategy;
                 fingerprint = requestFingerprint;
                 request = null;
                 requestFingerprint = null;
@@ -217,6 +226,9 @@ public final class AsyncSearch {
                 }
                 if (portfolio) {
                     solver.withPortfolio();
+                }
+                if (potionStrategy != null) {
+                    solver.withPotionStrategy(potionStrategy);
                 }
                 PlanAction action = solver.bestFirstAction(root, budget);
                 result = new Result(fingerprint, action, solver.lastNodes, solver.lastStates,
@@ -263,6 +275,20 @@ public final class AsyncSearch {
                               int width, int depth, long budgetMillis,
                               int nodeLimit, int cardBranches, boolean novelty,
                               boolean portfolio) {
+        submit(root, fingerprint, energy, hand, width, depth, budgetMillis,
+                nodeLimit, cardBranches, novelty, portfolio, null);
+    }
+
+    /**
+     * 同上，额外带上**不可变药水策略快照**。
+     *
+     * <p>传 {@code null} = 不加约束（对照实验/老调用点）。生产路径必须传，
+     * 否则用户在面板上设的 Disabled / Force 不会影响搜索结果。
+     */
+    public static void submit(SimState root, String fingerprint, int energy, int hand,
+                              int width, int depth, long budgetMillis,
+                              int nodeLimit, int cardBranches, boolean novelty,
+                              boolean portfolio, PotionStrategySnapshot potionStrategy) {
         start();
         synchronized (LOCK) {
             request = root;
@@ -276,6 +302,7 @@ public final class AsyncSearch {
             requestCardBranches = cardBranches;
             requestNovelty = novelty;
             requestPortfolio = portfolio;
+            requestPotionStrategy = potionStrategy;
             LOCK.notifyAll();
         }
     }
@@ -299,6 +326,7 @@ public final class AsyncSearch {
         synchronized (LOCK) {
             request = null;
             requestFingerprint = null;
+            requestPotionStrategy = null;
         }
         ready = null;
     }

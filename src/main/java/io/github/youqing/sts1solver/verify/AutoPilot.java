@@ -140,6 +140,7 @@ public final class AutoPilot {
         reportedMissingMirrors.clear();
         strategySnapshotDirty = false;
         screenWasUp = false;
+        potionPolicyLogged = false;
         Trace.info("AUTO state reset (combat boundary)");
     }
 
@@ -504,6 +505,8 @@ public final class AutoPilot {
     private static long searchStartedAt;
     /** 上一次搜索的形状，给面板和日志用：{@code 135+band / 26.7k / 642ms}。 */
     private static String lastSearchShape = "";
+    /** 药水策略只在第一次提交时打一行，避免每次搜索刷屏。 */
+    private static boolean potionPolicyLogged;
 
     /**
      * 「策略现状」缓存是否已经过时（打牌 / 喝药 / 选牌完成后置 true）。
@@ -1268,12 +1271,20 @@ public final class AutoPilot {
                     io.github.youqing.sts1solver.config.SolverConfig.budget();
             // 整场战斗规划：回合层**不设预算上界**（蓝本没有上界，靠节点/时间预算收敛），
             // 只留一个安全上界防止病态局面死循环。搜索内部按回合均分节点预算，一层吃不掉整份。
+            // 策略快照在主线程取一次，随请求带进后台：后台不再读可变配置
+            if (!potionPolicyLogged) {
+                potionPolicyLogged = true;
+                Trace.info("POTION_POLICY active: "
+                        + io.github.youqing.sts1solver.config.SolverConfig.potionStrategy()
+                        .toStorageString());
+            }
             io.github.youqing.sts1solver.search.AsyncSearch.submit(snapshot,
                     snapshot.fingerprint(), CombatCapture.baseEnergy(), player.gameHandSize,
                     budget.beamWidth, io.github.youqing.sts1solver.search.BeamSolver.SAFETY_MAX_TURN_LAYERS,
                     budget.timeMillis, budget.nodeLimit, budget.cardBranches,
                     io.github.youqing.sts1solver.config.SolverConfig.novelty(),
-                    io.github.youqing.sts1solver.config.SolverConfig.portfolio());
+                    io.github.youqing.sts1solver.config.SolverConfig.portfolio(),
+                    io.github.youqing.sts1solver.config.SolverConfig.potionStrategy());
         } catch (Throwable t) {
             Trace.warn("submit search failed: " + t);
         }
