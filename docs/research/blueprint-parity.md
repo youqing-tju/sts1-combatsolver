@@ -26,7 +26,7 @@ read_when:
 | `StateEvaluation.cs` `StrategicEffects` / 逐能力 RetentionValue | `mirror/PowerValuation` + `Score.persistentBuffValue` | 🔶 **部分（2026-10-24）**：`StrategicEffectModel` 的五维模型 + 7 个能力的专门分支已搬（力量/敏捷/恶魔形态/无痛/黑暗拥抱/腐化/荆棘），其余走蓝本自己的默认档 `Scaling(amount)`（`mechanics-reference` §32）。⚠️ 两处近似：`IncomingHitCount` 用怪物只数、`AverageCardValue` 用面板伤害。仍缺：`LatentSetupValue` 逐卡表、`ReplayPotentialValue`（⛔ 无对应）、`DelayedDamage`/`ReactiveDamage`（铁甲无施加源） |
 | `LatentCardSetupValue` 逐卡分值表 | 走默认分支（能力牌 2 点） | 🔶 部分：表是 STS2 卡，不臆造 |
 | `ReplayPotentialValue`（附魔重放次数） | — | ⛔ 不适用：STS1 无附魔/重放机制（唯一接近的是双发/爆发，但那是「下一次打两次」，不是可重放卡） |
-| 药水估值（`PotionStrategicCost` / `SmartRequiredHpSaved`） | `mirror/PotionValuation` + `BeamSolver.gatePotionSpending` | 🔶 **部分（2026-10-24）**：`PotionUsePolicy.StrategicHpCost` 三档成本（9/14/18，逐值照抄 `SolverWeights`）+ **对账闸**已搬 —— 喝药必须比「不喝药基线」多省 ≥ Σ成本，否则退回不喝药的路线（`mechanics-reference` §31）。仍缺：`SolverPotionPolicy` 档位（Smart / RequireAtLeastOne / Disabled）、强制用药指令、`PotionRewardOutlook`（腾槽位换奖励）—— 都要 UI 侧栏额度输入；药水镜像 31 张（2026-10-26） |
+| 药水估值（`PotionStrategicCost` / `SmartRequiredHpSaved`） | `mirror/PotionValuation` + `BeamSolver.gatePotionSpending` | 🔶 **部分（2026-10-24）**：`PotionUsePolicy.StrategicHpCost` 三档成本（9/14/18，逐值照抄 `SolverWeights`）+ **对账闸**已搬 —— 喝药必须比「不喝药基线」多省 ≥ Σ成本，否则退回不喝药的路线（`mechanics-reference` §31）。`SolverPotionPolicy` 与强制指令初版后续已接入，但组合/持久化/失败语义仍有偏差，按 strict Task 4 返工；`PotionRewardOutlook` 未做。药水镜像 31 张（2026-10-26） |
 | `DeathSave*`（`DeathSaveHpRestored` / `DeathSavePremium` / `DeathSaveUseCount`） | `mirror/DeathSaveRelic` + `Score.deathSaveBeamCost` + `BeamSolver.strategicHpDeficit` | 🔶 **遗物侧已做**：**蜥蜴尾巴**在仿真里真拦一次致死伤害、记回血量、进三处计价；**瓶中仙子**（药水）等药水建模后接 |
 | `GrowthRewards` / `GrowthHpCredit` / `LongTermResourceValue`（局外收益） | 只有 `Feed` 的最大生命增长进了基础分 | 🔶 **部分**：`GrowthSource` 里就有 **Feed**；我们缺的是「成长奖励」这条独立计分轴与逐来源计数 |
 | `UnrecoveredLoot` / `TheftEncounterStrategy`（被偷资源） | — | ❌ **未做**：STS1 有 **Looter（掠夺者）** 偷金币后逃走 |
@@ -58,7 +58,7 @@ read_when:
 | `BeamPortfolioSelector.cs` / `BeamWidthPortfolio*.cs`（多宽度组合） | `search/BeamWidthPortfolio` + `BeamSolver.withPortfolio` | 🔶 **组合器与准入门已搬**（2026-10-30）：`ProductionMembers` 五成员 `[基线, ×2/3, ×3/2, 基线+次段, 基线+基础分]`、`ScaledWidth`（四舍五入远离零）、`EstimateMemberCost`（宽度比 × 3/2 保险系数）、`BeamWidthPortfolioGate.RejectRefinement` 五道门（零伤 / 未搜干净 / 基线吃掉 >1/4 时间 / 节点余量 / 时间余量）逐行翻译；`SecondRankBand`（普通席位取第 W+1…2W 位）与 `BaseScoreOnly`（中途只用 score 排序）在 `prune` 里生效。节点/时间**共享**、同分保留基线、撞帽非终局成员不参与比较（`SkippedNodeLimitNotTerminal`）。**未搬**：`BeamPortfolioSelector` 是**训练出来的决策树模型**（33 维特征 + JSON 权重 + `MinimumBattles`/`ImprovementRate` 判据），没有他们的训练数据无法复现，属不可搬项；`AggressivePowerCommitment` / `OffensiveRefinement` / `BoundedRefinement` 三个成员依赖我们没有的 profile 开关（且蓝本默认也关）|
 | `ContextualRankingModel.cs`（上下文排序模型） | — | ❌ 未做 |
 | `CardChoiceSupport*` / `CardChoiceMirrors` / `CardChoiceResolution`（牌内选择估值） | — | ❌ 未做 |
-| 药水动作（`BlockPotionInsertion` / `PotionChoiceContinuation` / `SolverPotionPolicy`） | `expandPotion` 的三种形态 + `gatePotionSpending` | 🔶 **部分**：动作空间（目标 / 单选 / 多选）与成本闸有了；`BlockPotionInsertion`（把药水插进已解路线）与 `PotionChoiceContinuation`（药水开出的选牌续搜）未做，`SolverPotionPolicy` 档位未做 |
+| 药水动作（`BlockPotionInsertion` / `PotionChoiceContinuation` / `SolverPotionPolicy`） | `expandPotion` + `gatePotionSpending` + 初版策略快照 | 🔶 **部分**：动作空间与成本闸已有；策略初版有非蓝本偏差，按 strict Task 4 返工；`BlockPotionInsertion` / `PotionChoiceContinuation` 未做 |
 | （无对应文件）怪物 AI 镜像 | `sim/MonsterMoves` + `SimMonster.moveHistory` | 🔶 **逐只推进**（2026-10-24 起）：原来只建模意图伤害（`IntentLearning`），现在按字节码翻译 `getMove`+`takeTurn`，把**格挡与减益**也带进影子。已镜像：`SphericGuardian`（`mechanics-reference` §33）。其余怪继续走老路，行为不变 |
 
 ## 3. 执行层（对应 Runtime/）
@@ -66,20 +66,20 @@ read_when:
 | 蓝本 | 我们的 | 状态 |
 |---|---|---|
 | `SearchTakeoverKind.ApplyCurrentTurn`（搜到本回合候选就停，下回合重搜） | `AutoPilot` 每回合重规划 | ✅ 同构于蓝本 **FullAuto 模式**（`SolverController.cs:1485 SetFullAuto` → 每回合 `AutoTurnStart` 自动重搜 → `StartDeployment`（:2799）的 `DeployCurrentTurn` **只部署 `action.Turn == StartTurnNumber` 的动作**）；漂移重搜对应我们的指纹校验丢弃（`DeploymentDrift` / `PlanExhausted`）。⚠️ 蓝本后续回合若精确 `ContinuationStamp` 命中会**复用** continuation，未命中才重搜（`SolverController.cs:1078-1157`），不能笼统写成“蓝本每回合必定从头重搜”；本项目 2026-11-01 起也走「精确校验 + 命中复用」（`SEARCH_REUSED`），只有 miss 才重算。手动面板的早停不搬（判定见 §2 `ConsiderCurrentTurnCandidate` 行） |
-| `SearchTakeoverKind.AdoptRoute` + 独立 `RouteFrozen` | — | ❌ 均未做。注意两者不是同一状态：`AdoptCurrentRoute` 物化当前渲染候选；`RouteFrozen` 另管是否禁止后续自动搜索（`SolverController.cs:128-158,1701-1744`）。不得把 AdoptRoute 简写成“冻结路线” |
+| `SearchTakeoverKind.AdoptRoute` + 独立 `RouteFrozen` | 当前把二者混成默认采纳冻结模式 | ❌ **未正确复刻，待撤**。AdoptCurrentRoute 物化当前渲染候选；RouteFrozen 另管保留路线/自动搜索，二者不得合并（`SolverController.cs:128-158`） |
 | `SolverProgress`（面板进度：世界线 / 回合层 / play_depth） | `SolverPanel` | 🔶 部分：有节点/深度/路线，没有 play_depth 与分阶段进度 |
-| `SolverPotionStrategyPanel` / `SolverRelicStrategyPanel` / `SolverGrowthStrategyPanel` | 策略现状区 + 药水真实控件（`ui/StrategyStatusSnapshot` + `ui/PotionStrategyRows`） | 🔶 **药水控制器已复刻（2026-11-01，见下方三行）；遗物/成长仍只有只读适配**（2026-10-31）：药水按槽位列形态 + 战略 HP 门槛（被动药不显示默认 9）、遗物 `id=counter` 原样 + 未镜像告警、成长 `hp/max` + 正向关键层数。无 setter、无假控件、不改变搜索。蓝本那三个面板会**编辑并持久化**策略、使旧结果失效并改变后续搜索 —— 这部分仍全未做（见设计 §10 的独立立项清单） |
+| `SolverPotionStrategyPanel` / `SolverRelicStrategyPanel` / `SolverGrowthStrategyPanel` | 策略区 + 药水真实控件 | 🔶 药水可编辑，遗物/成长仍只读；药水全局组合与持久化偏差按 strict Task 4 处理，遗物/成长控制器未做 |
 | `CardRewardScreen.cardSelectUpdate()`（发现/三选一） | `GridSelector.markReward` 用「虚拟光标 + `hb.clicked`」点中目标卡 | 🔧 **原版行为补正（2026-11-01，`769f919`）**。原版只认「鼠标悬停的那张卡的 `hb.clicked`」（字节码 58-70 / 73-88 / 142-153），只置标记不挪光标 = 界面永远不关（真机 22:13 卡住 9.1 秒）。现在按本类 `prepareConfirm` 同一套做法挪光标，且界面没关就继续点同一张 |
 | `CombatBeamSolver.Phases.cs:2222` `finalPool = [..completed, ..frontier]` | 最终选路线在「所有终局 + 所有前沿」里排序（`BeamSolver.lastFinalPool` + `runPortfolio` 全局池） | ✅ **已复刻（2026-11-01，commit `9536d7d`）**。以前每趟只交出 1 个节点，别处已经打出来的好局面白扔。实测：123 个真机快照的首手变化 **0 次**（因为 `better()` 优先「END_TURN 之前血量最高」的边界节点），属于**补对了口径但样本不敏感**，不要据此宣称变强 |
-| `Runtime/SolverController.cs:1078-1112` `ContinuationSource.TryCreateContinuation` → `SEARCH_REUSED`（回合开始先校验实机是否与推演一致，一致就**复用整条路线**、不重搜） | `search/ContinuationStamp` + `ContinuationPlan` + `verify/ContinuationDecision` + `AutoPilot.reuseContinuation` | ✅ **已复刻（2026-11-01，commit `69053aa`→`8167930`）**：精确状态文本（不是哈希）、稳定回合边界、命中免搜索、四种 miss 归因（`manual_divergence` / `continuation_missing` / `state_mismatch` / `deployment_drift`）。⚠️ **真机 0 项验收**；`intentDmg`/`damageBase`/遗物 counter 是按设计纳入的，若出现持续 `state_mismatch` 要按 `first_difference` 修模型，不许删字段凑命中率 |
-| `Runtime/SolverController.cs:136` `SetRouteFrozen()` + `SolverOverlay.cs:1504`「冻结路线」按钮 | 无（当前只有「点 Tn = 有界 AUTO 到该回合末」，见本表上方那行） | ❌ **未复刻**。蓝本冻结后连回合校验都跳过，纯按保留路线走到底；我们只做到「重算到某个绝对回合为止」 |
-| `PotionUsePolicy` 档位（`Smart` / `RequireAtLeastOne` / `Disabled`） | `search/PotionUsePolicy` + `SolverPotionPolicy` | ✅ **已复刻（2026-11-01，`5ef998d`→`dce7cfa`）**：`IsEligible` 逐行翻译（STS1 无 `BossHpRelief` / 琥珀，两条分支不实现）。⚠️ Smart 档下普通战斗仍基本不喝药（买不回 9 血就拒）—— 这是蓝本口径，不是 bug |
-| `PotionStrategySnapshot`（每槽 Smart/Disabled/Force）+ 四预设 + `(slot,potionId)` 持久化 | `search/PotionStrategySnapshot` + `config/SolverConfig.KEY_POTION_STRATEGY` | ✅ **已复刻（`5ef998d`）**：Smart = 删覆盖；换药不继承旧槽指令；坏配置退回「全 Smart」而不是 Disabled（防止玩家一瓶药都喝不了） |
-| `CombatBeamSolver` 的 policy snapshot + forced-use 最终校验 | `BeamSolver.enforcePotionStrategy` + `PotionStrategySnapshot.evaluateFinalRoute` | ✅ **已复刻（`dce7cfa`）**：候选展开最底层就拦违禁药水（worker/novelty/portfolio/基线/补搜全继承）；Force 不合格 → 有界「钉住这瓶」补搜 → 仍不合格返回 null（显式无解，不静默退回违规路线）。⚠️ 真机 0 项验收 |
-| `SolverOverlay.cs:1574-1610` + `SolverPotionStrategyPanel`（真实控件） | `ui/PotionStrategyRows` + `SolverPanel` 的 `Row.Kind.POTION` | 🔶 **药水区已可交互（`decdba9`）**：点击 `Smart→Disabled→Force→Smart`、执行中锁定、被动药水无控件；遗物/成长仍只读。蓝本的「遗物目标计数 / 成长 HP 额度」两栏未做（用户未要求） |
+| `Runtime/SolverController.cs:1078-1112` + `CombatBeamSolver.Terminal.cs:337-390` | `search/ContinuationStamp` + `ContinuationPlan` + `AutoPilot` | 🔶 **初版已落地但非蓝本处待返工**：节点链直接取状态代替最终路线回放、单入口 stamp、手牌排序均须纠正；命中/miss 主链与真机 0 项验收见 strict Task 3 |
+| `Runtime/SolverController.cs:136` `SetRouteFrozen()` + 独立 AdoptRoute | 当前默认采纳冻结 + 失配照打 | ❌ **非蓝本，待撤**。蓝本默认不冻结；冻结关 FullAuto、暂停自动重算，失配路线只保留参考，不是自动按序打到底 |
+| `PotionUsePolicy` 档位（`Smart` / `RequireAtLeastOne` / `Disabled`） | `search/PotionUsePolicy` + `SolverPotionPolicy` | 🔶 **部分**：基础 `IsEligible` 已翻译，但全局 Disabled 错压 Force、Require 组合与 forced-only baseline 需按 strict Task 4 复核 |
+| `PotionStrategySnapshot` + 四预设 + `(slot,potionId)` 持久化 | `search/PotionStrategySnapshot` + `SolverConfig` | 🔶 **部分**：每槽覆盖已有；全局 policy 落盘与 policyRevision 非蓝本，待撤 |
+| `CombatBeamSolver` policy snapshot + forced-use 最终校验 | `BeamSolver.enforcePotionStrategy` | 🔶 **部分**：最终校验已有；“钉住补搜→null”非蓝本，须改为统一候选池资格过滤 + 专用异常 |
+| `SolverOverlay` + `SolverPotionStrategyPanel` | `ui/PotionStrategyRows` + `SolverPanel` | 🔶 药水三态控件已有；遗物/成长控制器未做。所有控件行为须以蓝本源码为准，不保留本地扩展 |
 | `StateEvaluation` `LatentSetupValue` 启用条件 `_isActEndingBoss \|\| _initialEnemyCount > 1` | `Score.initialBoss` | ✅ **已补齐 Boss 那一半（2026-11-01，`9536d7d`）**。以前只有 `enemyCount > 1`，单只 Boss 房里「手上还没打出去的能力牌」在 beam 排序里等于 0 分。A/B：123 快照首手变化 0 次（快照没有 boss 标志，探针按楼层 16/33/50 推断） |
 | `BeamRetentionPolicy.DiversifyOrdinaryBeamBoundary(required: …)` | 首手保留（`required` 分支） | ❌ **仍未做**。2026-11-01 试做过「每个首手至少留一条后代」，实测首手变化 3/123、胜负 0 变化、节点 +3%，按「不加无证据复杂度」回退，未入库 |
-| （蓝本无对应；`SolverRouteRow.cs:28` 鼠标忽略，源码及历史无 `ApplyRoute`） | 点击路线行 = AUTO 至目标回合末（`verify/BoundedAutoTarget` + `verify/RoutePreview`） | 📝 **项目自定义扩展，已实施（2026-10-31）**：只设**绝对停止回合**（`AutoPilot.runUntil`），每回合按真局面重算（`RoutePreview` 保留完整 steps，行号是 `originTurn` 起的绝对 T4/T5，不冻结路线）。Tn 的 END_TURN 与敌方阶段完成后，在 Tn+1 **任何搜索/出牌之前**停。停止目标只属于本次运行意图，不入 `SolverConfig`、不跨战斗继承。**不是** `AdoptRoute` |
+| （蓝本无对应；`SolverRouteRow.cs:28` 鼠标忽略，源码及历史无 `ApplyRoute`） | 点击路线行 = AUTO 至目标回合末（`BoundedAutoTarget`） | ⛔ **项目自定义，按 2026-11-01 19:35 最新规则待撤**；不得以此前用户批准或 UI 适配为由保留 |
 
 ## 4. 下一步该按什么顺序做
 
@@ -150,23 +150,26 @@ read_when:
 
 ---
 
-## 附：2026-11-01 晚间改动的**来源审计**（禁止自创 → 逐条标来源）
+## 附：2026-11-01 来源审计（最新规则：禁止自创，蓝本没有 = 不做）
 
-> 起因：用户指出「项目书第一条就是禁止自创」。下面把本轮加进执行层的行为逐条对照蓝本，
-> 三类分开写：**【蓝本】**（有源码依据，给行号）/ **【蓝本·但默认值不同】** / **【项目自定义】**（蓝本没有）。
+> 2026-11-01 19:35 用户取消此前所有本地例外。下表不是“登记后保留”，而是撤改清单。
+> 唯一施工计划：`docs/plans/2026-11-01-strict-blueprint-parity.md`。
 
-| 行为 | 蓝本依据 | 分类 |
+| 当前行为 | 蓝本标准与证据 | 处置 |
 |---|---|---|
-| 冻结路线 = 算一次、按序打到底 | `Runtime/SolverController.cs:136 SetRouteFrozen()`、`UI/SolverOverlay.cs:1504`「冻结路线」按钮、`SearchTakeoverKind.AdoptRoute` | 【蓝本】功能存在 |
-| **默认就冻结** | 蓝本默认 `ShouldAutomaticallySearchNextTurn = FullAutoEnabled \|\| AutomaticCalculationEnabled && !RouteFrozen`，即**默认不冻结**、冻结是用户按按钮 | 【蓝本·但默认值不同】—— 我们把默认设成冻结（用户要求「一口气打完」） |
-| 冻结时仍逐回合比对精确状态戳（只记日志） | 蓝本冻结后跳过校验；只有非冻结模式才比对 | 【项目自定义】诊断增强，不影响出牌 |
-| **单步走不通只剔掉这一步、继续走** | 蓝本 `deployment_unplayable=live_reason_log+root_replan` → **从根重算** | 【项目自定义】—— 与蓝本相反，理由：影子不够准时从根重算=每回合重算 |
-| `DeathTurn == 当前回合` → 不部署、关全自动、提示 | `SolverController.cs:2783` `_stopFullAutoOnDeathTurn`（默认 true）+ `SolverOverlay.ShowFullAutoStoppedAtDeathTurn` | 【蓝本】✅ |
-| 回合末实时风险投影会死 → 不结束回合、交还控制 | `LiveEndTurnRiskEvaluator.Evaluate` + `StopFullAutoOnLiveRiskDeath`（`SolverController.cs:3086-3110`） | 【蓝本】✅（我们用 `Score.projectedHpOf` 等价复现，不重跑搜索） |
-| **搜不到生还路线 → 禁止自动出牌** | 蓝本只有排序键 `Survives`（`FinalPlanOrdering.cs:350-352`），**没有**「不生还就不部署」的闸 | 【项目自定义·用户明确要求 2026-11-01 ×2】 |
-| 路线不闪（陈旧预览保留）/ 路线区按屏幕高度 16 行 | 蓝本 overlay 是滚动 3 列布局（`cached_route_rows` / `route_scroll=true`） | 【UI 适配】非 parity，目标是「一屏看全路线」 |
-| 药水全局档位 / 每槽指令 / 四预设 / `policyRevision` | `PotionUsePolicy.cs`、`PotionStrategySnapshot.cs`、`SolverSettings.cs` | 【蓝本】✅（2026-11-01 白天，见正文对应行） |
+| 默认采纳冻结、失配照打 | 默认不冻结；`SolverController.cs:133-158,1077-1140` | 【撤销】恢复精确 Continuation |
+| AdoptRoute 与 RouteFrozen 混成“按序打到底” | 两者独立；冻结关 FullAuto、暂停自动重算，失配路线只参考：`SolverController.cs:128-158` | 【撤销/完整复刻】不得伪实现 |
+| 单步不可用只剔一步 | 部署漂移清 source、root replan：`SolverController.cs` DeploymentDrift 分支 | 【撤销】 |
+| 无生还路线禁止出牌 | `Survives` 是排序键，不是部署闸：`FinalPlanOrdering.cs:246-270` | 【撤销】DeathTurn/LiveRisk 保留 |
+| 点 Tn 有界 AUTO、冻结额外诊断、自适应 16 行 | 蓝本无这些本地机制 | 【撤销】不得再用 UI 适配豁免 |
+| best 节点链直接生成 continuation | best 只选边界，最终路线回放捕获：`CombatBeamSolver.Terminal.cs:337-390` | 【返工】 |
+| 单一 `from(SimState)`、手牌排序 | 分侧 `CaptureLive/CapturePredicted`；四牌堆保序：`ContinuationStamp.cs:68-182,337-349` | 【返工】 |
+| 全局 Disabled 压 Force | 显式 Force 优先，Disabled 只给未登记槽默认值：`PotionStrategySnapshot.cs:66-87` | 【修正】 |
+| 全局 PotionPolicy 落盘 | 蓝本 `[JsonIgnore]`，新设置默认 Smart：`SolverSettings.cs:94-96` | 【修正】只存每槽覆盖 |
+| `policyRevision` | 蓝本无此字段；策略修改走保存、清 continuation/baseline、条件 Manual 重搜：`SolverController.cs:1899-2008` | 【撤销】 |
+| Force 失败“钉住补搜→null” | 统一候选池资格过滤，无合格候选抛专用异常：`FinalPlanOrdering.cs:246-280` | 【返工】 |
+| `DeathTurn == 当前回合` 停手 | `SolverController.cs:2783` + `ShowFullAutoStoppedAtDeathTurn` | 【蓝本，保留】 |
+| 回合末 LiveRisk 死亡停手 | `LiveEndTurnRiskEvaluator` + `SolverController.cs:3086-3110` | 【蓝本，保留】 |
 
-**结论**：本轮真正「自创」的只有 3 处 —— 冻结设为默认、单步剔除法、无生还路线禁止出牌。
-前两处有明确用户指令，第三处是用户两次强调的产品规则；三处都已在代码注释里标注来源，
-不再冒充 parity。**下一轮若要严格 parity，把 `ADOPT_ROUTE_TO_THE_END` 关掉即可回到蓝本默认。**
+**纪律**：任何行为只能是【蓝本，给 file:line】或【STS1 原版补正，给 javap】；
+蓝本没有的一律移除。测试全绿不等于 parity，钉住自创语义的旧测试必须改成蓝本反向合同。

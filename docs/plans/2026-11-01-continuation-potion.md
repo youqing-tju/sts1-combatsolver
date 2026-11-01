@@ -1,5 +1,9 @@
 # P7 Continuation + D5 Potion Strategy Implementation Plan
 
+> ⛔ **计划已废止，禁止继续按本文施工**。2026-11-01 19:35 用户明确：禁止自创，一切以蓝本复刻。
+> 本文及其实施结果只用于定位需要纠偏的历史行为；新任务书为
+> `docs/plans/2026-11-01-strict-blueprint-parity.md`。
+>
 > **For implementer:** Use TDD throughout. Write failing test first. Watch it fail. Then implement.
 > 本计划是唯一施工依据；旧 `next-round-prompt.md` 中 P1/P2 前提已废止。
 > 已批准设计：`docs/plans/2026-11-01-continuation-potion-design.md`，先完整阅读。
