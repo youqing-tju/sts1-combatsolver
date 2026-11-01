@@ -36,6 +36,21 @@ public final class SearchNode {
      * 边界多样化按它分桶（防 beam 被同质路线占满）。
      */
     public final int potionsUsed;
+    /**
+     * 走到本节点为止**可避免**掉血（蓝本 {@code SearchNode.FutureSoldHp}），最终排序第 15 键。
+     *
+     * <p>子节点继承父节点的值；回合结束时由 {@link TurnOutcomeAnnotator} 补上本回合新增的那部分。
+     */
+    public final int futureSoldHp;
+    /** 本节点作为一个**回合结果**时的注记；其它节点为 {@code null}。 */
+    public final TurnOutcome outcome;
+    /**
+     * 这条候选自己的边界原因（蓝本 {@code Snapshot.BoundaryReason}），最终排序第 13 键。
+     *
+     * <p>⚠️ 不是整趟搜索的 {@code lastStopReason}：用全局值冒充会让所有候选共享同一档，
+     * 这一键等于不存在。
+     */
+    public final SearchBoundaryReason boundaryReason;
 
     public SearchNode(SimState state, PlanAction action, SearchNode parent, int depth, long score) {
         this(state, action, parent, depth, score, score, null);
@@ -53,6 +68,13 @@ public final class SearchNode {
 
     public SearchNode(SimState state, PlanAction action, SearchNode parent, int depth, long score,
                       long rank, String cardKey, int offensiveProgress, int potionsUsed) {
+        this(state, action, parent, depth, score, rank, cardKey, offensiveProgress, potionsUsed,
+                SearchBoundaryReason.NONE);
+    }
+
+    public SearchNode(SimState state, PlanAction action, SearchNode parent, int depth, long score,
+                      long rank, String cardKey, int offensiveProgress, int potionsUsed,
+                      SearchBoundaryReason boundaryReason) {
         this.state = state;
         this.action = action;
         this.parent = parent;
@@ -62,6 +84,43 @@ public final class SearchNode {
         this.cardKey = cardKey;
         this.offensiveProgress = offensiveProgress;
         this.potionsUsed = potionsUsed;
+        this.futureSoldHp = parent == null ? 0 : parent.futureSoldHp;
+        this.outcome = null;
+        this.boundaryReason = boundaryReason == null ? SearchBoundaryReason.NONE : boundaryReason;
+    }
+
+    private SearchNode(SimState state, PlanAction action, SearchNode parent, int depth, long score,
+                       long rank, String cardKey, int offensiveProgress, int potionsUsed,
+                       SearchBoundaryReason boundaryReason, int futureSoldHp,
+                       TurnOutcome outcome) {
+        this.state = state;
+        this.action = action;
+        this.parent = parent;
+        this.depth = depth;
+        this.score = score;
+        this.rank = rank;
+        this.cardKey = cardKey;
+        this.offensiveProgress = offensiveProgress;
+        this.potionsUsed = potionsUsed;
+        this.boundaryReason = boundaryReason == null ? SearchBoundaryReason.NONE : boundaryReason;
+        this.futureSoldHp = futureSoldHp;
+        this.outcome = outcome;
+    }
+
+    /**
+     * 回合边界注记：换上新的累计卖血与本回合结果，并把分差补进 {@link #score}。
+     *
+     * <p>先**扣掉**节点里已经计入的那份罚分（它来自父节点继承的 {@code futureSoldHp}），
+     * 再加上本回合的真实值 —— 直接累加会把同一个数字罚两次，正是蓝本
+     * {@code AnnotateTurnOutcome} 里 {@code scoreWithoutSoldPenalty} 那一步在防的事。
+     */
+    SearchNode withSoldAnnotation(int futureSoldHp, TurnOutcome outcome) {
+        long scoreWithoutPenalty = score
+                - (long) ((double) this.futureSoldHp * TurnOutcomeAnnotator.SOLD_HP_PENALTY);
+        long annotated = scoreWithoutPenalty
+                + (long) ((double) futureSoldHp * TurnOutcomeAnnotator.SOLD_HP_PENALTY);
+        return new SearchNode(state, action, parent, depth, annotated, rank, cardKey,
+                offensiveProgress, potionsUsed, boundaryReason, futureSoldHp, outcome);
     }
 
     /** 从根到本节点的第一个动作（执行层只有这一步是真的要做的）。 */

@@ -141,6 +141,8 @@ final class GoldenPositions {
                 ? intOf(p, "longTermResourceValue") : 0;
         s.angerCopiesGenerated = p.containsKey("angerCopiesGenerated")
                 ? intOf(p, "angerCopiesGenerated") : 0;
+        s.cumulativeHpLost = p.containsKey("cumulativeHpLost") ? intOf(p, "cumulativeHpLost") : 0;
+        s.recoveredPlayerHp = p.containsKey("recoveredPlayerHp") ? intOf(p, "recoveredPlayerHp") : 0;
         s.playerPowers.putAll(powersOf(p.get("powers")));
         s.powerAux.putAll(powersOf(p.get("powerAux")));
 

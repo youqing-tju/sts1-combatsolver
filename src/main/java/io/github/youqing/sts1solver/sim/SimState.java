@@ -100,6 +100,22 @@ public final class SimState {
      * <p>最终排序第 12 键升序：同样的胜负与战损下，少造无意义复制牌的那条更优。
      */
     public int angerCopiesGenerated;
+    /**
+     * 本场**累计未格挡伤害**（蓝本 {@code CumulativePlayerHpLost}）。
+     *
+     * <p>为什么要单独累计，而不是用 {@code hpLost = 起点血量 - 当前血量} 近似：
+     * 那个近似把「掉 10 又回 10」和「一点没掉」算成同一个数，于是
+     * {@code StrategicHpDeficit}（最终排序第 5 键）和逐回合卖血都会失真。
+     * 蓝本从战斗历史里的 {@code DamageReceivedEntry.Result.UnblockedDamage} 累加，同一口径。
+     */
+    public int cumulativeHpLost;
+    /**
+     * 本场**累计挣回来的回血**（蓝本 {@code RecoveredPlayerHp}）。
+     *
+     * <p>不含两样：死亡豁免恢复的血（那是拿一次性资源换的，记在
+     * {@link #deathSaveHpRestored}，排序时按溢价另算）、以及涨最大生命顺带加的血。
+     */
+    public int recoveredPlayerHp;
     public int energy;
 
     /**
@@ -523,6 +539,8 @@ public final class SimState {
         c.handOfGreedGrowth = handOfGreedGrowth;
         c.longTermResourceValue = longTermResourceValue;
         c.angerCopiesGenerated = angerCopiesGenerated;
+        c.cumulativeHpLost = cumulativeHpLost;
+        c.recoveredPlayerHp = recoveredPlayerHp;
         c.energy = energy;
         c.energyPerTurn = energyPerTurn;
         c.turnForcedEnd = turnForcedEnd;
@@ -566,6 +584,8 @@ public final class SimState {
         cmp(out, "handOfGreedGrowth", handOfGreedGrowth, o.handOfGreedGrowth);
         cmp(out, "longTermResourceValue", longTermResourceValue, o.longTermResourceValue);
         cmp(out, "angerCopiesGenerated", angerCopiesGenerated, o.angerCopiesGenerated);
+        cmp(out, "cumulativeHpLost", cumulativeHpLost, o.cumulativeHpLost);
+        cmp(out, "recoveredPlayerHp", recoveredPlayerHp, o.recoveredPlayerHp);
         cmp(out, "hp", hp, o.hp);
         cmp(out, "maxHp", maxHp, o.maxHp);
         cmp(out, "block", block, o.block);
@@ -802,6 +822,8 @@ public final class SimState {
         // 所以它们必须进指纹，否则去重会把其中一条丢掉。
         hash.add(feedGrowth).add(handOfGreedGrowth).add(longTermResourceValue)
                 .add(angerCopiesGenerated);
+        // 累计掉血/回血进最终排序第 5 键与第 15 键：只差这两项的两条世界线会选出不同路线。
+        hash.add(cumulativeHpLost).add(recoveredPlayerHp);
         hash.textMap(playerPowers);
         hash.textMap(powerAux);
         hash.cards(hand);
@@ -926,6 +948,8 @@ public final class SimState {
           .append(",\"handOfGreedGrowth\":").append(handOfGreedGrowth)
           .append(",\"longTermResourceValue\":").append(longTermResourceValue)
           .append(",\"angerCopiesGenerated\":").append(angerCopiesGenerated)
+          .append(",\"cumulativeHpLost\":").append(cumulativeHpLost)
+          .append(",\"recoveredPlayerHp\":").append(recoveredPlayerHp)
           .append(",\"powers\":").append(mapJson(playerPowers))
           .append(",\"powerAux\":").append(mapJson(powerAux))
           .append("},\n");

@@ -768,6 +768,9 @@ public final class CombatFlow {
             return 0;
         }
         state.hp = Math.max(0, state.hp - remaining);
+        // 蓝本 CumulativePlayerHpLost：累计**未格挡**伤害（与战斗历史 DamageReceivedEntry 同口径）。
+        // 不能用「起点血量 - 当前血量」近似：那样「掉 10 又回 10」和「一点没掉」会算成同一个数。
+        state.cumulativeHpLost += remaining;
         // 原版 updateCardsOnDamage()（浴血奋战的减费）+ damagedThisCombat++
         state.hpLossCount++;
         // 原版 wasHPLost（符文立方 / 百夫长谜题 / 自形成黏土）与 onBloodied（红骷髅）

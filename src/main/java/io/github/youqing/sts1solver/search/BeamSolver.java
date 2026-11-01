@@ -1136,6 +1136,9 @@ public final class BeamSolver {
             for (SearchNode node : active) {
                 ended.add(endTurnOf(node));
             }
+            // 蓝本 AnnotateTurnOutcomes：先按「同回合 / 同起点 / 同药水槽」分组求最低掉血，
+            // 再给每条路线记下**可避免**的那部分。必须在 prune 之前 —— 剪枝之后就看不到同组的其它候选了。
+            ended = io.github.youqing.sts1solver.search.TurnOutcomeAnnotator.annotate(ended);
             // 蓝本 ConsiderCurrentTurnCandidate（Phases.cs:372）：
             // 只在**本回合**（= 起点回合）登记，判据是
             // `actionCount > 0 && 走到回合边界 && !playerDead && projectedPlayerHp > 0`，
@@ -1506,7 +1509,12 @@ public final class BeamSolver {
         Score score = Score.of(state, scoreRoot, depth);
         int potionsUsed = (parent != null ? parent.potionsUsed : 0)
                 + (action != null && action.kind == PlanAction.Kind.USE_POTION ? 1 : 0);
-        return new SearchNode(state, action, parent, depth, score.baseTotal(), score.total(),
+        // 蓝本 ExpansionPlan.cs:192：子节点先按**父节点已累计的**卖血扣一遍罚分，
+        // 回合结束时再由 TurnOutcomeAnnotator 用本回合真实值修正（先扣后加，不会重复罚）。
+        int futureSold = parent != null ? parent.futureSoldHp : 0;
+        long base = score.baseTotal()
+                + (long) ((double) futureSold * TurnOutcomeAnnotator.SOLD_HP_PENALTY);
+        return new SearchNode(state, action, parent, depth, base, score.total(),
                 cardKey, offensiveProgressOf(state), potionsUsed);
     }
 

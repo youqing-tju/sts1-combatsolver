@@ -297,9 +297,12 @@ public final class Effects {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
+                int before = state.hp;
                 state.hp = Math.min(state.maxHp, state.hp
                         + io.github.youqing.sts1solver.mirror.hooks.RelicHooks
                                 .healAmount(state, amount));
+                // 蓝本 RecoveredPlayerHp：只记**真的回上去**的那部分（满血时是 0）。
+                state.recoveredPlayerHp += Math.max(0, state.hp - before);
                 io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
             }
 
@@ -431,9 +434,11 @@ public final class Effects {
                                 DamageCalc.attackDamage(state, base, m, played));
                     }
                 }
+                int beforeDrain = state.hp;
                 state.hp = Math.min(state.maxHp, state.hp
                         + io.github.youqing.sts1solver.mirror.hooks.RelicHooks
                                 .healAmount(state, total));
+                state.recoveredPlayerHp += Math.max(0, state.hp - beforeDrain);
                 io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
             }
 
