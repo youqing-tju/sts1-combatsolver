@@ -80,6 +80,26 @@ public final class SimState {
     public int deathSaveUseCount;
     /** 救命遗物这条路线上实际回的血（蓝本 {@code DeathSaveHpRestored}）。 */
     public int deathSaveHpRestored;
+    /**
+     * 本场**已兑现**的成长事件计数（蓝本 {@code GrowthValues} 在 STS1 的两个来源）。
+     *
+     * <p>为什么必须逐来源记、而不是从 {@code maxHp}/`gold` 的差值倒推：
+     * 最大生命还可能被别的效果改（例如后续实现的事件），金币还会被花掉。
+     * 倒推出来的次数会「看起来对、其实多算」，而它现在直接进最终排序第 6/7 键。
+     */
+    public int feedGrowth;
+    public int handOfGreedGrowth;
+    /**
+     * 已兑现的**长期资源**：目前只有贪婪之手实际到手的金币
+     * （蓝本 {@code RecordLongTermResource}；Feed 涨的最大生命**不**冒充长期资源）。
+     */
+    public int longTermResourceValue;
+    /**
+     * 这条路线实际生成了几张 {@code Anger} 复制牌（蓝本 {@code RecordAngerCopyGenerated}）。
+     *
+     * <p>最终排序第 12 键升序：同样的胜负与战损下，少造无意义复制牌的那条更优。
+     */
+    public int angerCopiesGenerated;
     public int energy;
 
     /**
@@ -499,6 +519,10 @@ public final class SimState {
         c.deathSaveUsed = deathSaveUsed;
         c.deathSaveUseCount = deathSaveUseCount;
         c.deathSaveHpRestored = deathSaveHpRestored;
+        c.feedGrowth = feedGrowth;
+        c.handOfGreedGrowth = handOfGreedGrowth;
+        c.longTermResourceValue = longTermResourceValue;
+        c.angerCopiesGenerated = angerCopiesGenerated;
         c.energy = energy;
         c.energyPerTurn = energyPerTurn;
         c.turnForcedEnd = turnForcedEnd;
@@ -536,6 +560,12 @@ public final class SimState {
         cmp(out, "deathSaveUsed", deathSaveUsed, o.deathSaveUsed);
         cmp(out, "deathSaveUseCount", deathSaveUseCount, o.deathSaveUseCount);
         cmp(out, "deathSaveHpRestored", deathSaveHpRestored, o.deathSaveHpRestored);
+        // 这几个是**参与最终排序**的账本（第 6/7/11/12 键），必须能对拍出来，
+        // 否则「影子账本多记一次」永远不会被发现。
+        cmp(out, "feedGrowth", feedGrowth, o.feedGrowth);
+        cmp(out, "handOfGreedGrowth", handOfGreedGrowth, o.handOfGreedGrowth);
+        cmp(out, "longTermResourceValue", longTermResourceValue, o.longTermResourceValue);
+        cmp(out, "angerCopiesGenerated", angerCopiesGenerated, o.angerCopiesGenerated);
         cmp(out, "hp", hp, o.hp);
         cmp(out, "maxHp", maxHp, o.maxHp);
         cmp(out, "block", block, o.block);
@@ -699,6 +729,14 @@ public final class SimState {
     // ------------------------------------------------------------------- output
 
     /** 四个牌堆的总张数。用来发现「某张牌在两侧都没了」这类丢卡问题。 */
+    /** 已兑现的成长向量（蓝本 {@code combat.GrowthRewards}）。 */
+    public io.github.youqing.sts1solver.search.GrowthValues growthValues() {
+        return io.github.youqing.sts1solver.search.GrowthValues.none()
+                .with(io.github.youqing.sts1solver.search.GrowthValues.Source.FEED, feedGrowth)
+                .with(io.github.youqing.sts1solver.search.GrowthValues.Source.HAND_OF_GREED,
+                        handOfGreedGrowth);
+    }
+
     /**
      * 还被抢錢怪攥着的金币（原版 {@code Looter.stolenGold} / {@code Mugger.stolenGold} 之和）。
      *
@@ -760,6 +798,10 @@ public final class SimState {
         hash.add(turn).add(hpLossCount).add(potionSlots);
         hash.add(hp).add(maxHp).add(block).add(energy).add(turnForcedEnd ? 1 : 0);
         hash.add(deathSaveUsed ? 1 : 0).add(deathSaveUseCount).add(deathSaveHpRestored);
+        // 成长/长期资源/Anger 复制数现在参与最终排序：只差这些字段的两条世界线会选出不同路线，
+        // 所以它们必须进指纹，否则去重会把其中一条丢掉。
+        hash.add(feedGrowth).add(handOfGreedGrowth).add(longTermResourceValue)
+                .add(angerCopiesGenerated);
         hash.textMap(playerPowers);
         hash.textMap(powerAux);
         hash.cards(hand);
@@ -879,6 +921,11 @@ public final class SimState {
           .append(",\"deathSaveUsed\":").append(deathSaveUsed)
           .append(",\"deathSaveUseCount\":").append(deathSaveUseCount)
           .append(",\"deathSaveHpRestored\":").append(deathSaveHpRestored)
+          .append(",\"gold\":").append(gold)
+          .append(",\"feedGrowth\":").append(feedGrowth)
+          .append(",\"handOfGreedGrowth\":").append(handOfGreedGrowth)
+          .append(",\"longTermResourceValue\":").append(longTermResourceValue)
+          .append(",\"angerCopiesGenerated\":").append(angerCopiesGenerated)
           .append(",\"powers\":").append(mapJson(playerPowers))
           .append(",\"powerAux\":").append(mapJson(powerAux))
           .append("},\n");

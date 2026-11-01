@@ -45,8 +45,10 @@ public final class ContinuationStamp {
      * <p>v2：手牌改成**保序**（v1 是排序后的无序多重集），与蓝本 {@code AppendLivePile} 一致。
      * <p>v3：怪物多一个 {@code stolenGold}（抢錢怪手里还攥着多少金币）——
      * 它现在参与最终排序，必须逐字段比对。
+     * <p>v4：成长/长期资源/Anger 复制数（最终排序第 6/7/11/12 键）——
+     * 与 {@code stolenGold} 同一个理由：只差这些字段的两份状态会选出不同路线。
      */
-    public static final String VERSION = "sts1-cont-v3";
+    public static final String VERSION = "sts1-cont-v4";
 
     private static final char FIELD_SEP = ';';
     private static final char PAIR_SEP = '=';
@@ -120,6 +122,10 @@ public final class ContinuationStamp {
         f.num("ascension", state.ascension);
         f.add("boss", state.boss);
         f.num("gold", state.gold);
+        f.num("feedGrowth", state.feedGrowth);
+        f.num("handOfGreedGrowth", state.handOfGreedGrowth);
+        f.num("longTermResourceValue", state.longTermResourceValue);
+        f.num("angerCopiesGenerated", state.angerCopiesGenerated);
 
         // ---- 玩家能力 ----------------------------------------------------------
         // 保持**施加顺序**：原版 applyStartOfTurnPowers 是按列表顺序派发钩子的，

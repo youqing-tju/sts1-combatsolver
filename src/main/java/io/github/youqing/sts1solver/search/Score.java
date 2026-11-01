@@ -57,8 +57,29 @@ public final class Score {
     public static final double VICTORY_BONUS = 10_000_000_000d;
     /** 1 点血的分数。整套估值的单位。 */
     public static final double HP = 30_000d;
+
+    /**
+     * 成长预算（蓝本 {@code _growthBudgets} 的默认值）。
+     *
+     * <p>蓝本默认 {@code GrowthValues} 全 0、{@code IsEnabled == false}；成长策略 UI 本轮不做，
+     * 所以这里也保持空。**不许**为了让「成长看起来有用」而给它一个非零默认值 ——
+     * 那等于自造「拿战损换血量信用」。
+     */
+    public static final GrowthValues DEFAULT_GROWTH_BUDGETS = GrowthValues.none();
     /** 1 点敌方血量的分数（负号 = 敌方血越少越好）。Hp/|EnemyHp| = 3，即 1 血 ≈ 3 伤。 */
     public static final double ENEMY_HP = -10_000d;
+    /**
+     * 长期资源在 **Beam 基础分** 里的单价与封顶（蓝本 {@code SolverWeights.cs:46-49}：
+     * {@code LongTermResourceBeamValue = 25_000}、{@code LongTermResourceBeamCap = 25_000}）。
+     *
+     * <p>封顶按蓝本的用意：整个资源加成必须**低于一点血的权重**（{@code HP = 30_000}），
+     * 否则「打钱」会盖过「保命」。最终排序仍是词典序，这两个值只负责让低即时收益的
+     * 成长路线活到最终选择。
+     */
+    public static final double LONG_TERM_RESOURCE_BEAM_VALUE = 25_000d;
+    public static final double LONG_TERM_RESOURCE_BEAM_CAP = 25_000d;
+    /** Anger 复制牌在 Beam 里的惩罚（蓝本 {@code SolverWeights.AngerCopyBeamPenalty = -15_000}）。 */
+    public static final double ANGER_COPY_BEAM_PENALTY = -15_000d;
 
     /** Beam 排序：本回合剩余能量（封顶 6 点，避免溢出能量刷分）。 */
     public static final int ENERGY_CAP = 6;
@@ -269,6 +290,17 @@ public final class Score {
     public final io.github.youqing.sts1solver.mirror.PostCombatRelicHeal postCombatHeal;
     /** 当前节点上所有能力的保留价值之和（蓝本 {@code PersistentBuffValue}）。 */
     public final int persistentBuffValue;
+    /**
+     * 已兑现的长期资源（{@code HandOfGreed} 实际到手的金币），蓝本 {@code LongTermResourceValue}。
+     *
+     * <p>它既进最终排序第 11 键，也进 Beam 基础分 —— 只加最终键会让成长路线在 Beam 里被剪掉，
+     * 那样「有成长」这件事根本活不到最终选择。
+     */
+    public final int longTermResourceValue;
+    /** 成长预算 × 兑现次数（蓝本 {@code GrowthHpCredit}）；默认预算为空，所以恒为 0。 */
+    public final int growthHpCredit;
+    /** 这条路线生成了几张 {@code Anger} 复制牌（蓝本 {@code AngerCopiesGenerated}）。 */
+    public final int angerCopiesGenerated;
     /** 路线起点的同一量（蓝本 {@code InitialPersistentBuffValue}）。 */
     public final int initialPersistentBuffValue;
 
@@ -305,6 +337,9 @@ public final class Score {
         this.deathSaveUseCount = b.deathSaveUseCount;
         this.postCombatHeal = b.postCombatHeal;
         this.persistentBuffValue = b.persistentBuffValue;
+        this.longTermResourceValue = b.longTermResourceValue;
+        this.growthHpCredit = b.growthHpCredit;
+        this.angerCopiesGenerated = b.angerCopiesGenerated;
         this.initialPersistentBuffValue = b.initialPersistentBuffValue;
     }
 
@@ -430,6 +465,11 @@ public final class Score {
         b.hpLost = Math.max(0, root.hp - state.hp);
         b.deathSaveHpRestored = state.deathSaveHpRestored;
         b.deathSaveUseCount = state.deathSaveUsed ? 1 : 0;
+        b.longTermResourceValue = state.longTermResourceValue;
+        b.angerCopiesGenerated = state.angerCopiesGenerated;
+        // 成长预算目前没有任何 UI（蓝本默认也是空）：空预算下这一项恒为 0，
+        // 免费成长靠最终排序第 7 键（兑现次数）比较，不靠这里。
+        b.growthHpCredit = DEFAULT_GROWTH_BUDGETS.credit(state.growthValues());
         b.block = state.block;
         b.energy = state.energy;
         b.handSize = state.hand.size();
@@ -617,6 +657,12 @@ public final class Score {
             // 而 None 档 `RawHpRequiredForPersistentValue(1, None) = 1` → 该变换是恒等，直接加。
             score += thresholdPostCombatHeal(postCombatHeal, playerHp, maxHp) * HP;
         }
+        // 蓝本 StateEvaluation.cs:192-198：长期资源按单价计、整段封顶；成长信用按血量权重计；
+        // Anger 复制牌按固定惩罚扣。**先**算这些，胜负与死亡惩罚在后面覆盖。
+        score += Math.min(longTermResourceValue * LONG_TERM_RESOURCE_BEAM_VALUE,
+                LONG_TERM_RESOURCE_BEAM_CAP);
+        score += growthHpCredit * HP;
+        score += angerCopiesGenerated * ANGER_COPY_BEAM_PENALTY;
         score += enemyHp * ENEMY_HP;
         score += clutter * CLUTTER_PENALTY;
         return (long) score;
@@ -730,6 +776,9 @@ public final class Score {
         int persistentBuffValue;
         /** 路线起点的同一量（蓝本 {@code InitialPersistentBuffValue}）。 */
         int initialPersistentBuffValue;
+        int longTermResourceValue;
+        int growthHpCredit;
+        int angerCopiesGenerated;
         int actions;
         int turns;
         int hpLost;

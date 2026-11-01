@@ -115,6 +115,14 @@ public final class Effects {
     }
 
     /** 把这张牌的一份复制放进弃牌堆（愤怒）。 */
+    /**
+     * 复制打出的这张牌进弃牌堆（愤怒 {@code Anger}）。
+     *
+     * <p>原版 {@code Anger.use}：{@code DamageAction} + {@code MakeTempCardInDiscardAction(
+     * makeStatEquivalentCopy(), 1)}。每真的生成一张就记一次账（蓝本
+     * {@code CorePowerSupport.cs:246-254} 的 {@code RecordAngerCopyGenerated}）——
+     * 它是最终排序第 12 键，**只有 Anger 这一个来源**，别的复制效果不许冒充。
+     */
     public static Effect copySelfToDiscard() {
         return new Effect() {
             @Override
@@ -123,6 +131,7 @@ public final class Effects {
                     return;
                 }
                 state.discard.add(new SimCard(played.id, played.upgraded, played.cost));
+                state.angerCopiesGenerated++;
             }
 
             @Override
@@ -1190,6 +1199,17 @@ public final class Effects {
     }
 
     /** 造成伤害，击杀则获得金币（贪婪之手 Hand of Greed）。 */
+    /**
+     * 若击杀目标则获得金币（贪婪之手 {@code HandOfGreed}）。
+     *
+     * <p>原版判据（javap {@code GreedAction.update}）：伤害结算后，「将死或已死」且
+     * {@code !halfDead} 且没有 {@code Minion} 才 {@code player.gainGold(increaseGold)}；
+     * 而 {@code AbstractPlayer.gainGold} 一旦发现身上有 {@code Ectoplasm}（魂灵瓶）**直接返回**。
+     *
+     * <p>记账口径照蓝本 {@code CorePowerSupport.cs:138-146}：
+     * 只有 {@code gainedGold > 0} 才累加长期资源，但「成功打死」这件事本身无条件记一次成长 ——
+     * 所以魂灵瓶下长期资源是 0、成长次数仍然 +1。
+     */
     public static Effect damageAndGoldOnKill(final int base, final int gold) {
         return new Effect() {
             @Override
@@ -1197,9 +1217,15 @@ public final class Effects {
                 SimMonster target = requireTarget(state, targetIndex);
                 boolean alive = target.hp > 0;
                 DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target, played));
-                if (alive && target.hp <= 0) {
-                    state.gold += gold;
+                if (!alive || !rewardsFatalKill(target)) {
+                    return;
                 }
+                int gained = gainedGold(state, gold);
+                if (gained > 0) {
+                    state.gold += gained;
+                    state.longTermResourceValue += gained;
+                }
+                state.handOfGreedGrowth++;
             }
 
             @Override
@@ -1212,6 +1238,31 @@ public final class Effects {
                 return "damage(" + base + ")+gold(" + gold + " on kill)";
             }
         };
+    }
+
+    /**
+     * 「这次击杀算不算数」—— 原版 {@code FeedAction} / {@code GreedAction} 共用的两道守卫。
+     *
+     * <p>{@code halfDead}：觉醒者一阶段那样打了也死不了的形态；
+     * {@code Minion}：地精首领召唤的小地精，打死了也不给奖励。
+     */
+    static boolean rewardsFatalKill(SimMonster target) {
+        return target != null && target.hp <= 0
+                && !target.powers.containsKey("Half Dead")
+                && !target.powers.containsKey("Minion");
+    }
+
+    /**
+     * 原版 {@code AbstractPlayer.gainGold} 实际到手的金币。
+     *
+     * <p>两条规则：{@code amount <= 0} 不加；身上有 {@code Ectoplasm} 一分不加（只闪一下遗物）。
+     * 没有 999 上限 —— 原版也没有。
+     */
+    static int gainedGold(SimState state, int amount) {
+        if (amount <= 0) {
+            return 0;
+        }
+        return state.relics.containsKey("Ectoplasm") ? 0 : amount;
     }
 
     /** 空效果（史莱姆粘液 Slimed：只有 Exhaust）。 */
@@ -1429,7 +1480,16 @@ public final class Effects {
         };
     }
 
-    /** 若击杀目标则提升最大生命（啃食 Feed）。 */
+    /**
+     * 若击杀目标则提升最大生命（啃食 {@code Feed}）。
+     *
+     * <p>原版判据（javap {@code FeedAction.update}）：目标是「将死或已死」**且** {@code !halfDead}
+     * **且**没有 {@code Minion} 能力，才 {@code increaseMaxHp(magicNumber, true)}
+     * ——第二个参数为 {@code true} 表示连当前血量一起加。
+     *
+     * <p>少了那两条守卫，影子会以为「打死觉醒者一阶段 / 地精首领的小地精也能涨最大生命」，
+     * 于是把「多花两回合去喂」算成收益。成长次数同时记进账本（最终排序第 6/7 键）。
+     */
     public static Effect damageAndMaxHpOnKill(final int base, final int maxHpGain) {
         return new Effect() {
             @Override
@@ -1437,9 +1497,10 @@ public final class Effects {
                 SimMonster target = requireTarget(state, targetIndex);
                 boolean aliveBefore = target.hp > 0;
                 DamageCalc.hit(state, target, DamageCalc.attackDamage(state, base, target, played));
-                if (aliveBefore && target.hp <= 0) {
+                if (aliveBefore && rewardsFatalKill(target)) {
                     state.maxHp += maxHpGain;
                     state.hp += maxHpGain;
+                    state.feedGrowth++;
                 }
             }
 

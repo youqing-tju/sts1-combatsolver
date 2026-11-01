@@ -124,6 +124,28 @@ class ContinuationStampTest {
     }
 
     /**
+     * 成长/收益账本必须进状态戳：它们现在参与最终排序，续用命中时不能「账本归零」。
+     *
+     * <p>和 {@code stolenGold} 同一个理由：只差这些字段的两份状态，会选出不同路线，
+     * 所以它们不是诊断量，是状态的一部分。
+     */
+    @Test
+    void growthAndResourceLedgersArePartOfTheStamp() {
+        SimState base = base();
+        SimState fed = base();
+        fed.feedGrowth = 1;
+        assertNotEquals(stampOf(base), stampOf(fed), "吃过的成长必须进戳");
+
+        SimState richer = base();
+        richer.longTermResourceValue = 25;
+        assertNotEquals(stampOf(base), stampOf(richer), "到手的金币必须进戳");
+
+        SimState angrier = base();
+        angrier.angerCopiesGenerated = 1;
+        assertNotEquals(stampOf(base), stampOf(angrier), "Anger 复制数必须进戳");
+    }
+
+    /**
      * 两侧入口产出的文本必须一致 —— 真机侧与预测侧比的是同一套字段。
      *
      * <p>蓝本两侧是两套对象模型，各写一份 {@code CaptureLive}/{@code CapturePredicted}；

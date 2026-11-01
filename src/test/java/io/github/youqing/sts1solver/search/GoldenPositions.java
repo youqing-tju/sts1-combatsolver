@@ -133,6 +133,14 @@ final class GoldenPositions {
         s.deathSaveUsed = boolOf(p, "deathSaveUsed");
         s.deathSaveUseCount = intOf(p, "deathSaveUseCount");
         s.deathSaveHpRestored = intOf(p, "deathSaveHpRestored");
+        // 老快照没有这几个字段：默认值只能是蓝本的**空账本**（0），不许猜。
+        s.gold = p.containsKey("gold") ? intOf(p, "gold") : 0;
+        s.feedGrowth = p.containsKey("feedGrowth") ? intOf(p, "feedGrowth") : 0;
+        s.handOfGreedGrowth = p.containsKey("handOfGreedGrowth") ? intOf(p, "handOfGreedGrowth") : 0;
+        s.longTermResourceValue = p.containsKey("longTermResourceValue")
+                ? intOf(p, "longTermResourceValue") : 0;
+        s.angerCopiesGenerated = p.containsKey("angerCopiesGenerated")
+                ? intOf(p, "angerCopiesGenerated") : 0;
         s.playerPowers.putAll(powersOf(p.get("powers")));
         s.powerAux.putAll(powersOf(p.get("powerAux")));
 
