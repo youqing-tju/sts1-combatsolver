@@ -654,6 +654,28 @@ public final class AutoPilot {
     private static java.util.List<io.github.youqing.sts1solver.search.RouteStep> planSteps =
             java.util.Collections.emptyList();
     /**
+     * **采纳整条路线、按序打到底**（蓝本 {@code AdoptRoute} / {@code RouteFrozen} 语义，默认开）。
+     *
+     * <p>用户明确要求（2026-11-01）：「开局花时间把全局路线规划好，然后一口气打完」。
+     * 这也是蓝本的默认体验：一次搜索给出整场战斗的动作序列，之后只是**部署**它，
+     * 不是每回合重开一次搜索。
+     *
+     * <p>⚠️ 与「每回合精确校验」的区别：
+     * <ul>
+     *   <li>开（默认）：回合翻页**不丢路线**，接着执行同一份队列；单步走不通就剔掉那一步继续走。
+     *       精确状态戳仍然逐回合比对，但只作为**诊断**（{@code SEARCH_REUSED} /
+     *       {@code SEARCH_REUSE_MISS … route kept}），不再触发重算。</li>
+     *   <li>关：回到蓝本的「严格模式」——精确戳对不上就重搜。我们的影子还在补
+     *       （真机 97 对配对里 0 命中，首差集中在 hp / hpLossCount / 能力 ID），
+     *       严格模式等于每回合重算，用户看到的就是「路线一直在变」。</li>
+     * </ul>
+     * 什么时候仍然重算（不能省）：用户手工动过手、本回合计划作废、战斗 reset、
+     * 队列走空、单回合剔掉的步数超限。
+     */
+    static final boolean ADOPT_ROUTE_TO_THE_END =
+            !"false".equalsIgnoreCase(System.getProperty("sts1.adoptRoute", "true"));
+
+    /**
      * 跨回合续跑判定（纯数据）。命中 = 这个回合不搜索，直接按上一回合算出的世界线打。
      *
      * <p>缓存的生命周期跟着 {@link #clearPlan()} 走：本回合计划一失效，那条世界线就不再可信。
@@ -892,10 +914,21 @@ public final class AutoPilot {
             // 就沿原世界线继续，不搜索。这一步以前是「无条件 clearPlan()」——
             // 于是每回合都重算，搜索推演出来的后续回合**从来没被用上第二次**，
             // 用户看到的就是「世界线完全没被展开，路线每回合都变」。
+            // 🔴 顺序固定：**先校验，再出牌**。这一步在 playOneCard 的最前面，
+            // 任何一张牌入队之前就已经跑完 —— 不存在「打完这一回合再看对不对」。
+            boolean manual = continuation.manualDivergence();
+            int planTurnBefore = planTurn;
             if (!reuseContinuation(turnNow, liveStampOrNull(),
                     ShadowTracker.mismatchSequence())) {
-                Trace.info("PLAN dropped: turn " + planTurn + " -> " + turnNow + ", replanning");
-                clearPlan();
+                if (keepRouteOnTurnChange(manual)) {
+                    keepRouteAcrossTurns(turnNow);
+                    Trace.info("ROUTE kept turn " + planTurnBefore + " -> " + turnNow
+                            + " (adopt mode: 按序打到底，剩余 " + pendingSteps().size() + " 步)");
+                } else {
+                    Trace.info("PLAN dropped: turn " + planTurnBefore + " -> " + turnNow
+                            + (manual ? " (manual divergence)" : "") + ", replanning");
+                    clearPlan();
+                }
             }
             dumpTurnSnapshot(turnNow);
         }
@@ -915,7 +948,13 @@ public final class AutoPilot {
             if (outcome != OUTCOME_REPLAN) {
                 return outcome;
             }
-            clearPlan();      // 计划失效（手牌对不上/被拒），丢掉重算（停止目标不在这里清）
+            if (ADOPT_ROUTE_TO_THE_END) {
+                // 采纳模式：这一步走不通就等 rejectStep 把它剔掉（连续 3 帧），
+                // **不**整条重算 —— 重算等于每回合重来，正是用户不要的东西。
+                Trace.info("ROUTE step unusable -> retry/drop (adopt mode), route kept");
+                return OUTCOME_WAITING;
+            }
+            clearPlan();      // 严格模式：计划失效（手牌对不上/被拒），丢掉重算
         }
 
         // ③ 没有计划：等后台整场规划的结果，没有就提交一次
@@ -980,6 +1019,12 @@ public final class AutoPilot {
             // 面板第一行留一格「刚刚怎么算出来的」：135+base / 26k / 642ms
             planSummary = lastSearchShape + "   " + planSummary;
         }
+        if (ADOPT_ROUTE_TO_THE_END) {
+            planSummary = planSummary + "   [已冻结·按序打到底]";
+            Trace.info("ROUTE_FROZEN steps=" + result.steps.size()
+                    + " turns=" + (result.continuations == null ? 0 : result.continuations.size())
+                    + "  (锁定：不再重算，只有手工干预/预计死亡/队列走空才解冻)");
+        }
         // 预算用量 + **停止原因**：horizon = 把整场战斗推演完了（最常见，节点用量很低是正常的），
         // node_limit / time_limit 才是被预算掐断。以前只印 "tree exhausted"，
         // 被读成「剪枝太狠」，据此得出过「加预算无效」的错误结论（2026-11-01 已用 123 个真机快照纠正）。
@@ -1032,10 +1077,18 @@ public final class AutoPilot {
         // 不重算就继续照打，等于拿「想象中的局面」指挥真局面（蓝本 DeploymentDrift 同义）。
         if (ShadowTracker.mismatchSequence() != planMismatchSeq) {
             int drift = ShadowTracker.mismatchSequence() - planMismatchSeq;
-            clearPlan();
-            Trace.info("PLAN dropped: " + drift
-                    + " mirror mismatch(es) since it was computed, replanning");
-            return OUTCOME_REPLAN;
+            if (ADOPT_ROUTE_TO_THE_END) {
+                // 影子与实机分叉是**我们的模型**不够准，不是用户改了主意：
+                // 重新对齐序号继续按这条路走（下面每一步仍会按牌名/槽位校验）。
+                planMismatchSeq = ShadowTracker.mismatchSequence();
+                Trace.info("ROUTE kept despite " + drift
+                        + " mirror mismatch(es) (adopt mode)");
+            } else {
+                clearPlan();
+                Trace.info("PLAN dropped: " + drift
+                        + " mirror mismatch(es) since it was computed, replanning");
+                return OUTCOME_REPLAN;
+            }
         }
         if (step.endTurn) {
             plan.poll();
@@ -1319,6 +1372,28 @@ public final class AutoPilot {
      */
     public static RoutePreview routePreview() {
         return preview;
+    }
+
+    /**
+     * 回合翻页时要不要**保留**这条路线。
+     *
+     * <p>只有「用户自己动过手」才丢：那一刻路线已经不是他要的了。
+     * 镜像失配、精确戳对不上都属于**我们的模型还不够准**，不该让用户承担重算的代价。
+     */
+    static boolean keepRouteOnTurnChange(boolean manualDivergence) {
+        return ADOPT_ROUTE_TO_THE_END && !manualDivergence;
+    }
+
+    /**
+     * 把路线接到新回合上（采纳模式）：队列原样留着，只推进「这份计划属于哪一回合」。
+     *
+     * <p>⚠️ 不重建队列：整条路线的后续回合**本来就在队列里**，重建反而会丢掉已执行进度。
+     */
+    static void keepRouteAcrossTurns(int turnNow) {
+        planTurn = turnNow;
+        planMismatchSeq = ShadowTracker.mismatchSequence();
+        previewStale = false;
+        panelRevision++;
     }
 
     /**

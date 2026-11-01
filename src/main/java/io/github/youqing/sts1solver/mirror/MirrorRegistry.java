@@ -452,8 +452,12 @@ public final class MirrorRegistry {
         registerExhaust("Beta+", Effects.insertIntoDrawPileRandom("Omega", 1));
 
         // 幽灵形态：获得 1 层无实体，消耗（虚灵未建模）
-        registerExhaust("Ghostly", Effects.powerOnPlayer("Intangible", 1));
-        registerExhaust("Ghostly+", Effects.powerOnPlayer("Intangible", 1));
+        // 玩家身上的虚体是 IntangiblePlayerPower（ID=IntangiblePlayer，javap 核实），
+        // 不是怪物的 Intangible —— 写错 ID 会让减伤完全失效。
+        registerExhaust("Ghostly", Effects.powerOnPlayer(
+                io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER, 1));
+        registerExhaust("Ghostly+", Effects.powerOnPlayer(
+                io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER, 1));
 
         // 神迹：回复 1 点能量，消耗
         registerExhaust("Miracle", Effects.gainEnergy(1));

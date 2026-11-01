@@ -472,8 +472,49 @@ public final class DamageCalc {
 
     /** 飞行（{@code FlightPower}）：普通攻击伤害减半，HP_LOSS / THORNS 不减。 */
     public static final String FLIGHT = "Flight";
-    /** 无实体：所有伤害上限 1（{@code IntangiblePower}）。 */
+    /** 无实体：所有伤害上限 1（{@code IntangiblePower}，**怪物**身上的 ID）。 */
     public static final String INTANGIBLE = "Intangible";
+
+    /**
+     * 玩家身上的无实体 ID（{@code IntangiblePlayerPower}，javap 核实字面量就是 {@code IntangiblePlayer}）。
+     *
+     * <p>🔴 原版是**两个类**：{@code IntangiblePower}（ID {@code "Intangible"}，给怪）与
+     * {@code IntangiblePlayerPower}（ID {@code "IntangiblePlayer"}，给玩家）。我们以前只认前者，
+     * 于是玩家一旦有虚体（烧香炉 / 幽魂形态 / 幽灵瓶），影子**完全看不到减伤**：
+     * 真机 0 掉血、影子按满伤算 —— 这是跨回合续跑 `hp` 失配的最大来源，也是「白吃战损」的来源。
+     */
+    public static final String INTANGIBLE_PLAYER = "IntangiblePlayer";
+
+    /** 这张能力表里的无实体层数（玩家/怪物两个 ID 都认）。 */
+    public static int intangibleAmount(java.util.Map<String, Integer> powers) {
+        if (powers == null) {
+            return 0;
+        }
+        Integer player = powers.get(INTANGIBLE_PLAYER);
+        Integer monster = powers.get(INTANGIBLE);
+        int amount = Math.max(player == null ? 0 : player.intValue(),
+                monster == null ? 0 : monster.intValue());
+        return Math.max(0, amount);
+    }
+
+    /** 这个 power ID 是不是无实体（两种都算）。 */
+    public static boolean isIntangibleId(String id) {
+        return INTANGIBLE.equals(id) || INTANGIBLE_PLAYER.equals(id);
+    }
+
+    /** 这张能力表里的无实体键（优先玩家那个，没有就怪物那个；都没有返回 null）。 */
+    private static String intangibleKey(java.util.Map<String, Integer> powers) {
+        if (powers == null) {
+            return null;
+        }
+        if (powers.get(INTANGIBLE_PLAYER) != null && powers.get(INTANGIBLE_PLAYER).intValue() > 0) {
+            return INTANGIBLE_PLAYER;
+        }
+        if (powers.get(INTANGIBLE) != null && powers.get(INTANGIBLE).intValue() > 0) {
+            return INTANGIBLE;
+        }
+        return null;
+    }
     /** 不能获得格挡（{@code NoBlockPower.modifyBlockLast} 直接返回 0）。 */
     public static final String NO_BLOCK = "NoBlockPower";
     /** 烈焰屏障：受击时反弹 {@code amount} 点给攻击者（{@code FlameBarrierPower}）。 */
@@ -522,8 +563,7 @@ public final class DamageCalc {
         if (powers == null) {
             return damage;
         }
-        Integer intangible = powers.get(INTANGIBLE);
-        if (intangible == null || intangible <= 0) {
+        if (intangibleKey(powers) == null) {
             return damage;
         }
         return Math.min(damage, 1);
@@ -539,7 +579,7 @@ public final class DamageCalc {
 
     /** 挂无实体时打上 {@code justApplied}（原版构造函数里就是 {@code justApplied = true}）。 */
     public static void markIntangibleFresh(java.util.Map<String, Integer> powers, String id) {
-        if (powers != null && INTANGIBLE.equals(id)) {
+        if (powers != null && isIntangibleId(id)) {
             powers.put(INTANGIBLE_FRESH, Integer.valueOf(1));
         }
     }
@@ -555,18 +595,19 @@ public final class DamageCalc {
         if (powers == null) {
             return;
         }
-        Integer intangible = powers.get(INTANGIBLE);
-        if (intangible == null || intangible <= 0) {
+        String key = intangibleKey(powers);
+        if (key == null) {
             powers.remove(INTANGIBLE_FRESH);
             return;
         }
         if (powers.remove(INTANGIBLE_FRESH) != null) {
             return;                     // 刚挂上：跳过这次 tick
         }
-        if (intangible <= 1) {
-            powers.remove(INTANGIBLE);
+        Integer intangible = powers.get(key);
+        if (intangible == null || intangible.intValue() <= 1) {
+            powers.remove(key);
         } else {
-            powers.put(INTANGIBLE, intangible - 1);
+            powers.put(key, Integer.valueOf(intangible.intValue() - 1));
         }
     }
 

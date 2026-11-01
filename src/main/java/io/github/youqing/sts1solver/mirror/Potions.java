@@ -346,10 +346,12 @@ public final class Potions {
         }
         if (GHOST_IN_A_JAR.equals(potionId)) {
             // ApplyPowerAction(player, player, IntangiblePlayerPower(1))
-            state.playerPowers.put("Intangible",
-                    amount(state.playerPowers.get("Intangible")) + GHOST_IN_A_JAR_AMOUNT);
+            state.playerPowers.put(io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER,
+                    amount(state.playerPowers.get(
+                            io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER))
+                            + GHOST_IN_A_JAR_AMOUNT);
             // 刚挂上的这一回合**不掉层**（IntangiblePower 的 justApplied）
-            DamageCalc.markIntangibleFresh(state.playerPowers, "Intangible");
+            DamageCalc.markIntangibleFresh(state.playerPowers, DamageCalc.INTANGIBLE_PLAYER);
             return true;
         }
         if (SWIFT_POTION.equals(potionId)) {

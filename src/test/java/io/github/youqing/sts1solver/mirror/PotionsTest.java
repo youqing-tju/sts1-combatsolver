@@ -564,7 +564,8 @@ class PotionsTest {
     void ghostInAJarGrantsFreshIntangible() {
         SimState s = fight();
         assertTrue(Potions.use(s, Potions.GHOST_IN_A_JAR, -1));
-        assertEquals(Integer.valueOf(1), s.playerPowers.get("Intangible"));
+        assertEquals(Integer.valueOf(1), s.playerPowers.get(DamageCalc.INTANGIBLE_PLAYER),
+                "玩家身上的虚体 ID 是 IntangiblePlayer（javap 核实）");
         assertTrue(s.playerPowers.containsKey("Intangible#fresh"),
                 "刚挂上要打 fresh 标，否则同一回合末就掉光了");
 

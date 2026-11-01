@@ -544,10 +544,11 @@ public final class RelicHooks {
         int next = counter.intValue() == -1 ? counter.intValue() + 2 : counter.intValue() + 1;
         if (next % INCENSE_BURNER_TURNS == 0) {
             state.relics.put(INCENSE_BURNER, Integer.valueOf(0));
-            state.playerPowers.put("Intangible",
-                    intOf(state.playerPowers.get("Intangible")) + 1);
+            state.playerPowers.put(io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER,
+                    intOf(state.playerPowers.get(
+                            io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER)) + 1);
             // 刚挂上的这一回合不掉层（IntangiblePower 的 justApplied）
-            DamageCalc.markIntangibleFresh(state.playerPowers, "Intangible");
+            DamageCalc.markIntangibleFresh(state.playerPowers, DamageCalc.INTANGIBLE_PLAYER);
         } else {
             state.relics.put(INCENSE_BURNER, Integer.valueOf(next));
         }

@@ -335,7 +335,8 @@ class RelicHooksTest {
     @Test
     void hpLossIsCappedToOneByIntangible() {
         SimState s = fight();
-        s.playerPowers.put("Intangible", Integer.valueOf(1));
+        s.playerPowers.put(io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER,
+                Integer.valueOf(1));
         DamageCalc.markIntangibleFresh(s.playerPowers, "Intangible");
 
         int lost = CombatFlow.hitPlayer(s, 6, null,
@@ -365,7 +366,8 @@ class RelicHooksTest {
     @Test
     void bloodlettingUnderIntangibleLosesOnlyOne() {
         SimState s = fight();
-        s.playerPowers.put("Intangible", Integer.valueOf(1));
+        s.playerPowers.put(io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER,
+                Integer.valueOf(1));
         DamageCalc.markIntangibleFresh(s.playerPowers, "Intangible");
         s.hand.add(new io.github.youqing.sts1solver.sim.SimCard(
                 "Bloodletting", false, 0, -1, "SKILL"));
@@ -818,12 +820,15 @@ class RelicHooksTest {
         RelicHooks.onPlayerTurnStart(s);
 
         assertEquals(Integer.valueOf(0), s.relics.get(RelicHooks.INCENSE_BURNER), "计数归零");
-        assertEquals(Integer.valueOf(1), s.playerPowers.get("Intangible"), "第 6 回合给无实体");
+        assertEquals(Integer.valueOf(1),
+                s.playerPowers.get(io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER),
+                "第 6 回合给无实体（玩家身上的 ID 是 IntangiblePlayer）");
 
         // 第 7 回合不该再给
-        s.playerPowers.remove("Intangible");
+        s.playerPowers.remove(io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER);
         RelicHooks.onPlayerTurnStart(s);
-        assertEquals(null, s.playerPowers.get("Intangible"));
+        assertEquals(null,
+                s.playerPowers.get(io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER));
         assertEquals(Integer.valueOf(1), s.relics.get(RelicHooks.INCENSE_BURNER));
     }
 

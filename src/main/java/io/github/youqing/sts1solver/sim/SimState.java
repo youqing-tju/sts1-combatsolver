@@ -195,6 +195,15 @@ public final class SimState {
         s.hp = p.currentHealth;
         s.maxHp = p.maxHealth;
         s.block = p.currentBlock;
+        // 「本场损失 HP 的次数」——原版就是 GameActionManager.hpLossThisCombat
+        // （浴血奋战的动态费用用它）。以前**没捕获**（永远 0），影子却在每次掉血时 +1，
+        // 于是跨回合续跑在 `hpLossCount` 上必然失配（真机 16/97 对首差就是它）。
+        try {
+            s.hpLossCount = Math.max(0,
+                    com.megacrit.cardcrawl.actions.GameActionManager.hpLossThisCombat);
+        } catch (Throwable ignored) {
+            s.hpLossCount = 0;
+        }
         s.energy = EnergyPanel.totalCount;
         try {
             // energyMaster = 每回合回能（能量遗物在 onEquip 里 ++，javap 核实 CoffeeDripper）。

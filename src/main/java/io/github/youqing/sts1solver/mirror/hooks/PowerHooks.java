@@ -89,7 +89,8 @@ public final class PowerHooks {
 
         // IntangiblePower.atEndOfTurn → amount--，到 0 移除（伤害上限 1 的那条见 DamageCalc）
         // ⚠️ 原版 justApplied 保护未建模：施加那回合会多递减一次（低估防御，安全方向）
-        reg("Intangible", HookPhase.END_OF_TURN, new Handler() {
+        reg(io.github.youqing.sts1solver.mirror.DamageCalc.INTANGIBLE_PLAYER,
+                HookPhase.END_OF_TURN, new Handler() {
             @Override
             public void fire(SimState state, int amount, HookContext ctx) {
                 DamageCalc.tickIntangible(state.playerPowers);

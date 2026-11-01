@@ -38,7 +38,7 @@ class IntangibleTest {
     @Test
     void bigDamageIsCappedToOne() {
         SimState s = fight();
-        s.playerPowers.put("Intangible", 1);
+        s.playerPowers.put(DamageCalc.INTANGIBLE_PLAYER, 1);
         CombatFlow.hitPlayer(s, 25);
         assertEquals(29, s.hp, "25 伤被封到 1");
     }
@@ -46,7 +46,7 @@ class IntangibleTest {
     @Test
     void zeroAndOneDamageStayAsTheyAre() {
         SimState s = fight();
-        s.playerPowers.put("Intangible", 1);
+        s.playerPowers.put(DamageCalc.INTANGIBLE_PLAYER, 1);
         CombatFlow.hitPlayer(s, 1);
         assertEquals(29, s.hp);
         CombatFlow.hitPlayer(s, 0);
@@ -58,7 +58,7 @@ class IntangibleTest {
     void theSinglePointStillGetsAbsorbedByBlock() {
         SimState s = fight();
         s.block = 5;
-        s.playerPowers.put("Intangible", 1);
+        s.playerPowers.put(DamageCalc.INTANGIBLE_PLAYER, 1);
         CombatFlow.hitPlayer(s, 99);
         assertEquals(30, s.hp, "血没掉");
         assertEquals(4, s.block, "只吸收了封顶后的 1 点");
@@ -88,13 +88,13 @@ class IntangibleTest {
     @Test
     void intangibleTicksDownAtEndOfTurnAndDisappears() {
         SimState s = fight();
-        s.playerPowers.put("Intangible", 2);
+        s.playerPowers.put(DamageCalc.INTANGIBLE_PLAYER, 2);
 
         CombatFlow.endTurn(s, 3, 5);
-        assertEquals(1, s.playerPowers.get("Intangible"), "2 -> 1");
+        assertEquals(1, s.playerPowers.get(DamageCalc.INTANGIBLE_PLAYER), "2 -> 1");
 
         CombatFlow.endTurn(s, 3, 5);
-        assertNull(s.playerPowers.get("Intangible"), "1 -> 0 时整个移除");
+        assertNull(s.playerPowers.get(DamageCalc.INTANGIBLE_PLAYER), "1 -> 0 时整个移除");
     }
 
     @Test

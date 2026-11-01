@@ -116,6 +116,16 @@ public final class ContinuationDecision {
         manualDivergence = true;
     }
 
+    /** 上一次判定之后有没有「用户手工动过手」的标记（采纳模式据此决定要不要丢路线）。 */
+    public boolean manualDivergence() {
+        return manualDivergence;
+    }
+
+    /** 采纳时的漂移序号（诊断用）。 */
+    public int planMismatchSequence() {
+        return planMismatchSequence;
+    }
+
     public boolean hasPlan() {
         return !plan.isEmpty();
     }
