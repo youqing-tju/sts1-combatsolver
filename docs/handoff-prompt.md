@@ -2,11 +2,12 @@
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-01 01:15，测试 **563 条全绿**（0 fail / 0 err），代码 HEAD = `c95b9c7`，未 push。
-> 已安装 `build 1101-011033`（安装包 md5 与构建产物一致）。
-> 🔴 **真机仍未闭环**：UI 十条验收 **0/10 执行**、回合末候选修复**未验证**。
-> 阻塞点：本机 Steam 未运行、启动游戏失败（2026-11-01 01:12 用户确认），且桌面正被使用，
-> 不能安全地做合成点击。下一轮**第一件事**就是补这两项（步骤见 §九）。
+> **当前状态**：2026-11-01 13:20，测试 **564 条全绿**（0 fail / 0 err），HEAD = `5b3590c`，未 push。
+> ✅ **回合末触发已在真机验证通过**（2026-11-01 13:17 用户确认：灼烧/多层护甲/金属化/奥利哈刚
+> 这类「回合结束触发」现在真机正常）。`6ea8014` 从「候选修复」转为**已验证**。
+> ⚠️ 但**修复的具体验证明细（四项各自的 HP/block 差值、敌方阶段是否重复）未留证**，
+> 只有用户的定性确认；UI 十条验收仍是 **0/10**。
+> 新增未闭环：**药水三选一卡死**（已修，未真机复测）—— 见 §五 P6。
 
 ---
 
@@ -147,9 +148,15 @@ private void callEndOfTurnActions() {
 - 已补的 parity 缺口：`LatentSetupValue` 的启用条件原本只写了 `enemyCount > 1`，
   蓝本是 `_isActEndingBoss || _initialEnemyCount > 1` —— **Boss 那一半丢了**，已在
   `Score.initialBoss` 补上（A/B：123 快照首手变化 0 次，属于「补对了但样本没覆盖」）。
-- 仍缺：**最终排序 `better()` 不看 `persistentBuffValue`**。中途剪枝看 `rank`（含能力价值），
-  最终选路线只看 `score`（不含），所以「先开能力、收益在后面回合」的线在最后一步吃亏。
-  这是下一轮 P2 的**第一嫌疑**，要拿 `A1F12T2` 这种样本做判据。
+- **P2 已被 A/B 判掉一半**（`PowerTimingProbeTest`，123 快照）：
+  手上有能力牌 57 局，计划里打出它的 **9 局**；强制「先开这张能力」重搜同一局面 →：
+  **先开更差 50 局 / 先开更好 7 局 / 先开才赢 0 局**。
+  所以「少开能力」在当前估值下**是对的**，不是 bug；P2 的旧叙述（「结构性永远轮不到」）
+  缺证据，不要再按它改代码。
+- 仍缺：最终排序 `better()` 比的是 `score`（不含 `persistentBuffValue`）。蓝本
+  `FinalPlanOrdering` 在 `StrategicHpDeficit` 与 `EnemyHp` 之间有 `HealthResourceCost` /
+  `LongTermResourceValue` 两个键，我们一个都没有 —— 这是**口径差异**，但上面 A/B 说明
+  补它未必让牌打得更好，动之前必须先有能赢的样本。
 
 ### P3 · 对拍队列污染 —— **已修（commit `319bd6e`）**
 
@@ -170,6 +177,37 @@ private void callEndOfTurnActions() {
 - 附带发现（**上一轮记错的一件**）：`Lantern` 只在**第一回合**给 1 点能量，
   而 `baseEnergy` 取的是首回合当前能量 → 仿真从第二回合起每回合**多算 1 点**。
   已拆成 `energy` / `energyPerTurn`（`EnergyManager.energyMaster`），有单测。
+
+### P6 · 药水三选一（发现）卡死 9 秒 → 0 费牌白开（**已修 `769f919`，未真机复测**）
+
+真机现象（用户 2026-11-01）：「总是开能力/技能/攻击药水，开出 0 费牌后不打，白白浪费药水」。
+
+日志实证（`2026-10-31.log`，22:13:01）：
+
+```
+22:13:01.145  PLAN steps: POTION:ColorlessPotion      ← 计划只有「喝这瓶药」
+22:13:01.145  AUTO potion ColorlessPotion (slot 1)
+22:13:01.195  REWARD pick #0 Secret Technique         ← 三选一选中了（0 费牌）
+22:13:01.195 → 22:13:10.278                           ← 🔴 9.1 秒全无日志，回合停住
+22:13:10.779  AUTO play Secret Technique              ← 人的手点了一下之后才继续
+```
+
+根因（字节码核实 `CardRewardScreen.cardSelectUpdate`）：
+
+- 它先算出「鼠标当前**悬停**的那张」（`hb.hovered`），再读**那一张**的 `hb.clicked`
+  （偏移 58-70 / 73-88 / 142-153）。
+- 我们的 `GridSelector.markReward` 只把目标卡的 `hb.clicked = true`，**没把鼠标放上去** ——
+  鼠标不在那张卡上时这个标记没人读，界面就一直开着，AUTO 因 `isScreenUp` 全程早退。
+- 更糟的是「重试」是死代码：`if (rewardPicked == group) { if (attempts++ < LIMIT) return; return; }`
+  两个分支都 `return`，永远不会第二次点。
+
+修法：按本类 `prepareConfirm` 已有的做法，把虚拟光标挪到卡面中心（`InputHelper.mX/mY`）+
+保留 `hb.clicked`，并改成「界面没关就继续点同一张」、每 60 帧打一条 warn。
+`InputHelper.update()` 每帧用真实鼠标重写坐标，所以覆盖只活当前帧。
+
+⚠️ 这是**输入仿真**，没有单测可写（要真机界面）；下一轮判据：日志出现
+`REWARD pick #n <card>  cursor->x,y` 之后**不应**再出现
+`REWARD pick still blocked after N frames`，且喝药后 1 帧内就能出牌。
 
 ### P5 · 影子数值缺口 —— **已修（commit `90ad057`），且旧结论有一处是错的**
 
