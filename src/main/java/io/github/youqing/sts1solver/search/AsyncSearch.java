@@ -69,6 +69,14 @@ public final class AsyncSearch {
         public final String noveltyStop;
         /** 宽度组合最后采纳的成员（{@code "135"} / {@code "90"} / {@code "135+band"}）；没开就是空串。 */
         public final String portfolioAdopted;
+        /**
+         * 这条路线上的稳定回合边界（跨回合续跑用）。
+         *
+         * <p>纯数据，可以安全地跨线程交给主线程；主线程拿它和新捕获的 live 状态
+         * 做 {@code lookup}，命中就免搜索续跑。空计划 = 这条路线没有可复用的边界
+         * （终局、或只够打这一回合）。
+         */
+        public final ContinuationPlan continuations;
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit) {
@@ -101,12 +109,14 @@ public final class AsyncSearch {
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
                boolean failed, String noveltyStop, String portfolioAdopted) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
-                    hitNodeLimit, failed, noveltyStop, portfolioAdopted, "");
+                    hitNodeLimit, failed, noveltyStop, portfolioAdopted, "",
+                    ContinuationPlan.empty());
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
-               boolean failed, String noveltyStop, String portfolioAdopted, String stopReason) {
+               boolean failed, String noveltyStop, String portfolioAdopted, String stopReason,
+               ContinuationPlan continuations) {
             this.fingerprint = fingerprint;
             this.stopReason = stopReason == null ? "" : stopReason;
             this.action = action;
@@ -121,6 +131,8 @@ public final class AsyncSearch {
             this.failed = failed;
             this.noveltyStop = noveltyStop;
             this.portfolioAdopted = portfolioAdopted == null ? "" : portfolioAdopted;
+            this.continuations = continuations == null
+                    ? ContinuationPlan.empty() : continuations;
         }
     }
 
@@ -210,7 +222,8 @@ public final class AsyncSearch {
                 result = new Result(fingerprint, action, solver.lastNodes, solver.lastStates,
                         solver.lastDepth, solver.lastMillis, solver.lastLeaves,
                         solver.lastSteps, nodeLimit, solver.hitNodeLimit, false,
-                        solver.lastNoveltyStop, solver.lastPortfolioAdopted, solver.lastStopReason);
+                        solver.lastNoveltyStop, solver.lastPortfolioAdopted, solver.lastStopReason,
+                        solver.lastContinuations);
             } catch (Throwable t) {
                 Trace.error("background search failed", t);
                 result = new Result(fingerprint, null, 0, 0, 0, 0, 0,

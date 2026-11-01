@@ -150,6 +150,13 @@ public final class BeamSolver {
     public int lastLeaves;
     /** {@link #lastRoute} 的可执行版本（带牌名，能校验）。 */
     public java.util.List<RouteStep> lastSteps = new java.util.ArrayList<RouteStep>();
+    /**
+     * 这条最终路线上的**稳定回合边界**（跨回合续跑用）。
+     *
+     * <p>必须来自所有后处理（novelty 二选一 → 药水闸 → 0 费补搜）之后的 `selected`：
+     * 那两个后处理都会**换掉**答案，从旧候选上摘边界等于缓存一条搜索并不推荐的世界线。
+     */
+    public ContinuationPlan lastContinuations = ContinuationPlan.empty();
     /** 是否被节点上限/时间预算截断（= 蓝本的「尚未彻底穷尽」）。 */
     public boolean hitNodeLimit;
     /** 最后一轮是不是被时间掐断的（蓝本 {@code ResultScope != SearchCompletion}：掐断就不再加宽）。 */
@@ -496,6 +503,7 @@ public final class BeamSolver {
         lastPassCutShort = false;
         lastRoute = new java.util.ArrayList<PlanAction>();
         lastSteps = new java.util.ArrayList<RouteStep>();
+        lastContinuations = ContinuationPlan.empty();
         lastZeroCostPrefixes = 0;
         lastZeroCostAttempts = 0;
         lastZeroCostImproved = false;
@@ -584,8 +592,7 @@ public final class BeamSolver {
                 : (lastSelectedVictory ? "victory" : "horizon"));
         if (selected != null) {
             // 补搜可能会换掉主搜索的答案，路线要跟着换（AUTO 执行的是 lastSteps）
-            lastRoute = routeOf(selected);
-            lastSteps = stepsOf(selected);
+            publishFinalRoute(selected);
         }
         return selected == null ? null : selected.firstAction();
     }
@@ -1176,6 +1183,37 @@ public final class BeamSolver {
                     n.cardKey, n.action.targetIndex, n.action.choiceIndex));
         }
         return new java.util.ArrayList<RouteStep>(reversed);
+    }
+
+    /**
+     * 把「最终采纳的那条路线」一次性发布成执行层要的三件东西：
+     * 动作序列、可执行步骤、以及这条路线上的稳定回合边界。
+     *
+     * <p>三个字段必须**同源**。药水闸 / 0 费补搜 / novelty 都会换掉 `selected`，
+     * 任何一处单独更新都会留下「步骤来自新路线、边界来自旧路线」的错配 ——
+     * 那正是续跑能命中却执行出另一条世界线的原因。
+     *
+     * <p>边界提取失败（父链不完整这类内部不一致）时记 warn 并留空：路线本身仍然可用，
+     * 退回「每回合重搜」是可接受降级；把它抛出去会让整趟搜索白算。
+     */
+    void publishFinalRoute(SearchNode selected) {
+        lastRoute = routeOf(selected);
+        lastSteps = stepsOf(selected);
+        try {
+            lastContinuations = ContinuationPlan.fromFinalRoute(routeNodesOf(selected));
+        } catch (RuntimeException t) {
+            lastContinuations = ContinuationPlan.empty();
+            Trace.warn("CONTINUATION skipped: " + t.getMessage());
+        }
+    }
+
+    /** 回溯出「从根（action 为 null）到该节点」的**节点**序列，边界提取要连根一起看。 */
+    private static java.util.List<SearchNode> routeNodesOf(SearchNode best) {
+        java.util.LinkedList<SearchNode> reversed = new java.util.LinkedList<SearchNode>();
+        for (SearchNode n = best; n != null; n = n.parent) {
+            reversed.addFirst(n);
+        }
+        return new java.util.ArrayList<SearchNode>(reversed);
     }
 
     /** 回溯出「从根到该节点」的动作序列。 */
