@@ -1044,12 +1044,21 @@ public final class Effects {
                 upgradeAll(state.exhaust);
             }
 
+            /**
+             * 逐张按原版 {@code canUpgrade()} 判：**诅咒与状态牌永远升不了**。
+             *
+             * <p>2026-11-01 真机失配：`Apotheosis+` 之后手牌里出现
+             * {@code hand[3]: Wound+(-2) vs Wound(-2)}、{@code CurseOfTheBell+ vs CurseOfTheBell} ——
+             * 影子把伤口和诅咒也升了，实机没有。军备+ 那条路早就加了 `canUpgrade`，
+             * 这里漏了同一条判据。
+             */
             private void upgradeAll(java.util.List<SimCard> pile) {
                 for (int i = 0; i < pile.size(); i++) {
                     SimCard c = pile.get(i);
-                    if (!c.upgraded) {
-                        pile.set(i, new SimCard(c.id, true, c.cost, c.baseDamage));
+                    if (c.upgraded || !canUpgrade(c)) {
+                        continue;
                     }
+                    pile.set(i, upgradeOf(c));
                 }
             }
 

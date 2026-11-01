@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -564,6 +565,31 @@ class CardPlayerTest {
         assertTrue(s.hand.get(0).upgraded, "hand upgraded");
         assertTrue(s.draw.get(0).upgraded, "draw pile upgraded");
         assertTrue(s.discard.get(0).upgraded, "discard upgraded");
+    }
+
+    /**
+     * 神化**不许**升级诅咒与状态牌（原版 {@code AbstractCard.canUpgrade()}：
+     * `type == CURSE → false`、`type == STATUS → false`，javap 核实）。
+     *
+     * <p>2026-11-01 真机失配原文：
+     * {@code hand(unordered)[3]: Wound+(-2) vs Wound(-2)}、{@code draw[5]: CurseOfTheBell+ vs CurseOfTheBell}。
+     */
+    @Test
+    void apotheosisSkipsStatusesAndCurses() {
+        SimState s = combat("Apotheosis", "Strike_R");
+        s.hand.add(new SimCard("Wound", false, -2, -1, "STATUS"));
+        s.draw.add(new SimCard("CurseOfTheBell", false, -2, -1, "CURSE"));
+        s.discard.add(new SimCard("Bash", false, 2));
+
+        CardPlayer.play(s, 0, 0);
+
+        // 神化打完就消耗了，手里剩 [Strike_R, Wound]
+        assertEquals(2, s.hand.size());
+        assertTrue(s.hand.get(0).upgraded, "打击该升");
+        assertFalse(s.hand.get(1).upgraded, "伤口是状态牌，升不了");
+        assertEquals("Wound", s.hand.get(1).id, "状态牌连 id 都不该变");
+        assertFalse(s.draw.get(0).upgraded, "诅咒升不了");
+        assertTrue(s.discard.get(0).upgraded, "弃牌堆里的普通牌该升");
     }
 
     @Test
