@@ -1,8 +1,9 @@
-# STS1 战斗求解器 · 交接提示词（2026-10-31 深夜版）
+# STS1 战斗求解器 · 交接说明（2026-11-01 15:00 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-01 14:50，测试 **565 条全绿**（0 fail / 0 err），HEAD = `3da4e6c`，未 push。
+> **当前状态**：2026-11-01 15:05，测试 **565 条全绿**（0 fail / 0 err），
+> 代码 HEAD = `3da4e6c`（本文档与 P7 登记在 `cb5f2e7` 及之后），未 push。
 > 已安装 `build 1101-144558`。
 > ✅ **回合末触发已在真机验证通过**（2026-11-01 13:17 用户确认：灼烧/多层护甲/金属化/奥利哈刚
 > 这类「回合结束触发」现在真机正常）。`6ea8014` 从「候选修复」转为**已验证**。
@@ -47,7 +48,13 @@ STS1（杀戮尖塔）**进程内**战斗求解器，Java 8 ModTheSpire mod。
 
 ---
 
-## 三、本轮（2026-10-31）做了什么
+## 三、本轮做了什么（2026-10-31 → 2026-11-01）
+
+### 3.0 一句话现状
+
+测试 **565 全绿**，HEAD `cb5f2e7`，已安装 `build 1101-144558`，未 push。
+**真机只验过一件事**：回合末触发已正常（用户 2026-11-01 13:17 口头确认）。
+其余全部只有自动化或回放证据，**UI 十条验收 0/10**。
 
 ### 3.1 UI 第三/四刀（已交付并 commit）
 
@@ -60,11 +67,11 @@ STS1（杀戮尖塔）**进程内**战斗求解器，Java 8 ModTheSpire mod。
 | `4538091` | 文档状态 |
 | `42a0791` | 修：空药水槽不再显示成 `Potion Slot` 假药水 |
 | `7d12e9a` | `patches/EndTurnProbe` 回合结束状态机**只读探针**（每帧打 flags/hp/block/手牌，仅变化时落盘） |
-| `6ea8014` | **候选修复：AUTO 结束回合改走 `EndTurnButton.disable(true)`** —— 自动化已过，真机验证未做 |
+| `6ea8014` | **AUTO 结束回合改走 `EndTurnButton.disable(true)`** —— ✅ 真机已验证（2026-11-01 13:17，详见 §3.2） |
 
 测试数 533 → **547**。`search/`、`mirror/`、`sim/`、`config/` **一行未改**。
 
-### 3.2 回合末触发整批丢失：候选修复（尚未真机闭环）
+### 3.2 回合末触发整批丢失 —— ✅ **真机已验证通过**（2026-11-01 13:17）
 
 **症状**：灼烧 / 多层护甲 / 金属化 / 奥利哈刚在 AUTO 下全部不触发；**手点结束回合就正常**。
 
@@ -93,17 +100,36 @@ private void callEndOfTurnActions() {
 4. `player.endTurnQueued = true` ← **以前我们只做了这一件**
 5. `player.releaseCard()` ← 清 `justClickedLeft / isMouseDown / inSingleTargetMode`
 
-**当前最强假设**：少 2、5 使 `cardQueue` 状态与手点不同，从而导致回合末效果丢失。
-这与三类机制同时失效、手点正常相符；但探针已表明 `endTurn()` 入口确实启动，尚未直接证明
-“哨兵项丢失”。因此真机验证前只能叫候选修复，不得写成根因已闭环。
+**当时的假设**：少 2、5 使 `cardQueue` 状态与手点不同，从而导致回合末效果丢失。
+这与三类机制同时失效、手点正常相符；但探针已表明 `endTurn()` 入口确实启动，
+**「哨兵项丢失」这一环始终没有被直接证明**，修法是排除法（消除与手点之间唯一的已知差异）。
 
-**候选修法**：`AutoPilot.requestEndTurn()` 直接调 `AbstractDungeon.overlayMenu.endTurnButton.disable(true)`，
-与手点共用同一原生入口；按钮不可用时退回 `endTurnQueued = true` 并 warn。是否消除症状仍待真机验证。
+**修法**：`AutoPilot.requestEndTurn()` 直接调 `AbstractDungeon.overlayMenu.endTurnButton.disable(true)`，
+与手点共用同一原生入口；按钮不可用时退回 `endTurnQueued = true` 并 warn。
 ⚠️ 仍**不能**调 `actionManager.endTurn()`（那是 `EndTurnAction` 干的事，会跳过玩家侧整段：
 战斗专注的「禁止抽牌」永不消失、怪物完全不行动）。
 
-**待办**：真机验证（面板 `build 1031-225403`，AUTO 结束一回合看日志
-`EOT q=0 ... block=` 与 `EOT q=0 turnEnded=1 ... block=` 的差值）。
+**验证状态（区分清楚）**：
+- ✅ 用户 2026-11-01 13:17 定性确认：「回合结束时触发类型的已经能在真机中正常触发了」。
+- ⚠️ **没有留证**：四项（灼烧 / 多层护甲 / 金属化 / 奥利哈刚）各自的 `hp`/`block` 差值、
+  敌方阶段是否重复行动，都只有口头结论，没有日志数值。
+- 副作用（与手点一致，已知可接受）：每回合播 `ENEMY_TURN` 音效、结束回合按钮短暂置灰。
+
+### 3.3 2026-11-01 当天的一批修复（全部有测试，部分未真机复测）
+
+| commit | 内容 | 证据 | 真机 |
+|---|---|---|---|
+| `f05db61` | `Coverage.INERT_RELICS` 补 `Lantern` / `NeowsBlessing` / `Pear`（逐件 javap 核实） | `CoverageInertRelicsTest` +2 | — |
+| `90ad057` | `Burn+` = 4；**`Decay+` 不存在**（`upgrade()` 是空实现） | `StatusCardUpgradeTest` +3 | — |
+| `cf09b74` | 空药水槽折 `null`；拆 `energy` / `energyPerTurn`（`Lantern` 只在首回合给 1 点，之前每回合多算 1） | `PotionSlotCaptureTest`、`SimStateEnergyPerTurnTest` | — |
+| `319bd6e` | 对拍队列污染：上一张未结算时把后一张**整张 skip** → 改成先 `resolve(true)` 冲刷 | `ShadowTrackerQueueTest` +2 | 未复测 |
+| `9536d7d` | 停止原因三态（`victory`/`horizon`/`node_limit`/`time_limit`）+ 候选池口径 + Boss 档延迟收益 | `BeamSolverStopReasonTest`、`ScoreLatentSetupBossTest`、`SnapshotBatchProbeTest` | 123 快照回放 |
+| `769f919` | 药水三选一（发现）卡死 9 秒：原版只认「鼠标悬停那张的 `hb.clicked`」，我们没挪光标 | 无单测（需真机界面） | 未复测 |
+| `3da4e6c` | **药水闸门假阴性**：新颖度二选一在后处理之后，把闸门否掉的药水捞回来 | `PotionGateBeatsNoveltyTest`（真机夹具） | 未复测 |
+
+**P1 的旧诊断被推翻**（同日）：475/475 次 `tree exhausted` 曾被读成「open 表过早耗尽、剪枝太狠」，
+用 123 个真机快照回放实测：**123/123 停止原因是 `horizon`**（把整场战斗推演到终局），
+赢 115/123 = 93.5%，节点平均 11.8k/500k ≈ 2.4%。**不要再按“加预算无效、查剪枝”往下做。**
 
 ---
 
@@ -116,7 +142,7 @@ private void callEndOfTurnActions() {
 | M3.3 怪物镜像 Act 3 | 🔶 55/68 只 |
 | M3.4 药水镜像 | 🔶 21/50+ |
 | M3.5 遗物镜像 | 🔶 47 件 |
-| M4-1 完整路线面板 | 🔶 绝对回合预览 + 点击打到 Tn；蓝本 `AdoptRoute` 冻结路线未做 |
+| M4-1 完整路线面板 | 🔶 绝对回合预览 + 点击打到 Tn；**蓝本 `Continuation` 续跑 / `AdoptRoute` 冻结路线均未做（见 P7）** |
 | M4-2 预算档位 / M4-3 AUTO 执行 / M4-5 稳定性 | ✅ |
 | M4-6 局外收益 UI / M5 验收（全自动 20 场） | ❌ |
 
@@ -306,17 +332,20 @@ private void callEndOfTurnActions() {
 
 ---
 
-## 七、已拍板决策与下一步顺序
+## 七、已拍板决策
 
-- **D1**：接受 `EndTurnButton.disable(true)` 作为候选修复方向；真机逐项通过前，回合末问题保持未闭环。
-- **D2**：`EndTurnProbe` 保留到本轮真机验证结束；先修正“队列非空 = 永远不会启动”等误导措辞，验证后移除或明确关闭。
-- **D3**：先闭环 UI 与回合末真机验收，再修 P3 让验收数据可信，随后把 P1/P2 作为同一搜索问题推进；P4/P5 是独立小修，可直接 TDD，不必排在所有大项之后。
-- **D4**：交接结构沿用，但所有条目必须区分已证实事实、当前假设、候选修复与已验证结果。
-
-1. **构建、安装并完成 UI 十条真机验收与 §3.2 回合末 A/B 验证**，记录实际日志，不只跑自动化。
-2. **P3 对拍噪声**：先让验收数据可信，否则不用污染数据评价 P1/P2。
-3. **P1/P2 搜索与能力牌排序**：先写根因设计和验收判据，再直接实施；查 open 表为何清空，不靠加预算掩盖。
-4. **P4/P5 数据与镜像小修**：独立 TDD，可提前完成并单独 commit。
+- **D1**：`EndTurnButton.disable(true)` 是回合末问题的**已验证**修法（用户 2026-11-01 13:17 口头确认）。
+  验证明细未留证，不影响结论，但别把「四项各自差值」当成已记录。
+- **D2**：`patches/EndTurnProbe.java` 暂留（纯只读日志），等 UI 验收做完再决定删或改成显式开关。
+- **D3**：**P1 的旧结论作废**（「open 表耗尽/剪枝太狠」），实测 123/123 是 `horizon`。
+  不要再拿它当施工依据；`horizon` 是正常终止。
+- **D4**：**P7（路线续跑）是下一轮最高优先**。用户明确：STS2 的默认是「算一次、按序打完整条路线」，
+  我们每回合丢计划 = 跨回合推演从未被用上，这是「世界线没被展开」的结构性原因，不是调预算能解决的。
+- **D5**：**药水档位要搬**（用户 2026-11-01 14:45 指令「药水栏位搬」）。当前只有一道成本闸，
+  生效后普通战斗里基本不喝药；要「该喝就喝」必须补 `Smart / RequireAtLeastOne / Disabled`。
+- **D6**：**等任务书，不自行规划**（用户 2026-11-01 14:45 明确要求）。本轮已收尾，
+  下一步动作以新任务书为准，不要自己开新战线。
+- **D7**：交接结构沿用；所有条目必须区分**已证实事实 / 当前假设 / 已实施 / 仍缺验证**四栏。
 
 ---
 
@@ -338,33 +367,37 @@ private void callEndOfTurnActions() {
 | `verify/RoutePreview.java` / `BoundedAutoTarget.java` | 路线预览 / 有界 AUTO |
 | `ui/SolverPanel.java` / `StrategyStatusSnapshot.java` | 面板 / 只读策略现状 |
 | `patches/EndTurnProbe.java` | 回合结束状态机只读探针（排查用，可随时 revert） |
+| `search/PotionCostGateTest` / `PotionGateBeatsNoveltyTest` | 药水闸门回归（后者用真机夹具，钉死「闸门结论必须对最终答案生效」） |
+| `src/test/resources/golden/act1-potion-gate-novelty.json` | 真机夹具：2026-11-01 13:12 A1F7T2，闸门拒绝却被新颖度捞回的现场 |
+| `search/SnapshotBatchProbeTest` | 批量回放 `-Dbatch=<solver-snapshots>`，出胜负/节点/停止原因/能力牌时机 |
 | `docs/research/blueprint-parity.md` | **蓝本复刻对照表**（施工总纲） |
 | `docs/plans/2026-10-31-ui-parity-design.md` | UI 两刀的已批准设计 |
 
 ---
 
-## 九、下一轮开工顺序（真机卡在这里，别绕）
+## 九、下一轮怎么开工
 
-**阻塞事实（2026-11-01 01:12 实测）**：本机 `Steam` 原本未运行；我启动 Steam 后运行
-`jre\bin\java.exe -jar mts-launcher.jar`，**游戏没有起来**（45 秒内无 `java` / `SlayTheSpire` 进程，
-`solver-logs/` 也没有当天新文件）。用户确认「启动失败」，要求次日再做。
-已安装的包是 `build 1101-011033`（md5 `b47c53e4…`，与 `~/.sts1-combatsolver/build/libs/` 完全一致）。
+**启动游戏（已验证可用的路径，2026-11-01 13:09 走通）**
 
-**下一轮第一件事（按顺序，缺一不可）**
+1. 用户启动 Steam（或 `Start-Process '<steam 目录>\steam.exe'`，等 30 秒登录完）。
+2. 在游戏目录运行 `MTS-launch.cmd`。
+   ⚠️ 2026-11-01 01:12 用 `jre\bin\java.exe -jar mts-launcher.jar` 绕过**起不来**，别再用那条。
+3. 进战斗看面板右上角 build 号 = **`1101-144558`**（ModTheSpire 只在启动时读 mods 目录，
+   中途换 jar 不生效）。build 号不对就别测，先确认安装。
 
-1. 用户手动启动 Steam → 在游戏目录运行 `MTS-launch.cmd`（**不要**用
-   `jre\bin\java.exe -jar mts-launcher.jar` 绕过，2026-11-01 用这条路径起不来）。
-2. 进战斗后看面板右上角 build 号 = **`1101-011033`**（不是旧号才说明本次包生效；
-   ModTheSpire 只在启动时读 mods 目录，中途换 jar 不生效）。
-3. 回合末 A/B：身上带金属化 / 多层护甲（有灼烧更好），**先手点一次结束回合**记录
-   `EOT` 两行的 `hp/block` 差值，再 `开 AUTO` 让它自己结束一回合，比同一 turn 的两段差值。
-   判据：两边 block 增量一致 = 修复成立；AUTO 侧为 0 = `6ea8014` 没解决，转 `mirror/` 与执行时序。
-4. UI 十条（`docs/plans/2026-10-31-ui-parity.md` Task 4 Step 2）：只读区、settled 刷新、
-   AUTO off 点 Tn 停、改目标、完整敌方阶段、取消、跨战斗清理、无 END_TURN 尾行不可点、
-   两种分辨率布局与点击穿透、日志含 bounded start/stop。
-5. 对拍复测：连续出牌时日志应出现 `DIFF flush …` 而**不再**出现
-   `skipped (previous … still pending)` —— 这是 P3 修复的真机判据。
-6. 全部通过后再删 `patches/EndTurnProbe.java`（或把它改成显式关闭），并跑一次全量回归。
+**目前积压的真机项（0 项已执行，等任务书排序）**
 
-**不要做**：不要因为「日志里没有 pending skip」就宣布 P3 通过（要先确认那段日志确实跑到过）；
-不要把 `horizon` 再读成「剪枝太狠」；不要用 `lastSelectedScore >= 1e10` 判胜负。
+| 项 | 判据 |
+|---|---|
+| 药水闸假阴性（`3da4e6c`） | 日志里 `POTION_GATE … rejected=true` 之后**不应**再出现 `AUTO potion` |
+| 药水三选一卡死（`769f919`） | 出现 `REWARD pick #n <card>  cursor->x,y` 之后**不应**再有 `REWARD pick still blocked` |
+| 对拍队列（`319bd6e`） | 连续出牌应出现 `DIFF flush …`，**不应**再出现 `skipped (previous … still pending)` |
+| 回合末（`6ea8014`） | 已口头确认，若要补证：同一 `turn` 两行 `EOT` 的 `block=` 差值 |
+| UI 十条 | `docs/plans/2026-10-31-ui-parity.md` Task 4 Step 2 |
+
+**不要做**
+
+- 不要把 `horizon` 读成「剪枝太狠」（已被 123 快照实测推翻）。
+- 不要用 `lastSelectedScore >= 1e10` 判胜负（用 `lastSelectedVictory`）。
+- 不要因为「日志里没有 pending skip」就宣布 P3 通过（先确认那段确实跑到过）。
+- 不要在任务书下来之前自己开新战线（用户 2026-11-01 明确要求）。
