@@ -125,7 +125,9 @@ class PotionPolicyChangeTest {
 
     @Test
     void policyChangeDuringDeploymentIsRejected() {
-        AutoPilot.toggle();                        // AUTO 接管中（纯标志位）
+        FakeRoute route = new FakeRoute();
+        AutoPilot.installRoute(route.steps, 1, route.plan, 0);
+        AutoPilot.toggle();                        // AUTO 接管中，且有排队待执行的路线
 
         assertFalse(AutoPilot.cyclePotionDirective(0, "Fire Potion"),
                 "自动部署/执行中必须拒绝修改");

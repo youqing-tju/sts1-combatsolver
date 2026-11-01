@@ -78,3 +78,28 @@ STS1 CombatSolver 工程经验记录
 45. 执行喝药要按 (slot, potionId) 精确匹配，找不到就判计划失效。只按名字找会喝错格，“我锁了这瓶它喝了那瓶”是最难解释的一类 bug。
 46. Smart 档在当前成本公式下普通战斗基本不喝药（买不回 9 血就拒）。这是蓝本口径，不是 bug；要“该喝就喝”必须改全局档位，不要偷偷把成本公式调松。
 47. 全局 Disabled 只决定未登记槽的默认 directive；显式 Force 仍可展开并进入最终资格评估。不得自造“全局 Disabled 压过 Force”的硬上限（蓝本 PotionStrategySnapshot.cs:66-87）。
+
+十、2026-11-01 夜间纠偏结果（Task 1–4 已执行）
+
+48. Task 1（`44e8ae6`）：删除 ADOPT_ROUTE_TO_THE_END / keepRouteAcrossTurns；回合翻页只认精确 Continuation，
+    否则清队列从根重算；单步不可用改走 DEPLOY_REPLAN（清队列 + 根重算），不剔步；删除无生还禁打
+    （Survives 只是排序键）。DeathTurn / LiveRisk 两道蓝本闸原样保留。
+49. Task 2（`ff2e6ee`）：删除 BoundedAutoTarget 与「点 Tn 打到 Tn 末」；路线行恢复只读文本
+    （蓝本 MouseFilter=Ignore）；autoLabel 只剩 AUTO ON/OFF；AdoptRoute 与 RouteFrozen 都登记为未做。
+    用 NoLocalRouteControlTest 反射钉住这些入口不许回来。
+50. Task 3（`8c429ac`）：ContinuationStamp 拆 captureLive/capturePredicted 两个入口，四个牌堆（含手牌）保序，
+    VERSION 升 v2；ContinuationPlan 改两段式（只挑边界 → 回放 observe 采集），缺边界/越过边界/终局边界抛异常；
+    BeamSolver 用 replayPrefixAction 从根回放最终路线再采边界。⚠️ 两处无对应判据已登记：
+    BoundaryReason 枚举、HasPendingChoice/TerminalStamp（我们选牌是内联 choiceIndex）。
+51. Task 4（`652ae13`）：AllowsExplicitUse 逐行照蓝本（forceAllDisabled → 强制基线 → 显式指令 → 档位）；
+    全局档位不落盘（旧 policy= 行忽略并记 problem）；删除 policyRevision，改走保存→清 ContinuationSource→
+    条件 Manual 重搜（AsyncSearch 用搜索代际做 CancelSearch）；策略无解抛 PotionPolicyUnsatisfiedException；
+    药水闸基线改用 ForForcedBaseline。
+52. 保留项只有三类，且都已写进 blueprint-parity.md：① 自适应路线行数（显示替代，我们面板没有滚动条）；
+    ② DEPLOY_DRIFT_LIMIT（防「重算→同一步→再重算」死循环的失败路径保护）；③ 卡死/无进展闸（同上）。
+    它们都不参与决策，也不作 parity 证据。
+53. 教训：本轮 8 条测试改动里有 5 条是「旧测试把自创行为钉成合同」。改测试时必须写成蓝本反向合同
+    （例如 globalDisabledBeatsForceOverride → globalDisabledStillAllowsExplicitForceDirective），
+    而不是删掉它 —— 删了就没有东西阻止它被加回来。
+54. 真机仍是 0 项：新 jar 未安装、未进游戏。命中率与 deployment 行为都必须真机复测，
+    自动化 679 绿只能说明口径一致，不能说明影子准。

@@ -237,14 +237,15 @@ public final class AutoPilot {
     // ---------------------------------------------------------- 药水策略（D5）
 
     /**
-     * 自动部署/执行中是否锁定药水控件。
+     * 正在**部署**（有一条排好队的路线正在执行）时锁定药水控件。
      *
-     * <p>用户已拍板：AUTO 接管期间**拒绝**修改策略。原因不是 UI 洁癖 ——
-     * 一次搜索可能算好几秒，中途换策略会让「已经排好队的步骤」和「新策略」互相矛盾，
-     * 症状是「我设了 Disabled，它这一回合还是喝了」。
+     * <p>蓝本 {@code SolverController.SetPotionDirective} 只拒绝 {@code _deployment != null}
+     * 的修改，其余情况一律走「保存 + 清 continuation + Manual 重搜」。
+     * 所以这里锁的是「有执行队列」，不是「AUTO 开关被打开」—— 只开 AUTO 还在等首次搜索时
+     * 改策略是合法的（那次搜索会被新的 Manual 搜索取消）。
      */
     public static boolean potionControlsLocked() {
-        return enabled;
+        return enabled && plan != null && !plan.isEmpty();
     }
 
     /** 上一次策略改动的结果（诊断用）。 */

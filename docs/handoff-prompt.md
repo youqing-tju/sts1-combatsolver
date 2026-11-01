@@ -1,19 +1,18 @@
-# STS1 战斗求解器 · 交接说明（2026-11-01 19:33 版）
+# STS1 战斗求解器 · 交接说明（2026-11-01 21:10 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-01 19:33，测试 **672 条全绿**（0 fail / 0 err），
-> 代码 HEAD = `53853ec`，未 push。本轮新增 107 条（565 → 672）。
-> 已安装 `build 1101-193207`（与 `~/.sts1-combatsolver/build/libs/` 一致）。
+> **当前状态**：2026-11-01 21:10，测试 **679 条全绿**（0 fail / 0 err，15 skipped），
+> 代码 HEAD = 本轮四个纠偏 commit（`44e8ae6` → `ff2e6ee` → `8c429ac` → `652ae13`），未 push。
+> 已安装 `build 1101-193207`（**不含**本轮四个 commit，真机跑的还是旧 jar）。
 >
-> 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做**。复核发现非蓝本行为不止此前登记的 3 处，
-> 还包括 P7/D5 的本地简化和有界 AUTO；已全部列进 `docs/research/blueprint-parity.md` 来源审计
-> 与 §九撤改清单。**这些不是登记后保留，而是必须撤销/返工。**
+> 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做**。
+> `docs/plans/2026-11-01-strict-blueprint-parity.md` 的 Task 1–4 **已全部执行完**：
+> 撤销默认冻结 / 单步剔除 / 无生还禁打、删除有界 AUTO 与伪 Adopt/Freeze、
+> Continuation 改为「best 选边界 + 最终路线回放捕获」、药水策略恢复蓝本组合与失败语义。
+> 逐项结果见 `docs/research/blueprint-parity.md`「附：2026-11-01 来源审计」的**结果**列。
 >
-> 🔴 **当前运行模式不是蓝本，必须撤销（`c6233d0`）**：默认采纳+冻结、失配照打、单步剔除，
-> 并把 `AdoptRoute` 与 `RouteFrozen` 混为一谈。蓝本默认不冻结；冻结会关 FullAuto、暂停自动重算，
-> 失配路线只保留参考，不是自动按序打到底。下一轮先按
-> `docs/plans/2026-11-01-strict-blueprint-parity.md` 恢复蓝本默认，再修影子。
+> 🔴 **本轮全部真机项仍是 0 项**：jar 未重装、未进游戏。自动化全绿不等于 parity（旧教训）。
 >
 > 真机日志实测（`2026-11-01.log`，旧 build）：234 次规划 / **48 次 miss / 0 次命中**。
 > 用 497 个快照做相邻回合配对复现（97 对）定位到两个硬 bug 并已修：
@@ -187,7 +186,7 @@ private void callEndOfTurnActions() {
 | M3.3 怪物镜像 Act 3 | 🔶 55/68 只 |
 | M3.4 药水镜像 | 🔶 21/50+ |
 | M3.5 遗物镜像 | 🔶 47 件 |
-| M4-1 完整路线面板 | 🔶 跨回合续跑已有自动化但含非蓝本简化；点击 Tn、默认采纳冻结均为本地机制，按最新规则待撤；AdoptRoute/RouteFrozen 不得混写 |
+| M4-1 完整路线面板 | 🔶 跨回合续跑已按蓝本返工（`8c429ac`）；点击 Tn / 默认冻结已删除（`ff2e6ee`）；`AdoptRoute` 与 `RouteFrozen` 均登记未做。**真机命中率仍未验证** |
 | M4-2 预算档位 / M4-3 AUTO 执行 / M4-5 稳定性 | ✅ |
 | M4-6 局外收益 UI / M5 验收（全自动 20 场） | ❌ |
 
@@ -452,13 +451,17 @@ private void callEndOfTurnActions() {
 - `docs/plans/2026-11-01-strict-blueprint-parity.md`
 - `docs/plans/2026-11-01-next-round-prompt.md`
 
-顺序固定：
-1. 撤销默认采纳冻结、单步剔除、无生还禁打和本地有界 AUTO；恢复蓝本默认 Continuation/部署漂移重算。
-2. AdoptRoute 与 RouteFrozen 不得混写；不能完整复刻就明确未做，不保留伪模式。
-3. Continuation 改为 best 选边界 + 最终路线回放捕获，CaptureLive/CapturePredicted 分侧归一化，四牌堆保序。
-4. 药水恢复全局 Disabled+Force、全局 policy 不落盘、统一候选池与专用失败异常；删除 policyRevision 和钉住补搜。
-5. 上述语义纠偏后，再按离线配对修影子：`playerPowers` → `energy` → `discardPile` → `hand` → `block`。
-6. 最后构建安装做真机；当前 P7/P8/UI 真机均仍是 0 项，不得写成已闭环。
+Task 1–4 已完成（见 `blueprint-parity.md` 结果列），**剩下的是 Task 5 的收尾与 Task 6 的验证**：
+
+1. ``git status`` 干净、``./gradlew test --offline`` 679 绿；先 ``./gradlew jar`` + ``tools/install.ps1``
+   把新 jar 装上，否则真机跑的还是旧盘。
+2. 真机验收（`blueprint-parity.md` 末「结果列」逐条对应）：默认无冻结、有新回合要么
+   `SEARCH_REUSED` 要么 `SEARCH_REUSE_MISS reason=…` 后根重算、单步不可用/药水槽漂移不剔步、
+   仅「全都不生还」不触发停手、改策略后旧 continuation 作废且配置里只剩 `directive=` 行。
+3. 真机命中率仍未知（纠偏前 97 对配对 **0 命中**，首差 `playerPowers` → `energy` →
+   `discardPile` → `hand` → `block`）。按新回放捕获再取一轮日志，用离线配对工具复算。
+4. 未做的蓝本机制**明确登记为未做**，不要补半成品：`AdoptRoute`、`RouteFrozen`、
+   `SolverProgress` 的 play_depth、`PotionRewardOutlook`、琥珀限制。
 
 ### 🔴 自创清单（不是“登记后继续”，而是必须撤销/返工）
 
