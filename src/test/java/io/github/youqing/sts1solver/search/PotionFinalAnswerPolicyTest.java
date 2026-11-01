@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -87,20 +88,31 @@ class PotionFinalAnswerPolicyTest {
         assertTrue(solver.lastPolicySatisfied);
     }
 
+    /**
+     * 满足不了 Force 时抛**专用异常**（蓝本 {@code PotionPolicyUnsatisfiedException}）。
+     *
+     * <p>旧实现是 `null` + 一次「把这瓶钉在第一步」的补搜。两者蓝本都没有：
+     * 它在统一候选池里做资格过滤，池子空了就抛；补搜通道是自创。
+     */
     @Test
-    void failedForcedAnswerNeverFallsBackToUnforcedRoute() {
+    void unsatisfiedPolicyThrowsDedicatedExceptionInsteadOfPinnedRescueOrNull() {
         SimState root = fight(20);
         root.potions.set(0, "FairyPotion");        // 被动药水：canUse == false，永远喝不了
         PotionStrategySnapshot strategy = PotionStrategySnapshot.defaults()
                 .withDirective(0, "FairyPotion", SolverPotionDirective.FORCE);
 
         BeamSolver solver = new BeamSolver(3, 5, 8, 6).withPotionStrategy(strategy);
-        assertNull(solver.bestFirstAction(root.copy()),
-                "满足不了 Force 就必须显式表示「没有满足约束的计划」");
+        PotionPolicyUnsatisfiedException thrown = assertThrows(
+                PotionPolicyUnsatisfiedException.class,
+                () -> solver.bestFirstAction(root.copy()),
+                "满足不了 Force 必须抛专用异常，不是返回 null");
+        assertTrue(thrown.getMessage().contains("FairyPotion@0"),
+                "文案要说清是哪一格哪瓶：" + thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("指定药水必须使用"),
+                "文案要对应蓝本第一档：" + thrown.getMessage());
         assertFalse(solver.lastPolicySatisfied);
         assertTrue(solver.lastPolicyViolation.contains("0:FairyPotion"),
                 "违规原因要说清是哪一格哪瓶：" + solver.lastPolicyViolation);
-        assertTrue(solver.lastSteps.isEmpty(), "不许把不满足约束的路线当答案交出去");
     }
 
     @Test

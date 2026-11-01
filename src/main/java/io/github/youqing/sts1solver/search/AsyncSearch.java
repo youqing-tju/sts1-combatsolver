@@ -78,13 +78,6 @@ public final class AsyncSearch {
          */
         public final ContinuationPlan continuations;
         /**
-         * 这次结果是用哪一代药水策略算的（{@code AutoPilot.policyRevision}）。
-         *
-         * <p>⚠️ 只比 fingerprint 是不够的：用户改完策略后局面指纹不变，
-         * 但「哪条路线合规」已经变了 —— 拿旧策略的答案执行会违反他刚设的 Force/Disabled。
-         */
-        public final long policyRevision;
-        /**
          * 这条路线**预计在第几回合死**；{@code -1} = 不会死。
          *
          * <p>主线程据此判断「照这条路走这一回合就死」——那种情况**不自动部署**，
@@ -110,7 +103,7 @@ public final class AsyncSearch {
                String noveltyStop) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
                     hitNodeLimit, false, noveltyStop == null ? "off" : noveltyStop,
-                    "", "", ContinuationPlan.empty(), 0L, -1);
+                    "", "", ContinuationPlan.empty(), -1);
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
@@ -118,7 +111,7 @@ public final class AsyncSearch {
                boolean failed, String noveltyStop) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
                     hitNodeLimit, failed, noveltyStop, "", "",
-                    ContinuationPlan.empty(), 0L, -1);
+                    ContinuationPlan.empty(), -1);
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
@@ -126,13 +119,13 @@ public final class AsyncSearch {
                boolean failed, String noveltyStop, String portfolioAdopted) {
             this(fingerprint, action, nodes, states, depth, millis, lines, steps, nodeLimit,
                     hitNodeLimit, failed, noveltyStop, portfolioAdopted, "",
-                    ContinuationPlan.empty(), 0L, -1);
+                    ContinuationPlan.empty(), -1);
         }
 
         Result(String fingerprint, PlanAction action, int nodes, int states, int depth, long millis,
                int lines, java.util.List<RouteStep> steps, int nodeLimit, boolean hitNodeLimit,
                boolean failed, String noveltyStop, String portfolioAdopted, String stopReason,
-               ContinuationPlan continuations, long policyRevision, int deathTurn) {
+               ContinuationPlan continuations, int deathTurn) {
             this.fingerprint = fingerprint;
             this.stopReason = stopReason == null ? "" : stopReason;
             this.action = action;
@@ -149,7 +142,6 @@ public final class AsyncSearch {
             this.portfolioAdopted = portfolioAdopted == null ? "" : portfolioAdopted;
             this.continuations = continuations == null
                     ? ContinuationPlan.empty() : continuations;
-            this.policyRevision = policyRevision;
             this.deathTurn = deathTurn;
         }
     }
@@ -175,8 +167,14 @@ public final class AsyncSearch {
      * 会得到「一半旧一半新」的约束（而且是在另一条线程上读，没有任何同步保证）。
      */
     private static PotionStrategySnapshot requestPotionStrategy;
-    /** 这次请求的策略代际；结果原样带回，主线程据此判时效。 */
-    private static long requestPolicyRevision;
+    /**
+     * 搜索代际（蓝本 {@code SolverController._nextSearchGeneration} / {@code search.Generation}）。
+     *
+     * <p>作用只有一个：**取消**。提交新请求或 {@link #reset()} 时递增，于是还在跑的旧请求
+     * 算完之后结果不会被发布 —— 那就是蓝本 {@code CancelSearch()} 的语义。
+     * 它不是「策略代际」（策略改动走保存 + 清 continuation + Manual 重搜）。
+     */
+    private static long generation;
     private static boolean running;
 
     private static volatile Result ready;
@@ -212,7 +210,7 @@ public final class AsyncSearch {
             boolean novelty;
             boolean portfolio;
             PotionStrategySnapshot potionStrategy;
-            long policyRevision;
+            long requestGeneration;
             String fingerprint;
             synchronized (LOCK) {
                 while (request == null) {
@@ -233,7 +231,7 @@ public final class AsyncSearch {
                 novelty = requestNovelty;
                 portfolio = requestPortfolio;
                 potionStrategy = requestPotionStrategy;
-                policyRevision = requestPolicyRevision;
+                requestGeneration = generation;
                 fingerprint = requestFingerprint;
                 request = null;
                 requestFingerprint = null;
@@ -257,14 +255,22 @@ public final class AsyncSearch {
                         solver.lastDepth, solver.lastMillis, solver.lastLeaves,
                         solver.lastSteps, nodeLimit, solver.hitNodeLimit, false,
                         solver.lastNoveltyStop, solver.lastPortfolioAdopted, solver.lastStopReason,
-                        solver.lastContinuations, policyRevision, solver.lastDeathTurn);
+                        solver.lastContinuations, solver.lastDeathTurn);
             } catch (Throwable t) {
                 Trace.error("background search failed", t);
                 result = new Result(fingerprint, null, 0, 0, 0, 0, 0,
                         java.util.Collections.<RouteStep>emptyList(), nodeLimit, false, true);
             }
             running = false;
-            ready = result;
+            synchronized (LOCK) {
+                if (requestGeneration != generation) {
+                    // 这次请求已经被新的提交或 reset() 取消：结果作废，不发布。
+                    Trace.info("SEARCH_CANCELLED generation " + requestGeneration
+                            + " != " + generation);
+                    continue;
+                }
+                ready = result;
+            }
         }
     }
 
@@ -311,16 +317,6 @@ public final class AsyncSearch {
                               int width, int depth, long budgetMillis,
                               int nodeLimit, int cardBranches, boolean novelty,
                               boolean portfolio, PotionStrategySnapshot potionStrategy) {
-        submit(root, fingerprint, energy, hand, width, depth, budgetMillis, nodeLimit,
-                cardBranches, novelty, portfolio, potionStrategy, 0L);
-    }
-
-    /** 同上，额外带上药水策略代际（{@code AutoPilot.policyRevision}）。 */
-    public static void submit(SimState root, String fingerprint, int energy, int hand,
-                              int width, int depth, long budgetMillis,
-                              int nodeLimit, int cardBranches, boolean novelty,
-                              boolean portfolio, PotionStrategySnapshot potionStrategy,
-                              long policyRevision) {
         start();
         synchronized (LOCK) {
             request = root;
@@ -335,7 +331,7 @@ public final class AsyncSearch {
             requestNovelty = novelty;
             requestPortfolio = portfolio;
             requestPotionStrategy = potionStrategy;
-            requestPolicyRevision = policyRevision;
+            generation++;
             LOCK.notifyAll();
         }
     }
@@ -360,7 +356,7 @@ public final class AsyncSearch {
             request = null;
             requestFingerprint = null;
             requestPotionStrategy = null;
-            requestPolicyRevision = 0L;
+            generation++;              // 取消还在跑的那一趟（蓝本 CancelSearch）
         }
         ready = null;
     }

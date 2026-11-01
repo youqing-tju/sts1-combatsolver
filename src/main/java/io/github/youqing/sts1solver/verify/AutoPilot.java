@@ -236,11 +236,6 @@ public final class AutoPilot {
 
     // ---------------------------------------------------------- 药水策略（D5）
 
-    /** 当前药水策略代际（搜索结果按它判时效）。 */
-    public static long policyRevision() {
-        return policyRevision;
-    }
-
     /**
      * 自动部署/执行中是否锁定药水控件。
      *
@@ -260,16 +255,11 @@ public final class AutoPilot {
     /**
      * 一个后台结果能不能采纳：{@code null} = 可以，否则是不采纳的原因。
      *
-     * <p>两道闸缺一不可：
-     * <ul>
-     *   <li>{@code policy_revision} —— 局面没变但策略变了，旧答案可能已经违规；</li>
-     *   <li>{@code fingerprint} —— 局面已经走了，答案算的是别的局面。</li>
-     * </ul>
+     * <p>只有一条判据：**局面有没有走**（{@code fingerprint}）。蓝本没有「策略代际」这种东西
+     * —— 改策略走的是「保存 → 清 ContinuationSource → Manual 重搜」，而重搜会取消旧搜索
+     * （{@code CancelSearch}，对应 {@code AsyncSearch} 的搜索代际），旧答案根本到不了这里。
      */
-    static String rejectionReason(String fingerprint, long revision, String liveFingerprint) {
-        if (revision != policyRevision) {
-            return "policy_revision";
-        }
+    static String rejectionReason(String fingerprint, String liveFingerprint) {
         if (liveFingerprint != null && !liveFingerprint.equals(fingerprint)) {
             return "fingerprint";
         }
@@ -325,35 +315,40 @@ public final class AutoPilot {
     }
 
     /**
-     * 落一份新策略：保存 → 代际 +1 → 清 continuation/预览 → 按「自动计算」决定要不要立刻重算。
+     * 落一份新策略（蓝本 {@code SolverController.SetPotionDirective}，1899-1942 行）。
      *
-     * <p>清 continuation 是硬要求：旧世界线是按旧策略排的，继续复用等于绕过用户刚改的设置。
+     * <p>顺序逐条对应：
+     * <ol>
+     *   <li>保存设置；</li>
+     *   <li>{@code ContinuationSource = null}（旧世界线是按旧策略排的，继续复用等于绕过刚改的设置）；</li>
+     *   <li>自动计算关着 → 只记一行 {@code RECALCULATION_SKIPPED}，**不**发起搜索；</li>
+     *   <li>否则请求一次 {@code SearchReason.Manual}。</li>
+     * </ol>
+     *
+     * <p>⚠️ 没有「策略代际」：蓝本没有这个字段。旧搜索由重搜本身取消
+     * （{@code CancelSearch} → {@code AsyncSearch} 的搜索代际）。
      */
     private static boolean applyPotionPolicy(
             io.github.youqing.sts1solver.search.PotionStrategySnapshot snapshot, String why) {
         io.github.youqing.sts1solver.config.SolverConfig.applyPotionStrategy(snapshot);
-        policyRevision++;
-        // 旧结果/旧世界线一律作废（即使局面指纹没变）
-        io.github.youqing.sts1solver.search.AsyncSearch.reset();
-        clearPlan();
-        boolean recompute = io.github.youqing.sts1solver.config.SolverConfig.autoStart();
-        if (recompute) {
-            lastPolicyAction = "saved+recompute";
-            try {
-                if (AbstractDungeon.player != null) {
-                    submitSearch(AbstractDungeon.player);   // Manual 重搜
-                }
-            } catch (Throwable t) {
-                // 不在战斗里（或单测环境）时 AbstractDungeon 还没初始化：只记录，不影响保存
-                Trace.warn("potion policy recompute skipped: " + t);
-            }
-            Trace.info("POTION_POLICY " + why + " revision=" + policyRevision
-                    + " -> manual recompute");
-        } else {
+        clearContinuationSource();
+        if (!io.github.youqing.sts1solver.config.SolverConfig.autoStart()) {
             lastPolicyAction = "saved";
-            Trace.info("POTION_POLICY " + why + " revision=" + policyRevision
-                    + " (auto-compute off, saved only)");
+            Trace.info("POTION_DIRECTIVE_RECALCULATION_SKIPPED reason=automatic_calculation_inactive"
+                    + " (" + why + ")");
+            panelRevision++;
+            return true;
         }
+        lastPolicyAction = "saved+recompute";
+        try {
+            if (AbstractDungeon.player != null) {
+                submitSearch(AbstractDungeon.player);   // SearchReason.Manual
+            }
+        } catch (Throwable t) {
+            // 不在战斗里（或单测环境）时 AbstractDungeon 还没初始化：只记录，不影响保存
+            Trace.warn("potion policy recompute skipped: " + t);
+        }
+        Trace.info("POTION_DIRECTIVE_CHANGED " + why + " -> manual recompute");
         panelRevision++;
         return true;
     }
@@ -639,13 +634,6 @@ public final class AutoPilot {
     private static String lastSearchShape = "";
     /** 药水策略只在第一次提交时打一行，避免每次搜索刷屏。 */
     private static boolean potionPolicyLogged;
-    /**
-     * 药水策略代际：每次改动 +1。
-     *
-     * <p>搜索结果必须带着**同一代**才允许采纳。只比指纹不够 —— 改策略不改局面，
-     * 旧答案在新策略下可能已经违规（例如刚把某瓶设成 Disabled）。
-     */
-    private static long policyRevision;
     /** 上一次策略改动的结果：{@code saved} / {@code saved+recompute} / {@code rejected:executing}。 */
     private static String lastPolicyAction = "";
     /** 最近一次策略现状快照（预设要按当前槽位算，不能靠渲染路径现抓）。 */
@@ -1100,14 +1088,7 @@ public final class AutoPilot {
         if (result == null) {
             return null;
         }
-        String reason = rejectionReason(result.fingerprint, result.policyRevision,
-                currentFingerprint());
-        if ("policy_revision".equals(reason)) {
-            // 局面没变、策略变了：旧答案在新策略下可能已违规，必须作废
-            Trace.info("PLAN discarded (potion policy revision " + result.policyRevision
-                    + " != " + policyRevision + ")");
-            return null;
-        }
+        String reason = rejectionReason(result.fingerprint, currentFingerprint());
         if (reason != null) {
             Trace.info("PLAN discarded (state moved on since it was computed)");
             return null;
@@ -1264,6 +1245,17 @@ public final class AutoPilot {
      */
     public static RouteStep nextRouteStep() {
         return plan == null ? null : plan.peek();
+    }
+
+    /**
+     * 只作废**跨回合续用缓存**，保留本回合的执行队列（蓝本 {@code _combat.ContinuationSource = null}）。
+     *
+     * <p>改用药策略时用的就是它：当前这回合已经排好的动作仍可执行，但下一回合不许再拿
+     * 旧策略算出来的世界线续跑 —— 等重搜的结果落地，队列会被整体替换。
+     */
+    static void clearContinuationSource() {
+        continuation.clear();
+        panelRevision++;
     }
 
     /**
@@ -1483,8 +1475,7 @@ public final class AutoPilot {
                     budget.timeMillis, budget.nodeLimit, budget.cardBranches,
                     io.github.youqing.sts1solver.config.SolverConfig.novelty(),
                     io.github.youqing.sts1solver.config.SolverConfig.portfolio(),
-                    io.github.youqing.sts1solver.config.SolverConfig.potionStrategy(),
-                    policyRevision);
+                    io.github.youqing.sts1solver.config.SolverConfig.potionStrategy());
         } catch (Throwable t) {
             Trace.warn("submit search failed: " + t);
         }

@@ -25,13 +25,14 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 策略代际（{@code policyRevision}）与真实控件。
+ * 改药水策略的**蓝本链路**（{@code SolverController.SetPotionDirective}，1899-1942 行）。
  *
- * <p>为什么代际不能省：改药水策略**不改变局面指纹**。只按指纹判时效的话，
- * 「算完之后用户把某瓶设成 Disabled，结果回来照样执行」—— 用户会看到自己刚设的限制被无视。
- * 所以采纳时同时比指纹**和**代际。
+ * <p>顺序是：校验 → 保存 → {@code ContinuationSource = null} → 自动计算关着就不重算 →
+ * 否则请求一次 Manual 搜索。旧的实现多了一个「策略代际」字段来判时效，
+ * 蓝本没有这个东西，已按纠偏计划移除；旧结果由重搜的取消语义处理
+ * （{@code CancelSearch} ↔ {@code AsyncSearch} 的搜索代际）。
  */
-class PotionPolicyRevisionTest {
+class PotionPolicyChangeTest {
 
     private static SimState state(int turn, int hp) {
         SimState s = new SimState();
@@ -81,15 +82,11 @@ class PotionPolicyRevisionTest {
     // ------------------------------------------------------------------- tests
 
     @Test
-    void staleRevisionIsRejectedEvenWithSameFingerprint() {
-        long live = AutoPilot.policyRevision();
-
-        assertNull(AutoPilot.rejectionReason("abc", live, "abc"),
-                "指纹与代际都一致就该采纳");
-        assertEquals("policy_revision", AutoPilot.rejectionReason("abc", live - 1, "abc"),
-                "指纹一样但代际旧了 -> 拒绝（局面没变，策略变了）");
-        assertEquals("fingerprint", AutoPilot.rejectionReason("abc", live, "xyz"));
-        assertNull(AutoPilot.rejectionReason(null, live, null),
+    void onlyTheFingerprintDecidesStaleness() {
+        assertNull(AutoPilot.rejectionReason("abc", "abc"), "局面没走就该采纳");
+        assertEquals("fingerprint", AutoPilot.rejectionReason("abc", "xyz"),
+                "局面已经走了 -> 拒绝");
+        assertNull(AutoPilot.rejectionReason(null, null),
                 "拿不到 live 指纹时不做指纹校验（保持旧行为）");
     }
 
@@ -101,11 +98,9 @@ class PotionPolicyRevisionTest {
 
         AutoPilot.installRoute(route.steps, 1, route.plan, 0);
         SolverConfig.toggleAutoStart();            // 打开「自动计算」
-        long before = AutoPilot.policyRevision();
         try {
             assertTrue(AutoPilot.cyclePotionDirective(0, "Fire Potion"));
             assertEquals("saved+recompute", AutoPilot.lastPolicyAction());
-            assertEquals(before + 1, AutoPilot.policyRevision(), "每改一次代际 +1");
             assertEquals(SolverPotionDirective.DISABLED,
                     SolverConfig.potionStrategy().directiveFor(0, "Fire Potion"),
                     "Smart 之后的第一档是 Disabled");
@@ -131,12 +126,10 @@ class PotionPolicyRevisionTest {
     @Test
     void policyChangeDuringDeploymentIsRejected() {
         AutoPilot.toggle();                        // AUTO 接管中（纯标志位）
-        long before = AutoPilot.policyRevision();
 
         assertFalse(AutoPilot.cyclePotionDirective(0, "Fire Potion"),
                 "自动部署/执行中必须拒绝修改");
         assertEquals("rejected:executing", AutoPilot.lastPolicyAction());
-        assertEquals(before, AutoPilot.policyRevision(), "被拒绝时不许动代际");
         assertEquals(SolverPotionDirective.SMART,
                 SolverConfig.potionStrategy().directiveFor(0, "Fire Potion"),
                 "被拒绝时不许改配置");
@@ -193,9 +186,27 @@ class PotionPolicyRevisionTest {
         assertEquals("rejected:no_snapshot", AutoPilot.lastPolicyAction());
     }
 
+    /**
+     * 全局档位**不落盘**（蓝本 {@code SolverSettings.cs:94-96} 上带 {@code [JsonIgnore]}）。
+     *
+     * <p>以前这里钉的是「全局档位要持久化」，那是自创：蓝本每次新设置都回到 Smart，
+     * 只持久化每槽指令。
+     */
     @Test
-    void globalPolicyIsPersistedThroughConfig() {
-        assertEquals(SolverPotionPolicy.SMART, SolverConfig.potionStrategy().globalPolicy());
+    void globalPolicyIsNotPersisted() {
+        io.github.youqing.sts1solver.search.PotionStrategySnapshot disabled =
+                io.github.youqing.sts1solver.search.PotionStrategySnapshot.defaults()
+                        .withGlobalPolicy(SolverPotionPolicy.DISABLED)
+                        .withDirective(0, "Fire Potion", SolverPotionDirective.FORCE);
+
+        String stored = disabled.toStorageString();
+        assertFalse(stored.contains("policy="), "落盘串里不许出现全局档位：" + stored);
+        assertEquals(SolverPotionPolicy.SMART,
+                SolverConfig.parsePotionStrategy(stored).globalPolicy(),
+                "重新解析必须回到 Smart");
+        assertEquals(SolverPotionDirective.FORCE,
+                SolverConfig.parsePotionStrategy(stored).directiveFor(0, "Fire Potion"),
+                "每槽指令要保留");
         assertNotNull(SolverConfig.parsePotionStrategy(null));
     }
 }

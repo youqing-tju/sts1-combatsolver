@@ -77,8 +77,8 @@ public final class SolverConfig {
     /**
      * 药水策略（蓝本 {@code SolverPotionPolicy} + 每槽 directive）。
      *
-     * <p>只在**主线程**改（面板点击），改完立刻落盘并递增 {@code policyRevision}；
-     * 后台搜索只读请求里带的快照，不读这个字段。
+     * <p>只在**主线程**改（面板点击），改完立刻落盘；后台搜索只读请求里带的快照，
+     * 不读这个字段。注意**全局档位不落盘**（蓝本 {@code [JsonIgnore]}），只有每槽指令持久化。
      */
     private static io.github.youqing.sts1solver.search.PotionStrategySnapshot potionStrategy =
             io.github.youqing.sts1solver.search.PotionStrategySnapshot.defaults();
@@ -171,8 +171,10 @@ public final class SolverConfig {
     /**
      * 落一份新策略。
      *
-     * <p>⚠️ 它只负责「存」，不负责「让旧结果失效」—— 那是 {@code AutoPilot} 的
-     * {@code policyRevision} 的职责。两者分开是因为搜索层也要能在没有真机的情况下改策略。
+     * <p>⚠️ 它只负责「存」，不负责「让旧结果失效」—— 清 continuation、取消在跑的搜索、
+     * 发起 Manual 重搜都是 {@code AutoPilot.applyPotionPolicy} 的职责
+     * （蓝本 {@code SolverController.SetPotionDirective}）。分开是因为搜索层也要能在
+     * 没有真机的情况下改策略。
      */
     public static void applyPotionStrategy(
             io.github.youqing.sts1solver.search.PotionStrategySnapshot snapshot) {

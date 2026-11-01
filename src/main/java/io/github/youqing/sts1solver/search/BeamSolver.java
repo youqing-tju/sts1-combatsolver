@@ -215,8 +215,6 @@ public final class BeamSolver {
     public boolean lastPolicySatisfied = true;
     /** 违规明细（人类可读，进日志与面板）。 */
     public String lastPolicyViolation = "";
-    /** 为满足 Force/RequireAtLeastOne 再补一趟「钉住这一瓶」的最低剩余预算。 */
-    private static final long POTION_POLICY_MIN_REMAINING_MILLIS = 3_000L;
 
     /**
      * 上一次搜索里已经报过的「语义缺失」拒绝（每次搜索清空，避免刷屏）。
@@ -635,7 +633,7 @@ public final class BeamSolver {
             selected = zeroCostOpeningRescue(root, selected, deadline);
             // 最终复核必须放在这两个后处理**之后**：它们都可能换掉答案，
             // 换完之后是否仍满足 Force / RequireAtLeastOne 要重新判一次。
-            selected = enforcePotionStrategy(root, selected, deadline);
+            selected = verifyPotionStrategy(selected);
         }
 
         lastSelectedScore = selected == null ? Long.MIN_VALUE : selected.score;
@@ -2225,16 +2223,17 @@ public final class BeamSolver {
      * 这几个都依赖 UI 侧栏额度输入，记在 {@code blueprint-parity} 药水那行。
      */
     /**
-     * 最终答案的策略复核（蓝本 {@code CombatBeamSolver} 最终资格检查那一层）。
+     * 最终答案的策略复核（蓝本 {@code CombatBeamSolver.FinalPlanOrdering.cs:246-282}）。
      *
      * <p>Force **不是排序加分**：路线里没有那一步就是不合格，哪怕它分更高。
-     * 不合格时先做一次有界的「把这瓶钉在第一步」补搜（蓝本「继续调查搜索空间」的等价物），
-     * 仍然不合格就返回 {@code null} —— 显式表示「这一回合没有满足约束的计划」。
+     * 不合格就抛 {@link PotionPolicyUnsatisfiedException}，文案与蓝本三选一一致。
      *
-     * <p>⚠️ 绝不静默退回不满足约束的路线：用户按下 Force 就是明确指令，
-     * 悄悄忽略比不执行更糟（他会以为设置没生效）。
+     * <p>⚠️ 不做「把这瓶钉在第一步再搜一趟」的补搜：蓝本没有这条通道，
+     * 它在**统一候选池**里做资格过滤（`policyEligibleCandidates`），池子空了才抛。
+     * 我们这边的对应物是展开阶段就按 {@code allowsExplicitUse} 拦掉不合规的用药分支
+     * （{@code expandPotionActions}），所以走到这里仍不满足 = 这条约束在当前搜索空间里无解。
      */
-    private SearchNode enforcePotionStrategy(SimState root, SearchNode selected, long deadline) {
+    private SearchNode verifyPotionStrategy(SearchNode selected) {
         if (potionStrategy == null) {
             return selected;
         }
@@ -2246,92 +2245,22 @@ public final class BeamSolver {
             lastPolicyViolation = "";
             return selected;
         }
-        lastPolicyViolation = verdict.describe();
-        Trace.info("POTION_POLICY reject: " + lastPolicyViolation);
-
-        int slot = firstPotionWorthPinning(root);
-        if (slot >= 0 && remainingMillis(deadline) > POTION_POLICY_MIN_REMAINING_MILLIS) {
-            SearchNode pinned = pinPotionAndSearch(root, slot, deadline);
-            if (pinned != null) {
-                PotionStrategySnapshot.FinalRouteVerdict retry =
-                        potionStrategy.evaluateFinalRoute(stepsOf(pinned));
-                if (retry.satisfied) {
-                    lastPolicySatisfied = true;
-                    lastPolicyViolation = "";
-                    return pinned;
-                }
-                lastPolicyViolation = retry.describe();
-            }
-        }
         lastPolicySatisfied = false;
-        // 显式「这一回合没有计划」：把半途写进去的路线也清掉。
-        // （beamPass 会顺手发布 lastSteps，不清的话执行层会把一条不满足约束的路线当答案）
-        lastRoute = new java.util.ArrayList<PlanAction>();
-        lastSteps = new java.util.ArrayList<RouteStep>();
-        lastContinuations = ContinuationPlan.empty();
-        lastDeathTurn = -1;
-        lastSelectedSurvives = false;
-        Trace.warn("POTION_POLICY unsatisfied, no plan this turn: " + lastPolicyViolation);
-        return null;
+        lastPolicyViolation = verdict.describe();
+        Trace.warn("POTION_POLICY unsatisfied: " + lastPolicyViolation);
+        throw new PotionPolicyUnsatisfiedException(describePolicyFailure());
     }
 
-    /** 找一个「值得钉在第一步」的药水槽：优先缺失的 Force，其次 RequireAtLeastOne 下的任一可用药水。 */
-    private int firstPotionWorthPinning(SimState root) {
-        for (PotionStrategySnapshot.SlotDirective directive : potionStrategy.directives()) {
-            if (directive.directive != SolverPotionDirective.FORCE) {
-                continue;
-            }
-            if (directive.slot < root.potions.size()
-                    && directive.potionId.equals(root.potions.get(directive.slot))
-                    && io.github.youqing.sts1solver.mirror.Potions.canUse(directive.potionId)) {
-                return directive.slot;
-            }
+    /** 蓝本 {@code FinalPlanOrdering.cs:274-282} 的三段文案。 */
+    private String describePolicyFailure() {
+        if (potionStrategy.hasForcedDirectives()) {
+            return "指定药水必须使用，但搜索没有找到可执行路线："
+                    + potionStrategy.describeForcedUses() + "。";
         }
         if (potionStrategy.globalPolicy() == SolverPotionPolicy.REQUIRE_AT_LEAST_ONE) {
-            for (int slot = 0; slot < root.potions.size(); slot++) {
-                String id = root.potions.get(slot);
-                if (id != null
-                        && io.github.youqing.sts1solver.mirror.Potions.canUse(id)
-                        && potionStrategy.allowsExplicitUse(slot, id)) {
-                    return slot;
-                }
-            }
+            return "本场药水策略要求至少使用一瓶，但搜索没有找到可执行的用药路线。";
         }
-        return -1;
-    }
-
-    /** 把这一瓶钉成第一步再搜一趟（有界预算；被截断就不算成绩）。 */
-    private SearchNode pinPotionAndSearch(SimState root, int slot, long deadline) {
-        String id = root.potions.get(slot);
-        if (id == null) {
-            return null;
-        }
-        boolean targeted = io.github.youqing.sts1solver.mirror.Potions.needsTarget(id);
-        int target = targeted ? firstAliveIndex(root) : -1;
-        if (targeted && target < 0) {
-            return null;
-        }
-        long remaining = remainingMillis(deadline);
-        long budget = remaining == Long.MAX_VALUE ? Long.MAX_VALUE
-                : Math.min(ZERO_COST_MAX_MILLIS, remaining - POTION_POLICY_MIN_REMAINING_MILLIS);
-        long subDeadline = budget == Long.MAX_VALUE
-                ? Long.MAX_VALUE
-                : System.nanoTime() + budget * 1_000_000L;
-
-        BeamSolver sub = new BeamSolver(energyPerTurn, handSize, beamWidth, depth,
-                ZERO_COST_MAX_NODES, cardBranchLimit)
-                .withFixedPrefix(java.util.Collections.singletonList(
-                        PlanAction.potion(slot, target)))
-                .withPotionStrategy(potionStrategy);
-        SearchNode candidate = sub.searchToDepth(root, Math.max(1, depth), beamWidth,
-                cardBranchLimit, ZERO_COST_MAX_NODES, subDeadline);
-        lastNodes += sub.lastNodes;
-        if (candidate == null || sub.hitNodeLimit || sub.lastPassCutShort) {
-            return null;
-        }
-        Trace.info("POTION_POLICY pin slot=" + slot + " " + id
-                + " target=" + target + " hp_lost=" + (rootHp - candidate.state.hp));
-        return candidate;
+        return "本场药水策略没有可执行路线。";
     }
 
     private SearchNode gatePotionSpending(SimState root, SearchNode selected, long deadline) {
@@ -2347,9 +2276,16 @@ public final class BeamSolver {
         if (remaining != Long.MAX_VALUE && remaining <= POTION_GATE_MIN_REMAINING_MILLIS) {
             return selected;                 // 没预算跑基线就别硬跑，保持原答案
         }
+        // 蓝本 CombatSearchCoordinator.cs:252：基线的策略是 ForForcedBaseline ——
+        // 强制用药的那几瓶**仍然可以喝**，只排除可选药水。这样比出来的差值衡量的才是
+        // 「可选药水买到了多少血」，而不是把用户明确要求的那几瓶也算进去。
         BeamSolver baseline = new BeamSolver(energyPerTurn, handSize, beamWidth, depth,
-                nodeLimit, cardBranchLimit).withMaxPotionUses(0)
-                .withPotionStrategy(potionStrategy);
+                nodeLimit, cardBranchLimit)
+                // 没有策略（对照实验）时用「全 Smart 的强制基线」：它同样只放行 Force，
+                // 也就是「一瓶都不许喝」—— 基线的语义不能因为上层没传策略就变成「随便喝」。
+                .withPotionStrategy(potionStrategy == null
+                        ? PotionStrategySnapshot.defaults().forForcedBaseline()
+                        : potionStrategy.forForcedBaseline());
         long budget = remaining == Long.MAX_VALUE ? Long.MAX_VALUE : remaining - 1_000;
         long subDeadline = budget == Long.MAX_VALUE
                 ? Long.MAX_VALUE
@@ -2359,6 +2295,14 @@ public final class BeamSolver {
         lastNodes += baseline.lastNodes;
         if (free == null || baseline.hitNodeLimit || baseline.lastPassCutShort) {
             return selected;                 // 基线没跑完，不算成绩（蓝本同口径）
+        }
+        // 蓝本 PotionUsePolicy.IsEligible：RequireAtLeastOne 下「一瓶都没喝」的基线不合格。
+        // 拿一条不合格的基线去替换掉本来满足策略的路线，会让最终答案反而违反策略 ——
+        // 那种情况下基线根本不能当「不喝药的替代品」。
+        if (potionStrategy != null
+                && potionStrategy.globalPolicy() == SolverPotionPolicy.REQUIRE_AT_LEAST_ONE
+                && free.potionsUsed == 0) {
+            return selected;
         }
         if (isCompleteVictory(free) != isCompleteVictory(selected)) {
             // 胜负不同就没法比赤字：不喝药会输、喝药能赢 → 药水买到的是「这场胜利」，当然留。

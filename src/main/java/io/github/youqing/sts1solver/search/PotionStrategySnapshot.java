@@ -10,15 +10,17 @@ import java.util.Map;
  * 不可变的药水策略快照（蓝本 {@code PotionStrategySnapshot.cs:20-101}）。
  *
  * <p>为什么必须「快照」而不是直接读 {@code SolverConfig}：搜索跑在后台线程，而用户在战斗中
- * 随时可能改策略。后台只读请求里带的这一份，就不会读到「改到一半」的全局状态；
- * 主线程用 {@code policyRevision} 判别「这份结果是不是旧策略算的」。
+ * 随时可能改策略。后台只读请求里带的这一份，就不会读到「改到一半」的全局状态。
  *
- * <p>三条语义：
+ * <p>三条语义（逐条对应蓝本 {@code PotionStrategySnapshot.cs:66-87}）：
  * <ul>
  *   <li>{@link SolverPotionDirective#SMART} 就是「没有覆盖」。{@code withDirective(SMART)}
- *       会**删掉**记录，避免换药之后旧语义残留；</li>
+ *       会**删掉**记录（蓝本 {@code SolverSettings.ApplyPotionDirective}：先按槽清空，
+ *       非 Smart 才写回），避免换药之后旧语义残留；</li>
  *   <li>持久化键是 {@code (slot, potionId)}，两瓶同 ID 的药水互不影响；</li>
- *   <li>全局 {@link SolverPotionPolicy#DISABLED} 是硬上限，Force 也压不过。</li>
+ *   <li>全局 {@link SolverPotionPolicy#DISABLED} <b>只决定「没有登记的槽」的默认值</b>，
+ *       不是硬上限 —— 显式的 Force 仍然可以展开（蓝本 {@code AllowsExplicitUse}：
+ *       先看显式指令，没有登记才看当前档位）。</li>
  * </ul>
  */
 public final class PotionStrategySnapshot {
@@ -30,12 +32,27 @@ public final class PotionStrategySnapshot {
     private final SolverPotionPolicy globalPolicy;
     /** 键 = {@code slot + ":" + potionId}，按字符串排序保证序列化确定性。 */
     private final Map<String, SolverPotionDirective> directives;
+    /**
+     * 只允许**强制用药**（蓝本 {@code PotionStrategySnapshot._onlyForcedUses}）。
+     *
+     * <p>仅用于「强制用药基线」那一趟搜索（{@link #forForcedBaseline}）：基线里可以有用户
+     * 明确要求喝的那几瓶，但不能有可选药水。这样「喝药路线比基线多省了多少血」衡量的
+     * 才是**可选药水**的收益，而不是把强制的那几瓶也算进去。
+     */
+    private final boolean onlyForcedUses;
 
     private PotionStrategySnapshot(SolverPotionPolicy policy,
                                    Map<String, SolverPotionDirective> directives) {
+        this(policy, directives, false);
+    }
+
+    private PotionStrategySnapshot(SolverPotionPolicy policy,
+                                   Map<String, SolverPotionDirective> directives,
+                                   boolean onlyForcedUses) {
         this.globalPolicy = policy;
         this.directives = Collections.unmodifiableMap(
                 new java.util.TreeMap<String, SolverPotionDirective>(directives));
+        this.onlyForcedUses = onlyForcedUses;
     }
 
     public static PotionStrategySnapshot defaults() {
@@ -63,16 +80,70 @@ public final class PotionStrategySnapshot {
                 ? SolverPotionDirective.DISABLED : SolverPotionDirective.SMART;
     }
 
+    /**
+     * 强制用药基线：只有显式 Force 的药水可以喝（蓝本 {@code ForForcedBaseline}）。
+     *
+     * <p>没有 Force 时它等价于「一瓶都不许喝」，所以药水闸的基线搜索永远可以用它，
+     * 不必分两种模式。
+     */
+    public PotionStrategySnapshot forForcedBaseline() {
+        return new PotionStrategySnapshot(globalPolicy, directives, true);
+    }
+
+    /** 只放了 Force 的那几瓶能不能喝（供 {@link #forForcedBaseline} 的快照用）。 */
+    public boolean allowsOnlyForcedUses() {
+        return onlyForcedUses;
+    }
+
     /** 这一格这一瓶能不能被**显式**使用（搜索候选展开与最终答案共用这一条判据）。 */
     public boolean allowsExplicitUse(int slot, String potionId) {
-        if (globalPolicy == SolverPotionPolicy.DISABLED) {
-            return false;               // 硬上限，Force 也不能突破
+        return allowsExplicitUse(slot, potionId, globalPolicy, false);
+    }
+
+    /**
+     * 蓝本 {@code AllowsExplicitUse}（{@code PotionStrategySnapshot.cs:66-77}）逐行翻译。
+     *
+     * <p>顺序不能换：
+     * <ol>
+     *   <li>{@code forceAllDisabled} 一票否决（这一局根本不能用药，例如战斗规则禁用）；</li>
+     *   <li>强制基线模式下只看 Force；</li>
+     *   <li>否则**显式指令优先**：登记的 Force/Disabled 说了算；没登记才看当前档位。</li>
+     * </ol>
+     *
+     * @param effectivePolicy 这一趟搜索用的档位（可能是覆盖值，例如基线搜索传 Disabled）
+     * @param forceAllDisabled 这一局是否完全不能用药
+     */
+    public boolean allowsExplicitUse(int slot, String potionId,
+                                     SolverPotionPolicy effectivePolicy,
+                                     boolean forceAllDisabled) {
+        if (forceAllDisabled) {
+            return false;
         }
-        return directiveFor(slot, potionId) != SolverPotionDirective.DISABLED;
+        SolverPotionDirective explicit = directives.get(key(slot, potionId));
+        if (onlyForcedUses) {
+            return explicit == SolverPotionDirective.FORCE;
+        }
+        if (explicit != null) {
+            return explicit != SolverPotionDirective.DISABLED;
+        }
+        return effectivePolicy != SolverPotionPolicy.DISABLED;
     }
 
     public boolean hasForcedDirectives() {
         return !forcedKeys().isEmpty();
+    }
+
+    /** 强制用药清单，形如 {@code Fire Potion@0, Block Potion@2}（蓝本 {@code DescribeForcedUses}）。 */
+    public String describeForcedUses() {
+        StringBuilder sb = new StringBuilder();
+        for (String key : forcedKeys()) {
+            String[] parts = splitKey(key);
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(parts[1]).append('@').append(parts[0]);
+        }
+        return sb.toString();
     }
 
     /** 落盘的覆盖条数（{@code SMART} 不算覆盖，所以不计入）。 */
@@ -161,10 +232,14 @@ public final class PotionStrategySnapshot {
     // -------------------------------------------------------------- final answer
 
     /**
-     * 最终路线是否满足策略：全局档位 + 每槽 Disabled + 每个 Force 都**真的用过**。
+     * 最终路线是否满足策略：每个 Force 都**真的用过** + 没喝被禁用的槽 + 至少一瓶（若要求）。
      *
      * <p>Force 校验的是「这条路线里出现过 {@code (slot, potionId)}」，
      * 不是「喝过同名牌」—— 两瓶同 ID 的药水换槽喝一瓶不算数。
+     *
+     * <p>⚠️ 全局 {@code Disabled} **不**在这里额外加一条「禁止任何用药」的违规：
+     * 按蓝本它只决定未登记槽的默认值，显式 Force 照样允许。旧实现多加了那一条，
+     * 于是「全局 Disabled + 单槽 Force」永远不可能满足 —— 那正是自创。
      */
     public FinalRouteVerdict evaluateFinalRoute(List<RouteStep> steps) {
         List<String> violations = new ArrayList<String>();
@@ -183,9 +258,6 @@ public final class PotionStrategySnapshot {
                 }
             }
         }
-        if (globalPolicy == SolverPotionPolicy.DISABLED && explicitUses > 0) {
-            violations.add(0, "policy disabled forbids explicit potion use");
-        }
         List<String> forced = forcedKeys();
         int forcedUsed = 0;
         for (String key : forced) {
@@ -196,21 +268,52 @@ public final class PotionStrategySnapshot {
                 violations.add("missing forced use " + parts[0] + ":" + parts[1]);
             }
         }
-        if (globalPolicy == SolverPotionPolicy.REQUIRE_AT_LEAST_ONE && explicitUses == 0) {
+        if (effectivePolicy(forcedUsed, explicitUses - forcedUsed)
+                == SolverPotionPolicy.REQUIRE_AT_LEAST_ONE && explicitUses == 0) {
             violations.add("policy require_at_least_one needs at least one explicit use");
         }
         return new FinalRouteVerdict(violations.isEmpty(), explicitUses, forced.size(),
                 forcedUsed, violations);
     }
 
+    /**
+     * 这一趟解算该按哪个档位判「至少一瓶」。
+     *
+     * <p>蓝本 {@code FinalPlanOrdering.cs:60-66} 的 {@code effectivePotionPolicy}：
+     * <ul>
+     *   <li>{@code RequireAtLeastOne} 但已经有强制用药 → 降为 {@code Smart}
+     *       （「至少一瓶」的要求已经被那瓶强制药满足了）；</li>
+     *   <li>{@code Disabled} 但路线里还有**可选**用药 → 也按 {@code Smart} 判
+     *       （这条路线本身就不合规，由 {@code allowsExplicitUse} 负责拦；这里只算档位）。</li>
+     * </ul>
+     */
+    public SolverPotionPolicy effectivePolicy(int forcedUsed, int optionalUses) {
+        if (globalPolicy == SolverPotionPolicy.REQUIRE_AT_LEAST_ONE && forcedUsed > 0) {
+            return SolverPotionPolicy.SMART;
+        }
+        if (globalPolicy == SolverPotionPolicy.DISABLED && optionalUses > 0) {
+            return SolverPotionPolicy.SMART;
+        }
+        return globalPolicy;
+    }
+
     // ------------------------------------------------------------------ storage
 
-    /** 落盘串：{@code policy=SMART;directive=0:Fire Potion:FORCE;…}（按键排序，确定性）。 */
+    /**
+     * 落盘串：{@code directive=0:Fire Potion:FORCE;…}（按键排序，确定性）。
+     *
+     * <p>⚠️ **不写全局档位**：蓝本 {@code SolverSettings.cs:94-96} 上 {@code PotionPolicy}
+     * 带 {@code [JsonIgnore]}，每次新设置都回到 {@code Smart}，只有每槽指令持久化。
+     * 旧版本写过 {@code policy=…}，{@link #parse} 会把它当历史残留忽略并记一条 problem。
+     */
     public String toStorageString() {
-        StringBuilder sb = new StringBuilder("policy=").append(globalPolicy.name());
+        StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, SolverPotionDirective> e : directives.entrySet()) {
             String[] parts = splitKey(e.getKey());
-            sb.append(';').append(KEY_DIRECTIVE).append(parts[0]).append(':')
+            if (sb.length() > 0) {
+                sb.append(';');
+            }
+            sb.append(KEY_DIRECTIVE).append(parts[0]).append(':')
                     .append(parts[1]).append(':').append(e.getValue().name());
         }
         return sb.toString();
@@ -239,13 +342,9 @@ public final class PotionStrategySnapshot {
                 continue;
             }
             if (entry.startsWith(KEY_POLICY)) {
-                String value = entry.substring(KEY_POLICY.length()).trim();
-                SolverPotionPolicy parsed = SolverPotionPolicy.parse(value);
-                if (parsed == null) {
-                    report(problems, "unknown policy: " + value);
-                } else {
-                    policy = parsed;
-                }
+                // 全局档位不持久化（蓝本 [JsonIgnore]）：老配置里写过也一律忽略，
+                // 每次新设置都从 Smart 开始。记一条 problem 便于排查「为什么我的档位没了」。
+                report(problems, "policy is not persisted: " + entry);
                 continue;
             }
             if (entry.startsWith(KEY_DIRECTIVE)) {

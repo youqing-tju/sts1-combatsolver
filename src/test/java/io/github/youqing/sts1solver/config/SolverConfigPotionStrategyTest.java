@@ -76,8 +76,11 @@ class SolverConfigPotionStrategyTest {
         assertFalse(snapshot.hasForcedDirectives());
     }
 
+    /**
+     * 只有**每槽指令**能落盘；全局档位每次新设置都回到 Smart（蓝本 {@code [JsonIgnore]}）。
+     */
     @Test
-    void directivesSurviveAPropertiesRoundTripOnDisk() throws Exception {
+    void onlyDirectivesSurviveAPropertiesRoundTripOnDisk() throws Exception {
         PotionStrategySnapshot original = PotionStrategySnapshot.defaults()
                 .withGlobalPolicy(SolverPotionPolicy.REQUIRE_AT_LEAST_ONE)
                 .withDirective(0, "Fire Potion", SolverPotionDirective.FORCE)
@@ -86,8 +89,14 @@ class SolverConfigPotionStrategyTest {
         File file = tempConfig(original.toStorageString());
         try {
             PotionStrategySnapshot loaded = SolverConfig.parsePotionStrategy(read(file));
-            assertEquals(original, loaded,
-                    "药水 ID 里有空格、槽位与指令都要能原样回来");
+            assertEquals(SolverPotionPolicy.SMART, loaded.globalPolicy(),
+                    "全局档位不持久化，重新加载必须是 Smart");
+            assertEquals(SolverPotionDirective.FORCE, loaded.directiveFor(0, "Fire Potion"),
+                    "药水 ID 里有空格也要能原样回来");
+            assertEquals(SolverPotionDirective.DISABLED,
+                    loaded.directiveFor(1, "Liquid Memories"));
+            assertEquals(original.toStorageString(), loaded.toStorageString(),
+                    "每槽指令逐条一致（含顺序）");
         } finally {
             deleteTree(file.getParentFile());
         }

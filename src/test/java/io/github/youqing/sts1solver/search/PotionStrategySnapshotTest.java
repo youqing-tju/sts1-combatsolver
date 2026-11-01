@@ -42,21 +42,43 @@ class PotionStrategySnapshotTest {
 
     // ------------------------------------------------------------------- tests
 
+    /**
+     * 全局 Disabled **压不过**显式 Force。
+     *
+     * <p>蓝本 {@code AllowsExplicitUse}：显式指令优先，没有登记才看档位。
+     * 旧实现把全局 Disabled 当硬上限，于是「全局禁用 + 单槽强制」永远不可能满足 —— 纯自创。
+     */
     @Test
-    void globalDisabledBeatsForceOverride() {
+    void globalDisabledStillAllowsExplicitForceDirective() {
         PotionStrategySnapshot snapshot = empty()
                 .withGlobalPolicy(SolverPotionPolicy.DISABLED)
                 .withDirective(0, "Fire Potion", SolverPotionDirective.FORCE);
 
-        assertFalse(snapshot.allowsExplicitUse(0, "Fire Potion"),
-                "全局 Disabled 是硬上限，Force 不能突破");
-        assertEquals(SolverPotionDirective.FORCE, snapshot.directiveFor(0, "Fire Potion"),
-                "指令本身仍然如实显示（用户要能看见自己设了什么）");
+        assertTrue(snapshot.allowsExplicitUse(0, "Fire Potion"),
+                "显式 Force 不被全局 Disabled 压掉");
+        assertEquals(SolverPotionDirective.FORCE, snapshot.directiveFor(0, "Fire Potion"));
 
         PotionStrategySnapshot.FinalRouteVerdict verdict = snapshot.evaluateFinalRoute(
                 Arrays.asList(playStep(), potionStep(0, "Fire Potion"), endTurn()));
-        assertFalse(verdict.satisfied, "最终路线喝了药，与全局 Disabled 冲突");
-        assertTrue(verdict.describe().contains("disabled"), "说清是哪条规则挡的：" + verdict.describe());
+        assertTrue(verdict.satisfied, "用了被强制的那瓶就该满足：" + verdict.describe());
+    }
+
+    /** 全局 Disabled 只决定**没有登记**的槽的默认值。 */
+    @Test
+    void globalDisabledDisablesOnlyUnregisteredSlotsByDefault() {
+        PotionStrategySnapshot snapshot = empty()
+                .withGlobalPolicy(SolverPotionPolicy.DISABLED)
+                .withDirective(0, "Fire Potion", SolverPotionDirective.FORCE);
+
+        assertTrue(snapshot.allowsExplicitUse(0, "Fire Potion"), "登记过的槽看登记值");
+        assertFalse(snapshot.allowsExplicitUse(1, "Block Potion"), "没登记的槽退回档位 = 禁用");
+        assertFalse(snapshot.allowsExplicitUse(0, "Block Potion"),
+                "键是 (slot, potionId)：同一格换了药水就等于没登记");
+
+        // 切回 Smart 会删掉登记项，于是这一格重新变成「没登记」→ 跟随全局 Disabled
+        PotionStrategySnapshot cleared = snapshot.withDirective(0, "Fire Potion",
+                SolverPotionDirective.SMART);
+        assertFalse(cleared.allowsExplicitUse(0, "Fire Potion"));
     }
 
     @Test
@@ -218,20 +240,79 @@ class PotionStrategySnapshotTest {
         }
     }
 
+    /** 只持久化每槽指令；全局档位每次新设置都回到 Smart（蓝本 {@code [JsonIgnore]}）。 */
     @Test
-    void storageStringRoundTripsEveryDirective() {
+    void onlyPerSlotDirectivesRoundTrip() {
         PotionStrategySnapshot original = empty()
                 .withGlobalPolicy(SolverPotionPolicy.REQUIRE_AT_LEAST_ONE)
                 .withDirective(0, "Fire Potion", SolverPotionDirective.FORCE)
                 .withDirective(2, "Liquid Memories", SolverPotionDirective.DISABLED);
 
         String stored = original.toStorageString();
+        assertFalse(stored.contains("policy="), "全局档位不落盘：" + stored);
         PotionStrategySnapshot parsed = PotionStrategySnapshot.parse(stored);
-        assertEquals(original.globalPolicy(), parsed.globalPolicy());
+        assertEquals(SolverPotionPolicy.SMART, parsed.globalPolicy(), "解析回来必须是 Smart");
         assertEquals(SolverPotionDirective.FORCE, parsed.directiveFor(0, "Fire Potion"));
         assertEquals(SolverPotionDirective.DISABLED, parsed.directiveFor(2, "Liquid Memories"));
-        assertEquals(original, parsed, "往返必须稳定（相等按语义比，不按字符串拼写）");
         assertTrue(parsed.toStorageString().equals(stored), "序列化必须确定性");
+    }
+
+    /** 老配置里写过 {@code policy=…}：一律忽略，并记一条 problem 说明原因。 */
+    @Test
+    void legacyGlobalPolicyEntryIsIgnoredWithAProblem() {
+        List<String> problems = new ArrayList<String>();
+        PotionStrategySnapshot parsed = PotionStrategySnapshot.parse(
+                "policy=DISABLED;directive=0:Fire Potion:FORCE", problems);
+
+        assertEquals(SolverPotionPolicy.SMART, parsed.globalPolicy(), "全局档位不持久化");
+        assertEquals(SolverPotionDirective.FORCE, parsed.directiveFor(0, "Fire Potion"),
+                "同一行里的每槽指令照常生效");
+        assertEquals(1, problems.size(), "要报出来，不能静默吞：" + problems);
+        assertTrue(problems.get(0).contains("policy"), problems.get(0));
+    }
+
+    /** 两条 Force 的清单文案（蓝本 {@code DescribeForcedUses}）。 */
+    @Test
+    void forcedUsesAreDescribedWithSlotAndPotionId() {
+        PotionStrategySnapshot snapshot = empty()
+                .withDirective(0, "Fire Potion", SolverPotionDirective.FORCE)
+                .withDirective(2, "Block Potion", SolverPotionDirective.FORCE);
+
+        assertEquals("Fire Potion@0, Block Potion@2", snapshot.describeForcedUses());
+    }
+
+    /** 强制用药基线：只有 Force 那几瓶能喝（蓝本 {@code ForForcedBaseline}）。 */
+    @Test
+    void forcedOnlyBaselineAllowsOnlyForcedDirectives() {
+        PotionStrategySnapshot strategy = empty()
+                .withDirective(0, "Fire Potion", SolverPotionDirective.FORCE);
+        PotionStrategySnapshot baseline = strategy.forForcedBaseline();
+
+        assertTrue(baseline.allowsOnlyForcedUses());
+        assertTrue(baseline.allowsExplicitUse(0, "Fire Potion"), "强制那瓶在基线里仍可喝");
+        assertFalse(baseline.allowsExplicitUse(1, "Block Potion"), "可选药水在基线里不许喝");
+
+        PotionStrategySnapshot noForce = empty().forForcedBaseline();
+        assertFalse(noForce.allowsExplicitUse(0, "Fire Potion"),
+                "没有 Force 时基线等价于「一瓶都不喝」");
+    }
+
+    /** 「至少一瓶」在已经用过强制药之后降为 Smart（蓝本 effectivePotionPolicy）。 */
+    @Test
+    void requireAtLeastOneDropsToSmartAfterForcedUse() {
+        PotionStrategySnapshot strategy = empty()
+                .withGlobalPolicy(SolverPotionPolicy.REQUIRE_AT_LEAST_ONE);
+
+        assertEquals(SolverPotionPolicy.REQUIRE_AT_LEAST_ONE, strategy.effectivePolicy(0, 0));
+        assertEquals(SolverPotionPolicy.SMART, strategy.effectivePolicy(1, 0),
+                "已经有强制用药 -> 要求已被满足，降为 Smart");
+        assertEquals(SolverPotionPolicy.SMART, strategy.effectivePolicy(1, 2));
+
+        PotionStrategySnapshot disabled = empty()
+                .withGlobalPolicy(SolverPotionPolicy.DISABLED);
+        assertEquals(SolverPotionPolicy.DISABLED, disabled.effectivePolicy(0, 0));
+        assertEquals(SolverPotionPolicy.SMART, disabled.effectivePolicy(0, 1),
+                "路线里还有可选用药时按 Smart 算档位（合不合规由 allowsExplicitUse 管）");
     }
 
     @Test
@@ -242,7 +323,8 @@ class PotionStrategySnapshotTest {
 
         assertFalse(snapshot.hasForcedDirectives(), "解析不了的指令不能被当成 Force");
         assertEquals(SolverPotionDirective.SMART, snapshot.directiveFor(0, "Fire Potion"));
-        assertEquals(3, problems.size(), "坏条目要报出来（不是静默丢），实际：" + problems);
+        assertEquals(4, problems.size(),
+                "坏条目 + 已废弃的 policy= 都要报出来（不是静默丢），实际：" + problems);
 
         List<String> fresh = new ArrayList<String>();
         PotionStrategySnapshot clean = PotionStrategySnapshot.parse(null, fresh);
