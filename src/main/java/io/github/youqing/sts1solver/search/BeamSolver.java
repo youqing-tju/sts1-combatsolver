@@ -108,6 +108,32 @@ public final class BeamSolver {
      */
     SearchNode lastSelectedNode;
 
+    /**
+     * 战斗里**已经承诺**卖掉的、可避免的血（{@code BattleDamageTracker.SoldHpCommitted}）。
+     *
+     * <p>由主线程在发起搜索时喂进来（纯数字，不传真机对象）。
+     * {@code StrategicSold = committed + futureSold}，跨回合重搜不能把它清零。
+     */
+    public int battleSoldHpCommitted;
+
+    /** 这一趟找到的**全部**终局节点（蓝本 {@code completed}），最终池 = 它 + 最后前沿。 */
+    private final java.util.List<SearchNode> completedTerminals = new ArrayList<SearchNode>();
+
+    /**
+     * 每个「用了几瓶药」分组里最好的一条（蓝本 Beam 保留策略里的药水维度）。
+     *
+     * <p>为什么必须有它：药水路线常常分不如不喝药的那条，于是被束宽剪掉，
+     * 最终池里就一条用药候选都没有 —— 用户把档位设成 {@code RequireAtLeastOne} 时
+     * 资格链会直接判「没有可执行路线」。蓝本靠保留泳道里的药水维度保证「每个用药数都留一条」，
+     * 这里用同一手法，且**只影响候选是否可被最终选择看见**，不改变任何胜负担保。
+     */
+    private final java.util.List<SearchNode> potionGroupKeepers = new ArrayList<SearchNode>();
+
+    /** 最终选择的诊断：候选数 / 被资格链淘汰数 / 用药分支被淘汰数。 */
+    public int lastFinalCandidatesEvaluated;
+    public int lastFinalCandidatesRejected;
+    public int lastPotionBranchesRejected;
+
     /** 蓝本 {@code NoveltyPortfolioBudget}：探索的时间帽 = min(5s, 总预算 / 2)，Boss 再除以 4。 */
     static long noveltyBudgetMillis(long totalMillis, boolean boss) {
         if (totalMillis == Long.MAX_VALUE) {
@@ -199,6 +225,13 @@ public final class BeamSolver {
      * 读全局状态会得到「一半旧一半新」的约束；快照 + 请求代际才能判时效。
      */
     private PotionStrategySnapshot potionStrategy;
+    /**
+     * 本趟的全局药水档位（蓝本 {@code SolverPotionPolicy}）。
+     *
+     * <p>由调用方从 {@code SolverConfig} 读好之后**按值**传进来：搜索跑在后台线程，
+     * 这里不许自己去读配置（读到的可能是改到一半的状态）。
+     */
+    private SolverPotionPolicy potionPolicy = SolverPotionPolicy.SMART;
     /**
      * 这条最终路线**预计在第几回合死**；{@code -1} = 不会死（或已经打赢）。
      *
@@ -443,6 +476,16 @@ public final class BeamSolver {
     /** 带上药水策略快照；子 solver（worker / 基线 / 补搜）必须继承同一份。 */
     public BeamSolver withPotionStrategy(PotionStrategySnapshot strategy) {
         this.potionStrategy = strategy;
+        if (strategy != null) {
+            // 快照本身就带着全局档位：最终选择的资格链必须用同一份，不能另取默认值。
+            this.potionPolicy = strategy.globalPolicy();
+        }
+        return this;
+    }
+
+    /** 设置本趟的全局药水档位（按值传，不读全局状态）。 */
+    public BeamSolver withPotionPolicy(SolverPotionPolicy policy) {
+        this.potionPolicy = policy == null ? SolverPotionPolicy.SMART : policy;
         return this;
     }
 
@@ -580,7 +623,7 @@ public final class BeamSolver {
         }
 
         // 蓝本 RunNoveltyPortfolioPass：先用**独立预算**跑一趟新颖度探索，再把剩下的预算交给 Beam。
-        // 顺序与蓝本一致（探索在前、Beam 在后），选哪条由 better() 决定 —— 所以第一章那条
+        // 顺序与蓝本一致（探索在前、Beam 在后），选哪条由 betterInterim() 决定 —— 所以第一章那条
         // 「几毫秒算完」的结果不会被这趟探索改差，第二章则会真的把预算算掉。
         SearchNode noveltySelected = null;
         long beamBudgetMillis = budgetMillis;
@@ -616,13 +659,13 @@ public final class BeamSolver {
         }
 
         // 蓝本 RunNoveltyPortfolioPass 的最后一步：探索 vs Beam 二选一。
-        // 判据直接用已有的 better()（胜利 > 存活 > 战略掉血少 > …），不另造一套。
+        // 判据直接用已有的 betterInterim()（胜利 > 存活 > 战略掉血少 > …），不另造一套。
         //
         // 🔴 这一步必须在后处理**之前**（2026-11-01 真机）：新颖度那条候选是在闸门之前算的，
-        // 它可能带着喝药步骤。以前把二选一放在闸门后面，闸门否掉的药水会被它靠 better()
+        // 它可能带着喝药步骤。以前把二选一放在闸门后面，闸门否掉的药水会被它靠 betterInterim()
         // 又捞回来 —— 日志里 7 次喝药有 6 次是 `POTION_GATE rejected=true` 之后照喝不误。
         // 蓝本 post-search 链处理的也是「已经定下来的答案」，所以二选一先做才是对的顺序。
-        if (noveltySelected != null && (selected == null || better(noveltySelected, selected))) {
+        if (noveltySelected != null && (selected == null || betterInterim(noveltySelected, selected))) {
             selected = noveltySelected;
             lastNoveltyAdopted = true;
             // 面板的「depth N turns」是「这条计划铺到第几回合」，只许变大不许变小：
@@ -636,13 +679,19 @@ public final class BeamSolver {
         // 所以放在同一份 deadline 内、紧跟主搜索 —— 顺序与蓝本一致（rescue 在 mid-combat 之前，
         // 我们还没搬 mid-combat）。前缀搜索自己就是 sub-solver，不能递归触发补搜。
         if (fixedPrefix.isEmpty()) {
-            // 药水对账在前（蓝本 post-search 也是先药水后免费牌）：它可能把路线换成不喝药的，
-            // 换完之后「第一步是结束回合」的补搜条件才有机会成立。
-            selected = gatePotionSpending(root, selected, deadline);
-            selected = zeroCostOpeningRescue(root, selected, deadline);
-            // 最终复核必须放在这两个后处理**之后**：它们都可能换掉答案，
-            // 换完之后是否仍满足 Force / RequireAtLeastOne 要重新判一次。
-            selected = verifyPotionStrategy(selected);
+            // 蓝本 post-search 顺序：先跑**无药基线**（它只产出「不喝药能打成什么样」），
+            // 再跑 0 费开局补搜；然后把这两个答案连同**完整候选池**交给同一个最终选择器。
+            //
+            // 以前这里是「先选一条 → 闸门可能直接换掉 → 再复核」：那是先决定再补救。
+            // 蓝本的口径相反 —— 资格过滤与 18 键排序在 FinalPlanOrdering 里一次做完，
+            // 基线只是喂给它的一个输入（CombatSearchCoordinator.cs:252）。
+            FinalPlanOrdering.PotionFreeBaseline baseline =
+                    potionFreeBaselineOf(root, selected, deadline);
+            SearchNode rescued = zeroCostOpeningRescue(root, selected, deadline);
+            java.util.List<SearchNode> pool = new java.util.ArrayList<SearchNode>(lastFinalPool);
+            addIfAbsent(pool, rescued);
+            addIfAbsent(pool, selected);
+            selected = selectFinal(pool, selected, baseline);
         }
 
         lastSelectedScore = selected == null ? Long.MIN_VALUE : selected.score;
@@ -751,7 +800,8 @@ public final class BeamSolver {
                 }
                 if (child.terminal()) {
                     // 终局不进 open：直接进 completed（蓝本 completed.Add(child)）
-                    if (bestTerminal == null || better(child, bestTerminal)) {
+                    completedTerminals.add(child);
+                    if (bestTerminal == null || betterInterim(child, bestTerminal)) {
                         bestTerminal = child;
                     }
                     continue;
@@ -784,7 +834,7 @@ public final class BeamSolver {
                 if (boundary.state.hp <= 0 || Score.projectedHpOf(boundary.state) <= 0) {
                     continue;
                 }
-                if (currentTurnCandidate == null || better(boundary, currentTurnCandidate)) {
+                if (currentTurnCandidate == null || betterInterim(boundary, currentTurnCandidate)) {
                     currentTurnCandidate = boundary;
                 }
             }
@@ -816,7 +866,7 @@ public final class BeamSolver {
 
         // 蓝本 adoptedNode = currentBestNode ?? currentTurnCandidateNode
         SearchNode best = bestTerminal;
-        if (currentTurnCandidate != null && (best == null || better(currentTurnCandidate, best))) {
+        if (currentTurnCandidate != null && (best == null || betterInterim(currentTurnCandidate, best))) {
             best = currentTurnCandidate;
         }
         if (best == null) {
@@ -970,7 +1020,7 @@ public final class BeamSolver {
             } else if (candidate != null) {
                 boolean terminal = isCompleteVictory(candidate) || SearchNode.noAliveMonster(candidate.state);
                 boolean comparable = !memberHitLimit || terminal;
-                if (comparable && (best == null || better(candidate, best))) {
+                if (comparable && (best == null || betterInterim(candidate, best))) {
                     best = candidate;
                     bestLabel = label;
                 }
@@ -987,15 +1037,18 @@ public final class BeamSolver {
             lastPortfolioMembers.add(label + "=" + memberExpanded + "n/" + memberMillis + "ms");
         }
 
-        // 全局重排：在「所有成员 × 所有终局/前沿」里挑一条（蓝本 finalPool 口径）
-        for (int i = 0; i < pool.size(); i++) {
-            SearchNode node = pool.get(i);
-            if (node == null || node.action == null) {
-                continue;                   // 根节点没有可执行动作
-            }
-            if (best == null || better(node, best)) {
-                best = node;
-                bestLabel = poolLabels.get(i);
+        // 全局重排：在「所有成员 × 所有终局/前沿」里挑一条（蓝本 finalPool 口径）。
+        // 这里必须走最终 18 键，而不是 betterInterim —— 组合的意义就是「把每趟的完整池交上来统一排」。
+        lastFinalPool.clear();
+        lastFinalPool.addAll(pool);
+        SearchNode chosen = selectFinal(pool, best);
+        if (chosen != null) {
+            best = chosen;
+            for (int i = 0; i < pool.size(); i++) {
+                if (pool.get(i) == chosen) {
+                    bestLabel = poolLabels.get(i);
+                    break;
+                }
             }
         }
 
@@ -1019,7 +1072,7 @@ public final class BeamSolver {
     }
 
     private boolean isStrictlyBetter(SearchNode candidate, SearchNode selected) {
-        return candidate != null && (selected == null || better(candidate, selected));
+        return candidate != null && (selected == null || betterInterim(candidate, selected));
     }
 
     /**
@@ -1039,6 +1092,8 @@ public final class BeamSolver {
         int turnsDone = 0;
         int expanded = 0;           // 本轮展开数（节点帽按轮算，蓝本每一趟都是新的 _run）
 
+        completedTerminals.clear();
+        potionGroupKeepers.clear();
         List<SearchNode> frontier = new ArrayList<SearchNode>();
         SearchNode seed = nodeOf(root.copy(), null, null, 0, null);
         if (!fixedPrefix.isEmpty()) {
@@ -1073,7 +1128,8 @@ public final class BeamSolver {
             for (SearchNode node : frontier) {
                 if (node.terminal()) {
                     lastLeaves++;                       // 这条路线已经打到战斗结束
-                    if (bestTerminal == null || better(node, bestTerminal)) {
+                    completedTerminals.add(node);
+                    if (bestTerminal == null || betterInterim(node, bestTerminal)) {
                         bestTerminal = node;
                     }
                 } else {
@@ -1152,11 +1208,12 @@ public final class BeamSolver {
                     if (boundary.state.hp <= 0 || Score.projectedHpOf(boundary.state) <= 0) {
                         continue;
                     }
-                    if (currentTurnCandidate == null || better(boundary, currentTurnCandidate)) {
+                    if (currentTurnCandidate == null || betterInterim(boundary, currentTurnCandidate)) {
                         currentTurnCandidate = boundary;
                     }
                 }
             }
+            keepBestPerPotionCount(ended, potionGroupKeepers);
             frontier = prune(ended, width);
             turnsDone = turn + 1;
         }
@@ -1165,21 +1222,21 @@ public final class BeamSolver {
         // 加宽会跑多轮，深度取「跑得最深的那一轮」——没跑完的那轮不该把面板数字拉低
         lastDepth = Math.max(lastDepth, turnsDone);
 
-        // 蓝本 adoptedNode = currentBestNode ?? currentTurnCandidateNode：
-        // ① 找到完整胜利就交它；② 否则交「本回合能安全走完」里最好的那条；
-        // ③ 两者都没有（例如第一回合就走死了）才退回前沿里最好的叶子。
-        SearchNode best = bestTerminal != null ? bestTerminal
-                : (currentTurnCandidate != null ? currentTurnCandidate : bestOf(frontier));
-
-        // 蓝本 finalPool = [..completed, ..frontier]：把这一趟找到的**所有**候选留下来，
-        // 交给宽度组合在全局范围里排，而不是「每趟只交一个节点」。
+        // 蓝本 finalPool = [..completed, ..frontier]：**全部**打完的终局 + 最后一代前沿。
+        // 以前这里只有「最好的那一个终局」，于是「第二名其实更好」永远没机会被选中。
         lastFinalPool.clear();
-        if (bestTerminal != null) {
-            lastFinalPool.add(bestTerminal);
-        }
+        lastFinalPool.addAll(completedTerminals);
         lastFinalPool.addAll(frontier);
-        if (best != null) {
-            lastFinalPool.add(best);
+        for (SearchNode keeper : potionGroupKeepers) {
+            addIfAbsent(lastFinalPool, keeper);
+        }
+
+        // 最终选择走蓝本 18 键（FinalPlanOrdering），不再用 betterInterim 兼任。
+        // betterInterim 仍然负责「本回合候选 / novelty / portfolio 中途取舍」，
+        // 那三处是蓝本的 SolverInterimResultOrdering 口径，不能换成终局那 18 键。
+        SearchNode best = selectFinal(lastFinalPool, currentTurnCandidate);
+        if (best == null) {
+            best = currentTurnCandidate != null ? currentTurnCandidate : bestOf(frontier);
         }
 
         SearchNode bestRollout = null;
@@ -1227,7 +1284,7 @@ public final class BeamSolver {
     private SearchNode bestOf(List<SearchNode> nodes) {
         SearchNode best = null;
         for (SearchNode node : nodes) {
-            if (best == null || better(node, best)) {
+            if (best == null || betterInterim(node, best)) {
                 best = node;
             }
         }
@@ -1680,7 +1737,7 @@ public final class BeamSolver {
      * 而最终路线该看**真实结果**；`StrategicHpDeficit` 才是蓝本用来衡量「这条路线赔了多少血」的轴，
      * 它把「掉的血」和「最大生命亏空」加在一起，且回血已经抵掉。
      */
-    boolean better(SearchNode candidate, SearchNode incumbent) {
+    boolean betterInterim(SearchNode candidate, SearchNode incumbent) {
         boolean candidateWon = isCompleteVictory(candidate);
         boolean incumbentWon = isCompleteVictory(incumbent);
         if (candidateWon != incumbentWon) {
@@ -1729,6 +1786,102 @@ public final class BeamSolver {
             return candidate.score > incumbent.score;
         }
         return candidate.depth < incumbent.depth;
+    }
+
+    /**
+     * 最终选择：把**完整候选池**交给 {@link FinalPlanOrdering} 的 18 键。
+     *
+     * <p>这是本项目的 {@code CombatBeamSolver.FinalPlanOrdering.Select}：资格过滤 + 词典序选择
+     * 都在里面完成，空集时抛 {@link PotionPolicyUnsatisfiedException}（蓝本同款失败语义）。
+     *
+     * @param pool     全部终局 + 最后一代前沿
+     * @param fallback 池子里没有可执行候选时用它（例如整趟只有根节点）
+     */
+    SearchNode selectFinal(java.util.List<SearchNode> pool, SearchNode fallback) {
+        return selectFinal(pool, fallback, null);
+    }
+
+    SearchNode selectFinal(java.util.List<SearchNode> pool, SearchNode fallback,
+                           FinalPlanOrdering.PotionFreeBaseline baseline) {
+        java.util.List<SearchNode> usable = new ArrayList<SearchNode>();
+        for (SearchNode node : pool) {
+            if (node != null && node.action != null) {
+                usable.add(node);
+            }
+        }
+        if (usable.isEmpty()) {
+            return fallback;
+        }
+        java.util.List<FinalPlanOrdering.Candidate> candidates =
+                new ArrayList<FinalPlanOrdering.Candidate>(usable.size());
+        for (int i = 0; i < usable.size(); i++) {
+            candidates.add(finalCandidate(usable.get(i), i));
+        }
+        FinalPlanOrdering.Selection selection =
+                FinalPlanOrdering.select(candidates, finalParams(baseline));
+        lastFinalCandidatesEvaluated = selection.candidatesEvaluated;
+        lastFinalCandidatesRejected = selection.candidatesRejected;
+        lastPotionBranchesRejected = selection.potionBranchesRejected;
+        // 蓝本 FinalPlanOrdering.Selection.potionBranchesRejected：用药候选里被资格链否掉几条。
+        // 面板/日志的旧字段沿用同一个语义，不再由「闸门替换答案」那条路产生。
+        lastPotionSpendRejected = selection.potionBranchesRejected > 0;
+        return usable.get(Integer.parseInt(selection.selected().label));
+    }
+
+    /** 一条节点 → 最终的纯数据候选（不读任何全局可变状态）。 */
+    FinalPlanOrdering.Candidate finalCandidate(SearchNode node, int index) {
+        SimState state = node.state;
+        SearchFeatures features = SearchFeatures.builder()
+                .allEnemiesDead(SearchNode.noAliveMonster(state))
+                .projectedPlayerHp(Score.projectedHpOf(state))
+                .playerHp(state.hp)
+                .playerMaxHp(state.maxHp)
+                .cumulativePlayerHpLost(state.cumulativeHpLost)
+                .recoveredPlayerHp(state.recoveredPlayerHp)
+                .deathSaveHpRestored(state.deathSaveHpRestored)
+                .longTermResourceValue(state.longTermResourceValue)
+                .angerCopiesGenerated(state.angerCopiesGenerated)
+                .enemyHp(aliveEnemyHp(state))
+                .outstandingStolenResource(state.outstandingStolenGold())
+                .potionCount(node.potionsUsed)
+                .futureSoldHp(node.futureSoldHp)
+                .actionCount(node.depth)
+                .score(node.score)
+                .boundaryReason(node.boundaryReason)
+                .build();
+
+        java.util.List<RouteStep> steps = stepsOf(node);
+        PotionStrategySnapshot.FinalRouteVerdict verdict =
+                potionStrategy == null ? null : potionStrategy.evaluateFinalRoute(steps);
+        int explicitCost = 0;
+        for (RouteStep step : steps) {
+            if (step.potion && step.cardKey != null) {
+                explicitCost += io.github.youqing.sts1solver.mirror.PotionValuation
+                        .strategicHpCost(step.cardKey);
+            }
+        }
+        RouteSnapshot snapshot = RouteSnapshot.builder()
+                .playerDead(state.hp <= 0)
+                .deathSaveUseCount(state.deathSaveUseCount)
+                .combatEndedTurn(Integer.valueOf(state.turn))
+                .explicitPotionStrategicCost(explicitCost)
+                .strategyGoalCount(state.growthValues().total())
+                .strategyGoalHpCredit(Score.DEFAULT_GROWTH_BUDGETS.credit(state.growthValues()))
+                .build();
+        return new FinalPlanOrdering.Candidate(String.valueOf(index), features, snapshot,
+                verdict == null ? 0 : verdict.forcedUsed(),
+                verdict == null || verdict.satisfied);
+    }
+
+    /** 最终选择用的参数（全部按值，不读配置）。 */
+    FinalPlanOrdering.Params finalParams(FinalPlanOrdering.PotionFreeBaseline baseline) {
+        return new FinalPlanOrdering.Params(
+                scoreRoot == null ? 0 : scoreRoot.hp,
+                scoreRoot == null ? 0 : scoreRoot.maxHp,
+                battleSoldHpCommitted, 0, potionPolicy, true,
+                FinalPlanOrdering.TheftPolicy.PRESERVE_RESOURCES, 0, postCombatRelicHeal, baseline,
+                potionStrategy != null && potionStrategy.hasForcedDirectives(),
+                potionStrategy == null ? "" : potionStrategy.describeForcedUses());
     }
 
     /**
@@ -1882,7 +2035,7 @@ public final class BeamSolver {
                 continue;
             }
             // 策略在这**最底层**就拦掉：任何通道（Beam/novelty/portfolio/补搜）都走这里，
-            // 于是「禁止的药水」不会成为任何候选，也就不可能靠 better() 被捞回来。
+            // 于是「禁止的药水」不会成为任何候选，也就不可能靠 betterInterim() 被捞回来。
             if (potionStrategy != null && !potionStrategy.allowsExplicitUse(slot, potionId)) {
                 continue;
             }
@@ -2236,82 +2389,33 @@ public final class BeamSolver {
     }
 
     /**
-     * 喝药必须**买回成本**，否则退回不喝药的那条路线。
+     * 跑一趟「强制用药基线」，只产出**无药能打成什么样**，不再替换答案。
      *
-     * <p>蓝本 {@code PotionUsePolicy}：一条路线里每瓶药水都有 {@code StrategicHpCost}
-     * （9 / 14 / 18 血，见 {@code PotionValuation}），整条路线要满足
-     * {@code Σ cost ≤ PotionHpSaved = (不喝药的赤字 - 这条的赤字)} 才算合格；
-     * 达不到就换成不喝药的结果（{@code potionBranchesRejected}）。
+     * <p>蓝本 {@code CombatSearchCoordinator.cs:225-275} 就是单独跑一趟
+     * {@code ForForcedBaseline} 的搜索，再把结果作为 {@code PotionFreePolicyBaseline}
+     * 交给 {@code FinalPlanOrdering}。资格判定读的是这个基线，而不是「先把答案换成基线」。
      *
-     * <p>为什么要这一层：搜索自己能喝药之后，会拿药水去换「早一回合结束」这种不省血的好处
-     * （最终排序里 {@code CombatEndedTurn} 排在敌方血之前）。药水是稀缺资源，
-     * 蓝本用这道闸把「用掉了但没买到血」的路线挡在外面。
-     *
-     * <p>我们没搬的部分：{@code SolverPotionPolicy} 的档位（Smart / RequireAtLeastOne / Disabled）、
-     * 强制用药指令、琥珀（Ambergris）限制、{@code PotionRewardOutlook}（腾出槽位能换一份奖励）。
-     * 这几个都依赖 UI 侧栏额度输入，记在 {@code blueprint-parity} 药水那行。
+     * @return 基线；没跑成 / 这条答案没喝药 / 预算不够时返回 {@code null}（选择器退回池内基线）
      */
-    /**
-     * 最终答案的策略复核（蓝本 {@code CombatBeamSolver.FinalPlanOrdering.cs:246-282}）。
-     *
-     * <p>Force **不是排序加分**：路线里没有那一步就是不合格，哪怕它分更高。
-     * 不合格就抛 {@link PotionPolicyUnsatisfiedException}，文案与蓝本三选一一致。
-     *
-     * <p>⚠️ 不做「把这瓶钉在第一步再搜一趟」的补搜：蓝本没有这条通道，
-     * 它在**统一候选池**里做资格过滤（`policyEligibleCandidates`），池子空了才抛。
-     * 我们这边的对应物是展开阶段就按 {@code allowsExplicitUse} 拦掉不合规的用药分支
-     * （{@code expandPotionActions}），所以走到这里仍不满足 = 这条约束在当前搜索空间里无解。
-     */
-    private SearchNode verifyPotionStrategy(SearchNode selected) {
-        if (potionStrategy == null) {
-            return selected;
-        }
-        java.util.List<RouteStep> steps = selected == null
-                ? java.util.Collections.<RouteStep>emptyList() : stepsOf(selected);
-        PotionStrategySnapshot.FinalRouteVerdict verdict = potionStrategy.evaluateFinalRoute(steps);
-        if (verdict.satisfied) {
-            lastPolicySatisfied = true;
-            lastPolicyViolation = "";
-            return selected;
-        }
-        lastPolicySatisfied = false;
-        lastPolicyViolation = verdict.describe();
-        Trace.warn("POTION_POLICY unsatisfied: " + lastPolicyViolation);
-        throw new PotionPolicyUnsatisfiedException(describePolicyFailure());
-    }
-
-    /** 蓝本 {@code FinalPlanOrdering.cs:274-282} 的三段文案。 */
-    private String describePolicyFailure() {
-        if (potionStrategy.hasForcedDirectives()) {
-            return "指定药水必须使用，但搜索没有找到可执行路线："
-                    + potionStrategy.describeForcedUses() + "。";
-        }
-        if (potionStrategy.globalPolicy() == SolverPotionPolicy.REQUIRE_AT_LEAST_ONE) {
-            return "本场药水策略要求至少使用一瓶，但搜索没有找到可执行的用药路线。";
-        }
-        return "本场药水策略没有可执行路线。";
-    }
-
-    private SearchNode gatePotionSpending(SimState root, SearchNode selected, long deadline) {
+    private FinalPlanOrdering.PotionFreeBaseline potionFreeBaselineOf(
+            SimState root, SearchNode selected, long deadline) {
         if (!potionCostGate || selected == null) {
-            return selected;
+            return null;
         }
         int cost = potionStrategicCost(selected);
         lastPotionStrategicCost = cost;
         if (cost <= 0) {
-            return selected;                 // 一滴药没喝，不用对账（省掉一整趟基线搜索）
+            lastPotionHpSaved = 0;
+            return null;                     // 一滴药没喝，不用对账（省掉一整趟基线搜索）
         }
         long remaining = remainingMillis(deadline);
         if (remaining != Long.MAX_VALUE && remaining <= POTION_GATE_MIN_REMAINING_MILLIS) {
-            return selected;                 // 没预算跑基线就别硬跑，保持原答案
+            return null;                     // 没预算跑基线就别硬跑
         }
-        // 蓝本 CombatSearchCoordinator.cs:252：基线的策略是 ForForcedBaseline ——
-        // 强制用药的那几瓶**仍然可以喝**，只排除可选药水。这样比出来的差值衡量的才是
-        // 「可选药水买到了多少血」，而不是把用户明确要求的那几瓶也算进去。
+        // 蓝本 CombatSearchCoordinator.cs:252：基线策略是 ForForcedBaseline ——
+        // 强制用药的那几瓶仍然可以喝，只排除可选药水。差值衡量的才是「可选药水买到多少血」。
         BeamSolver baseline = new BeamSolver(energyPerTurn, handSize, beamWidth, depth,
                 nodeLimit, cardBranchLimit)
-                // 没有策略（对照实验）时用「全 Smart 的强制基线」：它同样只放行 Force，
-                // 也就是「一瓶都不许喝」—— 基线的语义不能因为上层没传策略就变成「随便喝」。
                 .withPotionStrategy(potionStrategy == null
                         ? PotionStrategySnapshot.defaults().forForcedBaseline()
                         : potionStrategy.forForcedBaseline());
@@ -2323,33 +2427,49 @@ public final class BeamSolver {
                 cardBranchLimit, nodeLimit, subDeadline);
         lastNodes += baseline.lastNodes;
         if (free == null || baseline.hitNodeLimit || baseline.lastPassCutShort) {
-            return selected;                 // 基线没跑完，不算成绩（蓝本同口径）
+            return null;                     // 基线没跑完，不算成绩（蓝本同口径）
         }
-        // 蓝本 PotionUsePolicy.IsEligible：RequireAtLeastOne 下「一瓶都没喝」的基线不合格。
-        // 拿一条不合格的基线去替换掉本来满足策略的路线，会让最终答案反而违反策略 ——
-        // 那种情况下基线根本不能当「不喝药的替代品」。
-        if (potionStrategy != null
-                && potionStrategy.globalPolicy() == SolverPotionPolicy.REQUIRE_AT_LEAST_ONE
-                && free.potionsUsed == 0) {
-            return selected;
-        }
-        if (isCompleteVictory(free) != isCompleteVictory(selected)) {
-            // 胜负不同就没法比赤字：不喝药会输、喝药能赢 → 药水买到的是「这场胜利」，当然留。
-            if (isCompleteVictory(selected)) {
-                lastPotionHpSaved = Integer.MAX_VALUE;      // 哨兵：整场胜利，不是血量算术
+        boolean freeWon = isCompleteVictory(free);
+        lastPotionHpSaved = freeWon && isCompleteVictory(selected)
+                ? strategicHpDeficit(free) - strategicHpDeficit(selected)
+                : Integer.MAX_VALUE;         // 胜负不同：药水买到的是整场胜利，不是血量算术
+        Trace.info("POTION_FREE_BASELINE cost=" + cost + " won=" + freeWon
+                + " hp_deficit=" + strategicHpDeficit(free)
+                + " potions=" + free.potionsUsed);
+        return new FinalPlanOrdering.PotionFreeBaseline(freeWon, strategicHpDeficit(free),
+                free.state.hp, free.state.deathSaveUseCount,
+                freeWon ? Integer.valueOf(free.state.turn) : null);
+    }
+
+    /** 按 {@code potionsUsed} 分组，各留一条分数最高的（蓝本保留泳道的药水维度）。 */
+    private static void keepBestPerPotionCount(List<SearchNode> nodes, List<SearchNode> keepers) {
+        for (SearchNode node : nodes) {
+            SearchNode existing = null;
+            for (SearchNode keeper : keepers) {
+                if (keeper.potionsUsed == node.potionsUsed) {
+                    existing = keeper;
+                    break;
+                }
             }
-            return selected;
+            if (existing == null) {
+                keepers.add(node);
+            } else if (node.score > existing.score) {
+                keepers.set(keepers.indexOf(existing), node);
+            }
         }
-        int saved = strategicHpDeficit(free) - strategicHpDeficit(selected);
-        lastPotionHpSaved = saved;
-        boolean rejected = saved < cost;
-        Trace.info("POTION_GATE cost=" + cost + " hp_saved=" + saved
-                + " potions=" + selected.potionsUsed + " rejected=" + rejected);
-        if (rejected) {
-            lastPotionSpendRejected = true;
-            return free;
+    }
+
+    /** 池子里去重（同一节点可能既是补搜答案又是原答案）。 */
+    private static void addIfAbsent(java.util.List<SearchNode> pool, SearchNode node) {
+        if (node == null) {
+            return;
         }
-        return selected;
+        for (SearchNode existing : pool) {
+            if (existing == node) {
+                return;
+            }
+        }
+        pool.add(node);
     }
 
     // ================================================================================
@@ -2465,12 +2585,12 @@ public final class BeamSolver {
             // 能推动遗物计数；而「结束回合」在平手时是纯粹的空过。
             // 蓝本的严格改善判据会把这种平手判给「结束回合」，真机 2026-10-30 20:35:57
             // 就这么空过了一回合（3 能量、手里只有眩晕和威吓）。
-            boolean tie = complete && selected != null && !better(selected, candidate);
-            boolean improved = complete && (better(candidate, selected) || tie);
+            boolean tie = complete && selected != null && !betterInterim(selected, candidate);
+            boolean improved = complete && (betterInterim(candidate, selected) || tie);
             Trace.info("ZERO_COST_OPENING prefix=" + describePrefix(prefix)
                     + " hp_lost=" + (candidate == null ? -1 : rootHp - candidate.state.hp)
                     + " nodes=" + sub.lastNodes + " selected=" + improved
-                    + (tie && !better(candidate, selected) ? " (tie)" : ""));
+                    + (tie && !betterInterim(candidate, selected) ? " (tie)" : ""));
             if (improved) {
                 selected = candidate;
                 lastZeroCostImproved = true;

@@ -60,11 +60,9 @@ class PotionPolicyPropagationTest {
     void disabledPolicyRejectsMainBeamPotionAnswer() {
         SimState root = fight();
 
-        BeamSolver control = new BeamSolver(3, 5, 8, 6).withPotionCostGate(false);
-        assertNotNull(control.bestFirstAction(root.copy()));
-        assertTrue(routeUsesPotion(control),
-                "前提：不设策略时主 Beam 确实会为了早一回合结束喝掉火药：" + control.lastSteps);
-
+        // 旧实现里这条对照组会喝火药，因为「买不回血」只在闸门那一层被挡。
+        // 现在资格过滤内建在最终选择器里（蓝本同一处），连 Default（Smart）也不会喝 ——
+        // 所以不再有「不设策略就乱喝」的对照组，只验证 Disabled 一样挡得住。
         BeamSolver solver = new BeamSolver(3, 5, 8, 6).withPotionCostGate(false)
                 .withPotionStrategy(disabled());
         assertNotNull(solver.bestFirstAction(root.copy()));

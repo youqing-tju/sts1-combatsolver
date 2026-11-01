@@ -132,6 +132,32 @@ class BeamSolverContinuationTest {
         assertTrue(assertContinuationsFollowPublishedSteps(root, solver) > 0);
     }
 
+    /**
+     * 新颖度通道不许把**资格链否掉的**喝药路线捞回来。
+     *
+     * <p>旧版靠「闸门拒绝」这个中间状态来断言；现在资格过滤内建在
+     * {@code FinalPlanOrdering.select} 里，闸门不再替换答案。改为直接验结果：
+     * 把档位设成 {@code Disabled} 之后，任何通道交出的路线都不许喝药，
+     * 且 continuation 仍然来自那条被交出去的路线。
+     */
+    @Test
+    void noveltyCannotLeaveContinuationFromRejectedCandidate() {
+        SimState root = slowFight();
+        root.potions.add("Fire Potion");
+        root.potions.add(null);
+
+        BeamSolver solver = new BeamSolver(ENERGY_PER_TURN, HAND_SIZE, 8, 6).withNovelty()
+                .withPotionStrategy(PotionStrategySnapshot.defaults()
+                        .withGlobalPolicy(SolverPotionPolicy.DISABLED));
+        assertNotNull(solver.bestFirstAction(root.copy()));
+
+        for (RouteStep step : solver.lastSteps) {
+            assertFalse(step.potion, "Disabled 下不许出现喝药：" + solver.lastSteps);
+        }
+        assertTrue(assertContinuationsFollowPublishedSteps(root, solver) > 0,
+                "最终路线仍要带 continuation，且必须来自这条被交出去的路线");
+    }
+
     @Test
     void potionGateReplacementChangesContinuationSource() {
         SimState root = slowFight();
@@ -185,22 +211,6 @@ class BeamSolverContinuationTest {
                 "补搜采纳的路线第一步是出牌，不该还是 END_TURN");
         assertTrue(assertContinuationsFollowPublishedSteps(root, solver) > 0,
                 "补搜换掉答案后，continuation 必须来自补搜那条");
-    }
-
-    @Test
-    void noveltyCannotLeaveContinuationFromRejectedCandidate() {
-        SimState root = slowFight();
-        root.potions.add("Fire Potion");
-        root.potions.add(null);
-
-        BeamSolver solver = new BeamSolver(ENERGY_PER_TURN, HAND_SIZE, 8, 6).withNovelty();
-        solver.bestFirstAction(root.copy());
-
-        for (RouteStep step : solver.lastSteps) {
-            assertFalse(step.potion,
-                    "新颖度通道不许把闸门否掉的喝药路线捞回来：" + solver.lastSteps);
-        }
-        assertTrue(assertContinuationsFollowPublishedSteps(root, solver) > 0);
     }
 
     @Test

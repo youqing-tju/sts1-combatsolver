@@ -68,7 +68,7 @@ class PotionFinalAnswerPolicyTest {
         assertNotNull(used, "Force 的药水必须真的出现在最终路线里：" + solver.lastSteps);
         assertEquals(0, used.potionSlot);
         assertEquals("Fire Potion", used.cardKey);
-        assertTrue(solver.lastPolicySatisfied, "满足约束时不该报违规：" + solver.lastPolicyViolation);
+        assertNotNull(potionStepIn(solver), "Force 命中时路线里必须有那一步：" + solver.lastSteps);
     }
 
     @Test
@@ -110,23 +110,29 @@ class PotionFinalAnswerPolicyTest {
                 "文案要说清是哪一格哪瓶：" + thrown.getMessage());
         assertTrue(thrown.getMessage().contains("指定药水必须使用"),
                 "文案要对应蓝本第一档：" + thrown.getMessage());
-        assertFalse(solver.lastPolicySatisfied);
-        assertTrue(solver.lastPolicyViolation.contains("0:FairyPotion"),
-                "违规原因要说清是哪一格哪瓶：" + solver.lastPolicyViolation);
+        // 旧的 lastPolicySatisfied/lastPolicyViolation 随「先选一条再复核」一起删掉了：
+        // 现在没合格候选就在 FinalPlanOrdering 里直接抛，文案本身就带强制清单。
     }
 
+    /**
+     * 要求「至少一瓶」，但池子里的用药路线一条都没赢 → 必须显式失败。
+     *
+     * <p>蓝本 {@code PotionUsePolicy.IsEligible} 的 Require 分支写的是
+     * {@code (!anyRouteWon || potionRouteWon)}：能赢的路线里一瓶都不喝时，
+     * 喝药但不赢的路线**不合格**。所以这个局面抛异常是正确行为，不是缺陷 ——
+     * 以前它靠「闸门替换答案」蒙混过关。
+     */
     @Test
-    void requireAtLeastOneAppliesAfterGateAndRescue() {
+    void requireAtLeastOneWithoutAWinningPotionRouteFailsLoudly() {
         SimState root = fight(20);
         PotionStrategySnapshot strategy = PotionStrategySnapshot.defaults()
                 .withGlobalPolicy(SolverPotionPolicy.REQUIRE_AT_LEAST_ONE);
 
         BeamSolver solver = new BeamSolver(3, 5, 8, 6).withPotionStrategy(strategy);
-        assertNotNull(solver.bestFirstAction(root.copy()));
-        assertNotNull(potionStepIn(solver),
-                "RequireAtLeastOne 必须在药水闸（它会退回不喝药的路线）之后仍然成立："
-                        + solver.lastSteps);
-        assertTrue(solver.lastPolicySatisfied);
+        PotionPolicyUnsatisfiedException thrown = assertThrows(
+                PotionPolicyUnsatisfiedException.class,
+                () -> solver.bestFirstAction(root.copy()));
+        assertTrue(thrown.getMessage().contains("至少使用一瓶"), thrown.getMessage());
     }
 
     @Test

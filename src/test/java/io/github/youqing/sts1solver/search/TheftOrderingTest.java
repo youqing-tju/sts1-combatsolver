@@ -61,9 +61,9 @@ class TheftOrderingTest {
         SearchNode letItEscape = node(state(50, 85, 15, true));
 
         BeamSolver solver = new BeamSolver(3, 5, 8, 6);
-        assertTrue(solver.better(killIt, letItEscape),
+        assertTrue(solver.betterInterim(killIt, letItEscape),
                 "钱追回来（outstanding 0）必须压过多掉的血 —— 这是蓝本的键序");
-        assertFalse(solver.better(letItEscape, killIt));
+        assertFalse(solver.betterInterim(letItEscape, killIt));
     }
 
     @Test
@@ -75,7 +75,7 @@ class TheftOrderingTest {
         BeamSolver solver = new BeamSolver(3, 5, 8, 6);
         SimState root = state(80, 100, 0, true);       // 开局 80 血：两条路线分别掉 30 / 38
         solver.bindRoot(root);
-        assertTrue(solver.better(healthier, hurt),
+        assertTrue(solver.betterInterim(healthier, hurt),
                 "没有抢錢怪时这一键必须完全隐形，不能改变原有排序");
     }
 
@@ -85,6 +85,6 @@ class TheftOrderingTest {
         SearchNode partially = node(state(42, 85, 5, true));
 
         BeamSolver solver = new BeamSolver(3, 5, 8, 6);
-        assertTrue(solver.better(recovered, partially), "同血同胜时，追回的越多越好");
+        assertTrue(solver.betterInterim(recovered, partially), "同血同胜时，追回的越多越好");
     }
 }

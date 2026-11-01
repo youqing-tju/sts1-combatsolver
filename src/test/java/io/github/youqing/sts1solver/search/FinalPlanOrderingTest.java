@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 最终路线排序：蓝本 {@code CombatBeamSolver.FinalPlanOrdering.cs:253-271} 的**18 键**词典序。
  *
- * <p>为什么要有这个文件：STS1 以前用 {@code BeamSolver.better()} 一身兼任「终局选择 + 当前回合候选 +
+ * <p>为什么要有这个文件：STS1 以前用 {@code BeamSolver.betterInterim()} 一身兼任「终局选择 + 当前回合候选 +
  * novelty + portfolio + 最终池」，键只有 9 个，缺的正是**收益**那一段（成长、长期资源、药水、卖血）。
  * 用户 2026-11-01 22:41 的要求是「不能光赢，要战损最小 + 收益最大的赢法」；蓝本把这件事实现在一个
  * **独立的纯数据比较器**里，所以这里先把它单独钉死，再接搜索。

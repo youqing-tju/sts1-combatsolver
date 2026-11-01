@@ -156,12 +156,29 @@ public final class FinalPlanOrdering {
         public final PostCombatRelicHeal postCombatHeal;
         /** 蓝本 {@code PotionFreePolicyBaseline} 审计覆盖值；{@code null} = 从候选池里自己选。 */
         public final PotionFreeBaseline potionFreeBaseline;
+        /** 这一局到底有没有强制用药指令（决定空集时用哪一段文案，不参与排序）。 */
+        public final boolean hasForcedDirectives;
+        /** 强制用药清单，形如 {@code Fire Potion@0}（只用于文案）。 */
+        public final String forcedUsesDescription;
 
         public Params(int initialHp, int initialPlayerMaxHp, int battleSoldHpCommitted,
                       int minimumPotionUses, SolverPotionPolicy potionPolicy,
                       boolean enforcePotionDirectives, TheftPolicy theftPolicy,
                       int potionReplacementHpCredit, PostCombatRelicHeal postCombatHeal,
                       PotionFreeBaseline potionFreeBaseline) {
+            this(initialHp, initialPlayerMaxHp, battleSoldHpCommitted, minimumPotionUses,
+                    potionPolicy, enforcePotionDirectives, theftPolicy,
+                    potionReplacementHpCredit, postCombatHeal, potionFreeBaseline, false, "");
+        }
+
+        public Params(int initialHp, int initialPlayerMaxHp, int battleSoldHpCommitted,
+                      int minimumPotionUses, SolverPotionPolicy potionPolicy,
+                      boolean enforcePotionDirectives, TheftPolicy theftPolicy,
+                      int potionReplacementHpCredit, PostCombatRelicHeal postCombatHeal,
+                      PotionFreeBaseline potionFreeBaseline, boolean hasForcedDirectives,
+                      String forcedUsesDescription) {
+            this.hasForcedDirectives = hasForcedDirectives;
+            this.forcedUsesDescription = forcedUsesDescription == null ? "" : forcedUsesDescription;
             this.initialHp = initialHp;
             this.initialPlayerMaxHp = initialPlayerMaxHp;
             this.battleSoldHpCommitted = battleSoldHpCommitted;
@@ -336,8 +353,10 @@ public final class FinalPlanOrdering {
 
     /** 蓝本 {@code 273-281}：空集时按「有没有 Force / 是不是 RequireAtLeastOne」给三种文案。 */
     private static String describeEmptyPool(Params params) {
-        if (params.enforcePotionDirectives) {
-            return "指定药水必须使用，但搜索没有找到可执行路线。";
+        if (params.enforcePotionDirectives && params.hasForcedDirectives) {
+            // 蓝本 FinalPlanOrdering.cs:275-277：第一档文案带强制清单，玩家才知道是哪一瓶没打成。
+            return "指定药水必须使用，但搜索没有找到可执行路线："
+                    + params.forcedUsesDescription + "。";
         }
         if (params.potionPolicy == SolverPotionPolicy.REQUIRE_AT_LEAST_ONE) {
             return "本场药水策略要求至少使用一瓶，但搜索没有找到可执行的用药路线。";

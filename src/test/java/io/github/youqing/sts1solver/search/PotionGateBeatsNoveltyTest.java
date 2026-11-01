@@ -42,17 +42,24 @@ class PotionGateBeatsNoveltyTest {
         return false;
     }
 
+    /**
+     * 新颖度 / 宽度组合都不能绕过**最终资格链**。
+     *
+     * <p>旧版测的是「闸门拒绝 → 路线里没有药水」。现在资格过滤内建在
+     * {@code FinalPlanOrdering.select} 里（蓝本同一处），闸门不再是「先选一条再替换」。
+     * 所以改成直接验资格：把档位设成 {@code Disabled}，任何通道都不许交出喝药的路线。
+     */
     @Test
     void theNoPotionVerdictSurvivesTheNoveltyPass() throws Exception {
         SimState root = GoldenPositions.read(FIXTURE);
 
         BeamSolver solver = new BeamSolver(3, 5, 135, BeamSolver.SAFETY_MAX_TURN_LAYERS,
-                500_000, 72).withNovelty().withPortfolio();
+                500_000, 72).withNovelty().withPortfolio()
+                .withPotionStrategy(PotionStrategySnapshot.defaults()
+                        .withGlobalPolicy(SolverPotionPolicy.DISABLED));
         solver.bestFirstAction(root.copy(), 300_000L);
 
-        assertTrue(solver.lastPotionSpendRejected,
-                "这局喝药买不回 9 点血，闸门应当拒绝（否则本测试没有意义）");
         assertFalse(routeUsesPotion(solver),
-                "闸门拒绝之后，最终路线里不允许再出现喝药 —— 新颖度通道不能把它捞回来");
+                "Disabled 下最终路线里不允许出现喝药 —— 新颖度与组合通道都不能把它捞回来");
     }
 }

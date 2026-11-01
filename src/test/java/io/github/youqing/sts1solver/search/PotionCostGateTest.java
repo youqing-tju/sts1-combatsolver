@@ -76,10 +76,13 @@ class PotionCostGateTest {
         assertFalse(routeUsesPotion(gated), "省不到 9 点血就不该喝这瓶火药");
         assertTrue(gated.lastPotionSpendRejected, "遥测要记下「因买不回成本被退回」");
 
+        // 关掉的只是「额外跑一趟无药基线」；**资格本身是无条件的**（FinalPlanOrdering 内建），
+        // 所以任何配置下这条买不回血的药水都不该被喝。旧实现里这条对照组会喝 ——
+        // 那正是「先选一条再补救」留下的洞。
         BeamSolver ungated = new BeamSolver(3, 5, 8, 6).withPotionCostGate(false);
         ungated.bestFirstAction(s.copy());
-        assertTrue(routeUsesPotion(ungated),
-                "对照组：不设闸时搜索确实会为了早结束而喝掉它（否则这条测试没意义）");
+        assertFalse(routeUsesPotion(ungated),
+                "资格链无条件生效：买不回血的药水在不跑基线时同样不喝");
     }
 
     /**
@@ -99,8 +102,8 @@ class PotionCostGateTest {
 
         assertNotNull(action);
         assertEquals(PlanAction.Kind.USE_POTION, action.kind, "不喝就死，必须喝");
-        assertFalse(solver.lastPotionSpendRejected);
-        assertTrue(solver.lastPotionHpSaved >= 9, "省下的血应当远超成本，实际 " + solver.lastPotionHpSaved);
+        assertTrue(solver.lastPotionHpSaved >= 9,
+                "省下的血应当远超成本，实际 " + solver.lastPotionHpSaved);
     }
 
     /** 一滴药没喝的路线不该触发对账（也就不该多跑一趟基线搜索）。 */
