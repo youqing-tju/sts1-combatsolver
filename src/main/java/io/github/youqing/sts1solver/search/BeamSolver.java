@@ -190,6 +190,15 @@ public final class BeamSolver {
      * 读全局状态会得到「一半旧一半新」的约束；快照 + 请求代际才能判时效。
      */
     private PotionStrategySnapshot potionStrategy;
+    /**
+     * 这条最终路线**预计在第几回合死**；{@code -1} = 不会死（或已经打赢）。
+     *
+     * <p>蓝本 {@code SolverResult.DeathTurn}：自动部署前会拿它和当前回合比 ——
+     * 相等就说明「照着这条路走，这一回合就死」，此时**不部署**、把操作权交还玩家
+     * （{@code SolverController.cs:2783}，默认设置 {@code StopFullAutoOnDeathTurn = true}）。
+     */
+    public int lastDeathTurn = -1;
+
     /** 最终路线是否满足策略（{@code false} 且 {@link #lastPolicyViolation} 非空 = 显式无解）。 */
     public boolean lastPolicySatisfied = true;
     /** 违规明细（人类可读，进日志与面板）。 */
@@ -538,6 +547,7 @@ public final class BeamSolver {
         lastPotionSpendRejected = false;
         lastPolicySatisfied = true;
         lastPolicyViolation = "";
+        lastDeathTurn = -1;
 
         // 固定前缀先单独验一遍：验不过就整条作废（蓝本 ApplyFixedPrefix 的 null 分支）。
         // 放在这里是为了**别让搜索跑完整趟才发现前缀是废的**，也避免下面的加宽循环误判成「没打赢」。
@@ -1234,12 +1244,41 @@ public final class BeamSolver {
     void publishFinalRoute(SearchNode selected) {
         lastRoute = routeOf(selected);
         lastSteps = stepsOf(selected);
+        lastDeathTurn = deathTurnOf(selected);
         try {
             lastContinuations = ContinuationPlan.fromFinalRoute(routeNodesOf(selected));
         } catch (RuntimeException t) {
             lastContinuations = ContinuationPlan.empty();
             Trace.warn("CONTINUATION skipped: " + t.getMessage());
         }
+    }
+
+    /**
+     * 这条路线在第几回合把玩家打死了（{@code -1} = 没死）。
+     *
+     * <p>取链上**第一个** {@code hp <= 0} 的节点：那一步就是致命的。
+     * 注意不能只看终局节点 —— 死亡之后搜索仍可能继续展开（不会，但别依赖这一点）。
+     */
+    static int deathTurnOf(SearchNode selected) {
+        if (selected == null) {
+            return -1;
+        }
+        java.util.List<SearchNode> chain = routeNodesOf(selected);
+        for (SearchNode node : chain) {
+            if (node.state == null || node.state.hp <= 0) {
+                if (node.state == null) {
+                    continue;
+                }
+                // 🔴 END_TURN 节点的状态是「敌方阶段之后」：`CombatFlow.endTurn` 先让敌人打完（④）
+                // 再把 `turn` 推到下一回合（⑥）。所以死在这一回合的敌方阶段，节点里的 turn
+                // 已经 +1 了 —— 不减这一下，「本回合就死」会被报成下一回合，
+                // 主线程于是不会停手（蓝本 DeathTurn == StartTurnNumber 判等的就是这一格）。
+                boolean diedAtEnemyPhase = node.action != null
+                        && node.action.kind == PlanAction.Kind.END_TURN;
+                return diedAtEnemyPhase ? Math.max(1, node.state.turn - 1) : node.state.turn;
+            }
+        }
+        return -1;
     }
 
     /** 回溯出「从根（action 为 null）到该节点」的**节点**序列，边界提取要连根一起看。 */
@@ -2182,6 +2221,7 @@ public final class BeamSolver {
         lastRoute = new java.util.ArrayList<PlanAction>();
         lastSteps = new java.util.ArrayList<RouteStep>();
         lastContinuations = ContinuationPlan.empty();
+        lastDeathTurn = -1;
         Trace.warn("POTION_POLICY unsatisfied, no plan this turn: " + lastPolicyViolation);
         return null;
     }

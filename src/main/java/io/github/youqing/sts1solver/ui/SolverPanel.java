@@ -49,7 +49,14 @@ public final class SolverPanel {
     private static final float MIN_W = 360f;
     private static final float MAX_W = 820f;
     private static final float TOP_MARGIN = 190f;
-    private static final int MAX_PLAN_ROWS = 3;
+    /** 路线区硬上限：再长也不往下列（面板高度会被屏幕吃掉）。 */
+    private static final int MAX_PLAN_ROWS = 16;
+    /** 至少留几行路线（屏幕再小也要看得见下一步）。 */
+    private static final int MIN_PLAN_ROWS = 3;
+    /** 除路线外的固定 chrome 估算（标题/状态/提示/策略头/摘要/按钮）。 */
+    private static final float PLAN_CHROME_ROWS = 6f;
+    /** 屏幕上下留白。 */
+    private static final float PLAN_SCREEN_MARGIN = 48f;
     /** 面板正文目标字号（1080p 下），实际按 {@link Settings#scale} 放大。 */
     private static final float BODY_TARGET_PX = 27f;
 
@@ -74,12 +81,38 @@ public final class SolverPanel {
      */
     private static String turnLine = "";
     /**
+     * 醒目提示行（目前只有「预计死亡 → 已交还控制」）。
+     *
+     * <p>蓝本 {@code SolverOverlay.ShowFullAutoStoppedAtDeathTurn} 会改状态文字 + 摘要两处；
+     * 我们只有一条状态区，所以用一行红字说清「发生了什么、为什么停」。
+     */
+    private static String notice = "";
+    /**
      * 「策略现状（只读）」区的缓存快照（{@code AutoPilot} 在主线程动作稳定后推来）。
      *
      * <p>🔴 渲染路径<b>只读这份缓存</b>：{@code SimState.capture()} 要扫四个牌堆 + 能力 + 遗物，
      * 放到 {@link #render} / {@link #rows()} 里每帧调用会直接吃掉帧率。
      */
     private static StrategyStatusSnapshot strategyStatus;
+
+    /** 本帧路线区最多几行（按屏幕高度算，见 {@link #planRowLimit}）。 */
+    private static int planRowLimit = MAX_PLAN_ROWS;
+
+    /**
+     * 屏幕能给路线区几行。
+     *
+     * <p>为什么不是固定 3 行：用户要「一次性看到全局路线」，而蓝色尖塔一场战斗通常 5~12 回合；
+     * 固定 3 行等于只看得见前三回合。改成按屏幕高度算，1080p 下大约 12~16 行，
+     * 仍然保留 {@link #MAX_PLAN_ROWS} 的硬上限与 {@link #MIN_PLAN_ROWS} 的下限。
+     */
+    static int planRowLimit(float screenHeight, float rowPitch, float chromeRows) {
+        if (rowPitch <= 0f) {
+            return MIN_PLAN_ROWS;
+        }
+        float usable = screenHeight - PLAN_SCREEN_MARGIN - chromeRows * rowPitch;
+        int rows = (int) Math.floor(usable / rowPitch);
+        return Math.max(MIN_PLAN_ROWS, Math.min(MAX_PLAN_ROWS, rows));
+    }
     /** 折叠状态：默认收起，只活在本次进程里，不写 {@code SolverConfig}。 */
     private static boolean strategyExpanded;
 
@@ -130,6 +163,16 @@ public final class SolverPanel {
     }
 
     /** AutoPilot 每回合开头推一次：`A1F14 T3 · hp 36/80 e3 · 敌 X 94 (意图20)`。 */
+    /** 醒目提示（空串 = 不占行）。只在「停手交还控制」这类事件里出现。 */
+    public static void setNotice(String line) {
+        String next = line == null ? "" : line;
+        if (next.equals(notice)) {
+            return;
+        }
+        notice = next;
+        layoutDirty = true;
+    }
+
     public static void setTurnLine(String line) {
         if (line == null ? turnLine == null : line.equals(turnLine)) {
             return;
@@ -157,6 +200,7 @@ public final class SolverPanel {
     /** 战斗结束：面板别一直挂着上一场的战况（用户会以为还在打）。 */
     public static void onCombatEnd() {
         combatLine = "combat: (none)";
+        notice = "";
         turnLine = "";
         // 🔴 静态 UI 状态跨战斗会残留：不清的话下一场开局会先显示上一场的药水和遗物计数。
         // 折叠偏好（strategyExpanded）属于使用习惯，保留。
@@ -285,10 +329,14 @@ public final class SolverPanel {
         // 状态条：这一回合的真局面（AutoPilot 每回合推一次）
         out.add(new Row(turnLine.isEmpty() ? combatLine : turnLine,
                 new Color(0.72f, 0.9f, 0.72f, 1f), false));
+        if (!notice.isEmpty()) {
+            out.add(new Row(notice, new Color(1f, 0.45f, 0.4f, 1f), false));
+        }
         appendStrategyRows(out);
 
         RoutePreview preview = AutoPilot.routePreview();
         if (preview != null && !preview.turns().isEmpty()) {
+            boolean stale = AutoPilot.routePreviewStale();
             String summary = AutoPilot.planSummaryLine();
             if (summary != null && !summary.isEmpty()) {
                 out.add(new Row(summary, new Color(0.92f, 0.86f, 0.6f, 1f), false));
@@ -296,11 +344,15 @@ public final class SolverPanel {
             // 行号来自预览里的**绝对**回合（T4/T5），不再从剩余队列现场编号（那会写成 T1/T2）
             RouteStep next = AutoPilot.nextRouteStep();
             int targetTurn = AutoPilot.stopAfterTurn();
-            int shown = Math.min(MAX_PLAN_ROWS, preview.turns().size());
+            int total = preview.turns().size();
+            int shown = Math.min(planRowLimit, total);
             for (int i = 0; i < shown; i++) {
                 RoutePreview.Turn turn = preview.turns().get(i);
                 Color color;
-                if (!turn.canTarget()) {
+                if (stale) {
+                    // 重算期间：路线留在原地但整体变灰，用户知道「这不是最新的」
+                    color = new Color(0.50f, 0.52f, 0.58f, 1f);
+                } else if (!turn.canTarget()) {
                     // 没有 END_TURN 的尾行：不能承诺「打完此回合」，所以暗色且不可点
                     color = new Color(0.45f, 0.48f, 0.55f, 1f);
                 } else if (i == 0) {
@@ -315,7 +367,18 @@ public final class SolverPanel {
                     color = new Color(1f, 0.84f, 0.35f, 1f);
                 }
                 out.add(new Row(text, color, false, Row.Kind.ROUTE,
-                        turn.absoluteTurn(), turn.canTarget()));
+                        turn.absoluteTurn(), turn.canTarget() && !stale));
+            }
+            if (total > shown) {
+                out.add(new Row("… 还有 " + (total - shown) + " 回合（面板高度上限）",
+                        new Color(0.55f, 0.55f, 0.60f, 1f), false));
+            }
+            if (stale) {
+                long waited = AutoPilot.searchElapsedMillis();
+                String text = waited >= 0
+                        ? String.format("重算中… %.1fs（上面是上一份路线）", waited / 1000.0)
+                        : "重算中…（上面是上一份路线）";
+                out.add(new Row(text, new Color(0.75f, 0.62f, 0.45f, 1f), false));
             }
         } else {
             // 开了宽度组合 + 新颖度之后单步要 1~5 秒：把「已等多少秒」显示出来，
@@ -512,6 +575,10 @@ public final class SolverPanel {
                 buttonsTotal += BUTTON_GAP;
             }
         }
+
+        // ①.5 路线区预算：屏幕越高给越多行（用户要「一次看到全局路线」）
+        planRowLimit = planRowLimit(com.megacrit.cardcrawl.core.Settings.HEIGHT, rowPitch,
+                PLAN_CHROME_ROWS);
 
         // ② 面板宽度 = max(最宽一行, 按钮总宽)，落在 [MIN_W, MAX_W]
         Row[] rows = rows();

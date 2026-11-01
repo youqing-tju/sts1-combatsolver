@@ -134,6 +134,10 @@ public final class AutoPilot {
         droppedStepsThisTurn = 0;
         io.github.youqing.sts1solver.search.AsyncSearch.reset();
         clearPlan();
+        // 换战斗才真的清空预览：这时保留上一场的路线是误导
+        preview = null;
+        previewStale = false;
+        planSummary = "";
         // 下一场绝不继承上一场的停止目标（战斗提前胜利/死亡/离开房间都走这里）
         boundedTarget.clear();
         framesWaitingForPlan = 0;
@@ -254,6 +258,43 @@ public final class AutoPilot {
     /** 这个回合是否已经越过停止目标（tick 与单测共用同一条判据）。 */
     static boolean shouldStopAt(int turnNow) {
         return boundedTarget.shouldStop(turnNow);
+    }
+
+    // ------------------------------------------------- 无生还路线：交还控制（蓝本同款）
+
+    /**
+     * 这条路线的**预计死亡回合**是否就是当前回合。
+     *
+     * <p>蓝本 {@code SolverController.cs:2783}：{@code _stopFullAutoOnDeathTurn}
+     * （默认开）下，`result.DeathTurn == result.StartTurnNumber` 就**不部署**，
+     * 关掉全自动并显示「已暂停执行 / 第 N 回合 预计死亡」。
+     * 语义是「照着这条路走，这一回合就死」—— 那就不该继续自动打，
+     * 让玩家自己决定（也许他有药水/别的想法）。
+     */
+    static boolean shouldStopForDeathTurn(int deathTurn, int turnNow) {
+        return deathTurn > 0 && turnNow > 0 && deathTurn == turnNow;
+    }
+
+    /** 面板上的交还控制提示（与蓝本措辞对齐：{@code 已暂停执行 / 第 N 回合 预计死亡}）。 */
+    static String deathNotice(int deathTurn) {
+        return "已暂停执行 · 第 " + deathTurn + " 回合 预计死亡（当前方案预计本回合死亡，操作权已交还）";
+    }
+
+    /**
+     * 执行「预计本回合死亡 → 交还控制」：停 AUTO、清计划、写面板提示。
+     *
+     * @return true = 已停手（调用方不要再执行任何步骤）
+     */
+    static boolean applyDeathTurnStop(int deathTurn, int turnNow) {
+        if (!shouldStopForDeathTurn(deathTurn, turnNow)) {
+            return false;
+        }
+        io.github.youqing.sts1solver.ui.SolverPanel.setNotice(deathNotice(deathTurn));
+        clearPlan();
+        Trace.warn("FULL_AUTO_STOP reason=death_turn turn=" + deathTurn
+                + "  (预计本回合死亡，操作权已交还)");
+        stopAuto("death turn T" + deathTurn);
+        return true;
     }
 
     // ---------------------------------------------------------- 药水策略（D5）
@@ -598,6 +639,13 @@ public final class AutoPilot {
      */
     private static RoutePreview preview;
     /**
+     * 预览是不是**上一份路线**（正在重算）。
+     *
+     * <p>🔴 回合翻页时以前把 {@code preview} 直接置空，面板于是先变成「planning…」再变回路线 ——
+     * 用户看到的就是「每回合路线闪一下」。现在保留旧预览并标成陈旧，等新结果原地替换。
+     */
+    private static boolean previewStale;
+    /**
      * 采纳这条路线时的**完整**步骤（含已经打过的回合）。
      *
      * <p>续跑命中时要从这里按 {@code forecastOffset} 重新裁执行队列 —— 只留 {@code plan}
@@ -888,6 +936,10 @@ public final class AutoPilot {
         }
         framesWaitingForPlan = 0;
 
+        // 蓝本顺序：先判「这一回合就死」→ 不部署；再判失败/空计划。
+        if (applyDeathTurnStop(result.deathTurn, turnNow)) {
+            return OUTCOME_WAITING;
+        }
         if (result.failed) {
             // 🔴 搜索崩了 ≠ 这一回合没事可做。以前两种都当「空计划」处理，
             // 结果就是满手牌满能量直接结束回合、白挨一轮打（2026-10-30 实测两次：
@@ -920,6 +972,7 @@ public final class AutoPilot {
             Trace.info("SEARCH -> empty plan, end turn");
             return OUTCOME_END_TURN;
         }
+        io.github.youqing.sts1solver.ui.SolverPanel.setNotice("");
         adoptPlan(result.steps, turnNow, result.continuations,
                 ShadowTracker.mismatchSequence());
         planSummary = summarizePlan(result);
@@ -1268,6 +1321,16 @@ public final class AutoPilot {
         return preview;
     }
 
+    /**
+     * 面板上那份路线是不是**上一份**（正在重算）。
+     *
+     * <p>回合翻页时我们不再把预览置空，而是标成陈旧：面板把它原地变灰并加一行「重算中」，
+     * 这样路线不会消失再出现（用户实测「每回合闪一下」）。
+     */
+    public static boolean routePreviewStale() {
+        return previewStale;
+    }
+
     /** 面板内容版本号：变了就要重排行（比每帧新建字符串便宜得多）。 */
     public static long panelRevision() {
         return panelRevision;
@@ -1295,10 +1358,12 @@ public final class AutoPilot {
     static void clearPlan() {
         plan = null;
         planTurn = -1;
-        planSummary = "";
-        preview = null;
         planSteps = java.util.Collections.emptyList();
         continuation.clear();
+        // 🔴 预览与摘要**保留**，只标成陈旧：面板原地变灰 + 一行「重算中」。
+        // 以前这里 `preview = null`，于是每回合面板先变「planning…」再变回路线 ——
+        // 用户看到的就是「路线每回合闪一下」。真正清空只在 reset()（换战斗）。
+        previewStale = true;
         panelRevision++;
     }
 
@@ -1319,6 +1384,7 @@ public final class AutoPilot {
         // 执行队列和预览都从**完整** steps 建：预览要保留已经打过的步骤，
         // 这样行号是绝对回合（T4/T5），不是「剩余行数」的 T1/T2。
         preview = RoutePreview.fromSteps(startTurn, steps);
+        previewStale = false;
         continuation.adopt(continuations, mismatchSequence);
         panelRevision++;
     }
