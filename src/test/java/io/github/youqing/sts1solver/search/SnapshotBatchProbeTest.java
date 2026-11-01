@@ -67,6 +67,7 @@ class SnapshotBatchProbeTest {
         int wins = 0;
         long totalNodes = 0;
         int exhausted = 0;
+        int unsatisfied = 0;
         StringBuilder rows = new StringBuilder();
         StringBuilder tsv = new StringBuilder();
         tsv.append("format\t").append(FORMAT).append('\n');
@@ -79,7 +80,22 @@ class SnapshotBatchProbeTest {
                 root.boss = true;
             }
             BeamSolver solver = realConfig();
-            solver.bestFirstAction(root, 20_000L);
+            try {
+                solver.bestFirstAction(root, 20_000L);
+            } catch (PotionPolicyUnsatisfiedException e) {
+                // 蓝本同款失败语义：池子里没有合格候选就直接抛。
+                // 探针要把这种局面**记下来**，而不是让整批中断 —— 它本身就是一条结论。
+                Metrics m = new Metrics();
+                m.snap = f.getName().replace("turn-", "").replace(".json", "");
+                m.first = "NONE";
+                m.win = false;
+                m.stop = "policy_unsatisfied";
+                m.route = "-";
+                rows.append(m.line()).append('\n');
+                tsv.append(m.tsv()).append('\n');
+                unsatisfied++;
+                continue;
+            }
 
             Metrics m = metrics(f, solver);
             if (m.win) {
@@ -100,6 +116,10 @@ class SnapshotBatchProbeTest {
                 "SUMMARY snapshots=%d wins=%d horizonCompleted=%d avgNodes=%d",
                 snapshots.size(), wins, exhausted,
                 snapshots.isEmpty() ? 0 : totalNodes / snapshots.size()));
+        if (unsatisfied > 0) {
+            System.out.println("policyUnsatisfied=" + unsatisfied
+                    + "（这些局面在现有药水策略下没有合格路线，蓝本同款失败语义）");
+        }
 
         String out = System.getProperty("out", "");
         if (!out.isEmpty()) {
