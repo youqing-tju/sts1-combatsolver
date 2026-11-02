@@ -162,7 +162,8 @@ public final class DamageCalc {
      */
     public static void hit(SimState state, SimMonster target, int damage) {
         int hpBefore = target.hp;
-        damage = capByInvincible(target, damage);
+        // 上限（Invincible）不在这里做：扣血的唯一入口是 hitAndReturnDealt，
+        // 挂在这里会让所有**不经 hit()** 的路径（多段 / AoE / 逐张结算）绕过去。
         hitAndReturnDealt(state, target, damage);
         // Lagavulin.damage(DamageInfo) 被重写过：**血量真的变了** 且还没醒过 → 立刻醒并晕一回合。
         // 这是它作为精英的核心机制（睡着的 3 回合是可以白打的窗口，一旦动手就换它先手）。
@@ -268,7 +269,6 @@ public final class DamageCalc {
     }
 
     /**
-     * 韧性（{@code MalleablePower.onAttacked}）    /**
      * 韧性（{@code MalleablePower.onAttacked}）：被打中一次 → 加 {@code amount} 点格挡，
      * 然后 {@code amount++}（所以同一回合第二下挡得更多）。回合末 {@code atEndOfTurn}
      * 把 {@code amount} 重置回 {@code basePower}（默认 3，见 {@code CombatFlow} ④.5）。
@@ -408,6 +408,11 @@ public final class DamageCalc {
     /** 同上，但返回**实际扣掉的血量**（吸血类卡牌需要）。 */
     public static int hitAndReturnDealt(SimState state, SimMonster target, int damage) {
         int hpBefore = target.hp;
+        // 🔴 腐化之心的「每回合最多掉 N 点」必须挂在**扣血唯一入口**上。
+        // 以前只在 `hit()` 里做，于是多段 / AoE / 逐张结算（Fiend Fire、Sword Boomerang）
+        // 全部绕过上限：影子把心脏的 Invincible 打到 0、实机还剩 54，
+        // 表现就是「我方伤害凭空多出 33 / 54 点」。
+        damage = capByInvincible(target, damage);
         int remaining = intangibleAdjusted(target.powers, flightAdjusted(target, damage));
         if (target.block > 0) {
             int absorbed = Math.min(target.block, remaining);
