@@ -249,3 +249,20 @@ STS1 CombatSolver 工程经验记录
      看起来像测试挂了，其实是构建目录被踩。并行 agent 必须各自 local.properties 指独立 build.dir。
 105. 旧 mismatch dump（v5 之前）全部缺 turn/boss/pendingMove 等字段，严格读一律 incomplete_schema。
      这不是失败，是「这批证据不足以下结论」；把「全是 incomplete」判成失败会逼人补默认值 = 伪造 oracle。
+106. baseline 捕获必须和「出结论」用**同一个**稳定判据。只查 actionsDrained 不够：
+     卡牌飞行（ShowCardAndAddToHand / SoulGroup）期间它不属于任何牌堆，快照会少一张；
+     下一张牌拿这份缺一张的基线当起点，live 已落位 → hand.size 差 1 + rng.CARD 差一步。
+     真机 20:43–20:47 的 14 次 hand.size 失配全是这个。
+107. 账本字段能不能进 diff，判据是「真机侧能否精确还原」，不是「重不重要」：
+     - feedGrowth / handOfGreedGrowth：原版没有计数器 → capture 恒 0 → 必须退出 diff（仍进排序）；
+     - angerCopiesGenerated：能由「战斗内 Anger 张数 − 牌组 Anger 张数」精确算出 → 必须真捕获并继续比。
+     两类一起豁免或一起比较都会错。
+108. ContinuationStamp 里凡是真机侧无法重建的字段都不能比。pendingMove 载荷就是典型：
+     真机只有 nextMove 一个字节，重建必须调 MonsterMoves.next()，而它要掷 aiRng ——
+     在捕获点掷骰会污染真机随机流。两侧没有共同口径，带进戳 = SEARCH_REUSED 永远 0。
+     共同口径 = pendingMoveId + damageBase + intentDmg。
+109. 「算得快」不等于「搜得糙」，要用实验排除：固定局面只改 beam 宽度跑对照。
+     turn-A2F18T2 在 135/270/540 下第一手、整条路线、结束血量、分数全部相同（节点 24805→58536）。
+     快的真实原因是三重上限：全局 500k 节点/300s（实测只用 0–5%）、novelty 蓝本硬限 2500 节点/5s、
+     portfolio 同时跑 5 档宽度但「结果一样就采纳最窄」（adopted=135）。
+     所以「不爱开能力」若成立，根因在打分/键序，不在宽度 —— 别再靠加宽 beam 治。

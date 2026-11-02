@@ -1,9 +1,10 @@
 # 2026-11-02 镜像精度与跨回合命中实施计划
 
-> **状态（2026-11-02 14:40）**：Task 1、2、3A、3B、3C、4A、4B、4C、4D、4E、5A、5C(部分)、6 已完成；
-> Task 5B（choicePile 坐标）、5C 的 SporeCloud/SpireShield、5D（跨卡 flush 基线）**未做**；
-> Task 7 的构建安装已完成（`build 1102-142125`），**真机复测未做**（需重启游戏）；
-> Task 8 文档已更新。完成明细见 `docs/handoff-prompt.md` §十四。
+> **状态（2026-11-02 23:00，已收工）**：
+> Task 1、2、3A、3B、3C、4A、4B、4C、4D、4E、5A、5B、5C、6 已完成；
+> **未做**：5C 的 `SpireShield` 死亡清理（`Surrounded`/`BackAttack` 未建模，无对应物）、
+> Task 5D（跨卡 flush 基线锚点）、Task 7 的真机复测（`build 210032` 未验证）。
+> 完成明细与证据：`docs/reports/2026-11-02-mirror-fidelity-report.md` 与 `docs/handoff-prompt.md` §十四。
 >
 > **For implementer:** 全程 TDD。每个根因先写失败测试并看到预期失败，再写最小实现。目标内自主调查、修改、测试、构建、安装、真机验证和本地 commit；不 push。
 >

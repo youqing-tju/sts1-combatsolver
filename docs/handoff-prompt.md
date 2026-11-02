@@ -1,19 +1,20 @@
-# STS1 战斗求解器 · 交接说明（2026-11-02 14:45 版）
+# STS1 战斗求解器 · 交接说明（2026-11-02 23:00 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-02 14:45，测试 **816 条全绿**（0 fail / 0 err，17 skipped），
-> 代码 HEAD = `966db98`，未 push。已安装 `build 1102-142939`（**需重启游戏才生效**）。
+> **当前状态**：2026-11-02 23:00，测试 **822 条全绿**（0 fail / 0 err，18 skipped），
+> 代码 HEAD = `8df0d70`，未 push。已安装 `build 1102-210032`（**游戏里加载的仍是 142939，未真机验证**）。
+>
+> 汇报：`docs/reports/2026-11-02-mirror-fidelity-report.md`。
 >
 > 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做。**
 >
-> 🔴 **本轮（14:00–14:40）是「稳定对拍 + 模型根因」批**：删掉了 90 帧到期强判
-> （那是真机 `forced after 90f` 假失配的唯一来源），补齐 v5 快照与严格回放，
-> 并修了 8 个已由字节码证实与蓝本无关的镜像缺口。见 §十四。
+> 🔴 **本轮分两批**：①14:00–14:45「稳定对拍 + 模型根因」（纯离线）；②20:38–21:48「真机验证 + 二次修复」。
+> 合计 12 个 commit，修掉 13 个字节码证实的镜像缺口 + 3 处对拍口径。见 §十四。
 >
-> 🔴 **真机尚未复测**：本轮全部结论是「自动化 + 离线回放」，
-> 旧 dump 全部 `incomplete_schema`（缺 v5 字段），所以**没有一条真机失配被离线证明修好**。
-> 下一轮第一件事 = 重启游戏打几场，用新 dump 重跑 `MismatchReplayTest`。
+> 🔴 **最新 build `210032` 尚未真机验证**：游戏 20:38 启动加载的是 `142939`，
+> 那一轮的 27 次失配已被定位并修掉 3 类（baseline 飞行中捕获 / 账本字段 / stamp 载荷），
+> 但**修复效果未经真机确认**。下一轮第一件事 = 完全退出游戏再启动，确认日志 build 戳。
 >
 > 🔴 **已拍板的三条**（不变）：
 > ① 不新增「无生还路线就交还控制」的闸（蓝本没有，`Survives` 只是排序键）；
@@ -626,7 +627,7 @@ hp:    expected=32 actual=31
 
 ---
 
-## 十四、2026-11-02 镜像精度批（13:00 → 14:40）
+## 十四、2026-11-02 镜像精度批（13:00 → 21:48）
 
 > 口径：**自动化** = `./gradlew test --offline`；**离线回放** = `-Pexperiments -Dcase=<dump>`；
 > **真机** = 进游戏实跑。本轮真机 **未复测**。
@@ -644,6 +645,9 @@ hp:    expected=32 actual=31
 | `8ea4bd6` | 严格相邻回合 Continuation 配对探针 |
 | `b375a2f` | 孢子云：真菌兽战斗中死亡给玩家 +2 易伤（战斗要结束时不触发） |
 | `966db98` | 选择坐标按来源牌堆解析（HAND/DISCARD/DRAW/EXHAUST），未知来源拒绝而非猜手牌 |
+| `0d8126e` | baseline 捕获改用 `settled()`（含卡牌飞行）；账本 diff 收口；Anger 复制真捕获 |
+| `6a7ed38` | `ContinuationStamp` 不再比 `pendingMove` 载荷（真机侧重建要掷 aiRng），版本升 v6 |
+| `8df0d70` | 宽度对照探针（回答「为什么算得这么快」） |
 
 ### 14.2 每个根因的证据状态
 
@@ -709,8 +713,60 @@ hp:    expected=32 actual=31
    第一次得到**真实**命中率。
 4. 仍要做（本轮未做）：`SpireShield` 死亡清理（`Surrounded`/`BackAttack` 我们没有建模，
    所以这条目前无对应物，需先确认是否要建）、跨卡 flush 的基线锚点（Task 5D）。
+5. **查「不爱开能力」**：`BeamWidthProbeTest` 已排除「宽度不够」（135/270/540 结果全同），
+   下一步查 `FinalPlanOrdering` 的键序与 `PowerValuation` 的能力估值。这是目前最可能
+   影响「牌打得臭」的一项。
 
 ### 14.5 回退
 
-本轮 commit 相互独立，`git revert 8ea4bd6 dc316e8 a9f78e9 20eb7c0 f92b84e 60ec7df e382207`
+本轮 commit 相互独立，`git revert 8df0d70 6a7ed38 0d8126e e0de94f 966db98 b375a2f c4e54b6 8ea4bd6 dc316e8 a9f78e9 20eb7c0 f92b84e 60ec7df e382207`
 可回到 `4172fd1`（即上一轮的 `a2d82b3` + 两个 docs）。
+
+### 14.6 第二批：真机验证与二次修复（20:38–21:48）
+
+**实测数据（build `142939`，一次连续战斗）**
+
+```
+对拍   138 次：111 MATCH / 27 MISMATCH（19.6%，上一轮 46%）
+未决   22 次 DIFF WAIT（新口径：不出结论、不进分母）
+后果   DEPLOY_REPLAN 25 次（93% 的失配都丢掉整条规划）
+续跑   SEARCH_ 41 条全 MISS，SEARCH_REUSED = 0
+```
+
+失配归因：`hand.size` 14 次、`angerCopiesGenerated` 11 次、`rng.CARD` 12 次（连带）、
+`feedGrowth` 2 次。**只有这四类，没有第五类** —— 说明第一批的模型修复没有引入新问题。
+
+**三处修复**
+
+1. `0d8126e` baseline 捕获门。`tick()` 只用 `actionsDrained()` 重置基线，不含卡牌飞行
+   （`ShowCardAndAddToHand` / `SoulGroup`）。飞行中的牌不属于任何牌堆，快照就少一张；
+   下一次出牌拿这份缺一张的基线当起点，而 live 已落位 → `hand.size` 差 1 + `rng.CARD` 差一步。
+   样本 `004-True_Grit+.json`：`before` 4 张 → sim 2 张、live 3 张（多 `Headbutt`）。
+   现在 baseline 与出结论用**同一个** `settled()`。
+2. `0d8126e` 账本口径。`feedGrowth` / `handOfGreedGrowth` 原版没有计数器，
+   `capture()` 只能给 0 —— 留在 diff 里就是「打一张 Feed 必失配」。
+   改为不进 diff（仍进排序与指纹）。`angerCopiesGenerated` 相反：能由
+   「战斗内 Anger 张数 − 牌组 Anger 张数」精确还原，所以**实现了 capture**，继续逐一比较。
+3. `6a7ed38` stamp 载荷。`capture()` 从不填 `pendingMove`（真机只有 `nextMove` 一个字节），
+   而 `ContinuationStamp` 比全载荷 → 一侧恒 null、另一侧有值 → **戳永远不等**。
+   这就是 `SEARCH_REUSED = 0` 的根因（日志原话：
+   `pendingMove.id: expected=1 actual=(missing)`）。现在比 `pendingMoveId + damageBase + intentDmg`，
+   戳版本升 `sts1-cont-v6`。
+
+**「为什么算得这么快」的实测答案**
+
+`BeamWidthProbeTest` 对 `turn-A2F18T2`（手牌含 `Corruption` + `Dark Embrace+`）跑宽度对照：
+
+| 宽度 | 节点 | 耗时 | 第一手 | 结束血量 | 分数 |
+|---|---|---|---|---|---|
+| 135 | 24,805 | 1,416 ms | Dark Embrace+ | 65 | 10001866000 |
+| 270 | 31,043 | 1,503 ms | Dark Embrace+ | 65 | 10001866000 |
+| 540 | 58,536 | 2,228 ms | Dark Embrace+ | 65 | 10001866000 |
+
+**三档完全一致** → 该局面在 135 就收敛了，「快」不等于「浅」。
+快的三个真实原因：①全局上限 500k 节点/300s，实测只用 0–5%；
+②novelty 阶段有蓝本硬限 `NOVELTY_MAX_NODES = 2_500` / 5s；
+③portfolio 同时跑 5 个宽度，**结果一样就采纳最窄的**（日志 `adopted=135`）。
+
+所以「不爱开能力」若成立，根因在**打分/键序**，不在搜索宽度。
+该局面第一手就是 `Dark Embrace+`；没开的是 `Corruption`（3 费，4 能量下开完只剩 1 费）。
