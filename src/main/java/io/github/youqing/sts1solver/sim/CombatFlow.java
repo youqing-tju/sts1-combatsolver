@@ -344,7 +344,7 @@ public final class CombatFlow {
      * <p>量可以是**负数**（Lagavulin 的 Siphon Soul 是「力量/敏捷 -1」），
      * 所以判据只能是 {@code != 0}，不能用 {@code > 0}。
      */
-    static void addPlayerDebuff(SimState state, String id, int amount) {
+    public static void addPlayerDebuff(SimState state, String id, int amount) {
         if (id == null || amount == 0) {
             return;
         }

@@ -60,6 +60,21 @@ public final class DamageCalc {
     }
 
     /**
+     * 除这只怪之外还有没有活着的怪 —— 即原版 {@code AbstractRoom.isBattleEnding()} 的反面。
+     *
+     * <p>SporeCloudPower.onDeath 第一句就是「战斗要结束了就直接 return」，
+     * 所以打最后一只真菌兽不会给玩家挂易伤（挂了也没意义，且会污染结算）。
+     */
+    private static boolean battleStillOngoing(SimState state, SimMonster dying) {
+        for (SimMonster other : state.monsters) {
+            if (other != dying && other.hp > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * 攻击伤害的**尾部链**（所有「玩家打怪物」的攻击入口共用，顺序不可改）：
      * 笔尖翻倍 → 一次 floor → 靴子下限。
      *
@@ -449,6 +464,16 @@ public final class DamageCalc {
         // 逃跑不走这条路径（EscapeAction 不还钱），于是那笔会一直留在账上。
         if (hpBefore > 0 && target.hp <= 0 && target.stolenGold > 0) {
             target.stolenGold = 0;
+        }
+        // 孢子云（SporeCloudPower.onDeath，javap 核实）：这只怪死时，**若战斗还没结束**，
+        // 给玩家挂 amount 层易伤（`new VulnerablePower(player, amount, true)` →
+        // 带 justApplied，所以这一轮不再递减）。战斗即将结束时整段 return，不触发。
+        if (hpBefore > 0 && target.hp <= 0) {
+            Integer spore = target.powers.get("SporeCloud");
+            if (spore != null && spore.intValue() > 0 && battleStillOngoing(state, target)) {
+                io.github.youqing.sts1solver.sim.CombatFlow
+                        .addPlayerDebuff(state, "Vulnerable", spore.intValue());
+            }
         }
         // 觉醒者换形态：**所有**扣血路径都要过这一关（原版写在 AwakenedOne.damage 里，
         // 不管伤害来自卡牌、AoE 循环、荆棘反伤还是毒）。以前只挂在 hit()，
