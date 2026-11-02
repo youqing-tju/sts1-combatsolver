@@ -1,21 +1,22 @@
-# STS1 战斗求解器 · 交接说明（2026-11-02 01:30 版）
+# STS1 战斗求解器 · 交接说明（2026-11-02 13:00 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
-> **项目根**：`C://Users//22757//Desktop//sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-02 01:30，测试 **774 条全绿**（0 fail / 0 err，15 skipped），
-> 代码 HEAD = `f0d75f2`，未 push。
-> 已安装 `build 1102-091257`（含本轮全部改动）；⚠️ 安装时**没有游戏进程在跑**，启动 MTS 即是新 jar。
+> **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
+> **当前状态**：2026-11-02 13:00，测试 **784 条全绿**（0 fail / 0 err，15 skipped），
+> 代码 HEAD = `a2d82b3`，未 push。
+> 已安装 `build 1102-124214`（真机已加载，见 §十三）。
 >
 > 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做。**
-> 本轮（11-01 22:45 → 11-02 01:30）做的是「路线质量」：把最终选择换成蓝本的
-> **18 键 `FinalPlanOrdering`**，并补齐它需要的成长/卖血/资源数据。见 §十二。
 >
-> 🔴 **真机仍是 0 项**：本轮所有改动**一次都没进过游戏**。自动化 774 绿 + 173 快照 A/B
-> 只能证明「口径与蓝本一致、路线在这些快照上更好」，不证明影子准、也不证明真机更好。
+> 🔴 **真机这一轮通了**：11-02 12:29 起连打三场，第三场是**腐化之心**，
+> `started 41 → 55 血（净赚 14）`，赢了。但失配率仍 46%（16/35 次对拍），
+> 且 `SEARCH_REUSED = 0` —— 每个回合边界都在重算。见 §十三。
 >
-> 🔴 **两条已拍板的事没变**：
+> 🔴 **已拍板的三条**：
 > ① 不新增「无生还路线就交还控制」的闸（蓝本没有，`Survives` 只是排序键）；
-> ② 目标是「战损最小 + 收益最大」，不是「能赢就行」。
+> ② 目标是「战损最小 + 收益最大」，不是「能赢就行」；
+> ③ **不加「失配后用实机重建影子」这类鲁棒性机制**（2026-11-02 12:39 用户选 B）：
+>    只治本，逐条消灭镜像根因，不引入蓝本没有的重同步通道。
 
 ## 一、你是谁 / 这是什么
 
@@ -436,23 +437,20 @@ private void callEndOfTurnActions() {
 
 ## 九、下一轮怎么开工
 
-> 本轮施工计划 `docs/plans/2026-11-01-final-plan-ordering.md` 的 Task 0–7 已完成
-> （执行结果表在该文件顶部），Task 8 只剩真机与双评审。**下一轮第一件事是真机。**
+> 先读 §十三：真机已经跑通一轮，剩下的全是**镜像精度**问题，不是排序/执行语义问题。
 
-1. `git log --oneline -9`（应为 `f0d75f2` 起）→ `./gradlew test --offline`（774 绿）
-   → `./gradlew jar --offline` → `tools/install.ps1` → **重启 MTS**。不重启全白搭。
-2. **真机验收本夜 8 项 + 本轮排序**（§十一 + §十二）：重点看
-   「低战损优先」「Feed/HoG 会不会为了成长多挨打」「跨回合重搜还卖不卖同一份血」。
-3. **镜像失配**仍是最大噪音源（上轮 145 次对拍 / 30 次失配）：`Plated Armor` 递减、
-   `Reaper` 回血、`Headbutt` 弃牌堆顺序、`Barricade` 量。修完再谈「路线为什么变」。
-4. **未做的蓝本机制**（不要补半成品）：`AdoptRoute`、`RouteFrozen`、`SolverProgress.play_depth`、
+1. `git log --oneline -5`（应为 `a2d82b3` 起）→ `./gradlew test --offline`（784 绿）
+   → `./gradlew jar --offline` → `tools/install.ps1` → **重启 MTS**。
+2. **按 §十三 的失配清单逐条消灭**，优先级：
+   - `block` 差 1（8/16 次，方向不固定）→ 先加「逐张牌格挡增量」诊断日志再定位；
+   - `hp -1 + Next Turn Block +3`（我们多掉 1 血 → 自成形黏土多给 3 格挡）；
+   - `Fiend Fire` / `Warcry+` 的 `forced after 90f` 手牌漂移（疑与「结算未完成就对比」有关）；
+   - `Madness` 费用（手牌**顺序**喂给 `getRandomCard`，而我们只按无序多重集比对）；
+   - `Pen Nib` power（第 10 击那一窗我们只改遗物计数、不挂 power）。
+3. **跨回合续跑命中率**：目前 `REUSED = 0`，miss 的首差都是 1~3 点的 `hp` / `block`。
+   这条不解决，「路线每回合变」就不会消失。不要用放宽比较或重同步绕过（用户已选 B）。
+4. 未做的蓝本机制仍然未做：`AdoptRoute`、`RouteFrozen`、`play_depth`、
    `PotionRewardOutlook`、琥珀限制、`SolverTheftPolicy.LetEscape` 的 UI 开关。
-
-### 已拍板（不变）
-
-- **决策 A（2026-11-01 22:41）**：不新增「无生还路线 → 交还控制」的闸。蓝本没有
-  （`FinalPlanOrdering.cs:250-252` 里 `Survives` 只是排序键）。停手只保留 `DeathTurn` + `LiveRisk`，
-  后者已改成**按真实规则推演整回合**（死亡豁免/多段/易伤都算）。
 
 ## 十、2026-11-01 纠偏结果表（Task 1–5）
 
@@ -542,3 +540,76 @@ private void callEndOfTurnActions() {
 
 **回退**：本轮 7 个 commit 相互独立。`git revert f0d75f2 ead6257 cd47ceb 86aee8f f249d13 4571418 24c3394`
 即回到 `2ae3b4b`（18 键之前的 9 键比较器）。
+
+---
+
+## 十三、2026-11-02 真机第一轮（12:29 → 12:47）
+
+> 这一节的每个结论都来自 `solver-logs/sts1-combatsolver-2026-11-02.log` 与
+> `solver-snapshots/turn-*.json`，不是自动化测试发现的。
+
+### 战绩
+
+| 时间 | build | 开局 → 结束 | 失血 | 对拍（match / mismatch / total） |
+|---|---|---|---|---|
+| 12:33 | `121227` | 80 → 49 | 31 | 35 / 13 / 48（27%） |
+| 12:34 | `121227` | 72 → 41 | 31 | 49 / 18 / 67（27%） |
+| 12:47 | `124214` | **41 → 55** | **-14（净赚）** | 19 / 16 / 35（46%） |
+
+第三场是腐化之心（`turn-A4F55T4.json`：心脏 384 血、`BeatOfDeath 1`、`Invincible 297`，
+玩家 10 血带 `Thorns 3 / Dark Embrace 1 / Brutality 1 / Strength 10 / Rupture 2 / Combust 7 / Barricade -1`）。
+**赢了，净赚 14 血**，整场 20 次搜索、平均 1.6 s。
+
+⚠️ 失配率 46% 比前两场更高，但**失血从 31 变成净赚 14**：分母只有 35 次对比，
+而一次漂移会污染同一回合剩下的全部对比 —— 率不能直接当质量看。
+
+### 为什么失配高还能赢
+
+失配的处置是蓝本的 `DEPLOY_REPLAN`：清计划 + 用**实机真实状态**从根重算。
+所以漂移的代价是「停顿 + 丢掉原规划」，**不是照着错的状态打**。
+
+### 本轮修掉的六个真 bug（全部有真机现场）
+
+| 症状（日志原文） | 根因 | commit |
+|---|---|---|
+| `cumulativeHpLost: 3 vs 0`、`recoveredPlayerHp: 1 vs 0` —— 任何掉血/回血都失配 | 这两个统计量**真机侧观测不到**（javap `AbstractPlayer` 只有 `damagedThisCombat`，`iadd 1` 是**次数**）。我把它们放进了 `diff` 与续跑戳 | `66c39db`（戳 → v5；`BattleDamageTracker` 真正接线，`captureLive()` 填 `cumulativeHpLost`） |
+| `hand[4]: Wound(0) vs Wound(-2)` + `rng.CARD … 1 vs 2` | `MadnessAction` 是**整手牌均匀抽、抽到不能降的重抽**、且同时写 `cost` 与 `costForTurn`；我们过滤候选、只抽一次、无条件降费 | `66c39db` |
+| `powers.Shackled: (missing) vs 9` | 黑暗镣铐还挂 `GainStrengthPower`（ID 就是 `"Shackled"`），`atEndOfRound` 还原力量；我们只减力量 | `66c39db`（`darkShackles()` + `CombatFlow` ④.5 还原） |
+| `hand.size: 5 vs 9` + `draw.size: 13 vs 9` | `Dark Embrace` / `Feel No Pain` 只写进 powers 表、**没有任何人在消耗时读它** | `ae4ea80`（`Effects.exhaustCard` 是唯一消耗口） |
+| `playerPowers.Barricade: 1 vs -1`（永久失配） | 原版存的是 `magicNumber = -1`；我们写 1。且 `CombatFlow` 用 `power(...) <= 0` 判定，改成 -1 会让壁垒**静默失效** | `ae4ea80`（存 -1 + 按 `containsKey` 判定） |
+| `monsters[0].hp: 387 vs 441` + `Invincible: 0 vs 54` | 每回合伤害上限只挂在 `hit()`，多段/AoE/逐张结算走 `hitAndReturnDealt` **绕过上限** | `a2d82b3`（上限移进唯一扣血口；顺带解释了之前`Sword Boomerang+ 260 vs 233`） |
+
+### 查了但**不是** bug
+
+`Berserk`：我一度判定「只有写入没有读取方」并加了回合初 +1 能量，测试立刻多算 1 点。
+`PowerHooks` 早就挂在 `START_OF_TURN_POST_DRAW`（还带注释说明不能挂 `START_OF_TURN`，
+会被 `energy = energyPerTurn` 吃掉）。改动已撤销 —— **`energy: 3 vs 2` 仍未解释**，别再从 Berserk 查。
+
+### 剩余失配清单（下一轮的活）
+
+16 次失配的构成：
+
+- `block` 差 1 —— **8 次**，方向不固定（多数少 1，`Bash+` 那次多 1）。疑似某张牌的格挡在
+  脆弱/敏捷下的取整，或某个遗物的格挡没算。**优先**：加逐张牌格挡增量日志。
+- `Fiend Fire` / `Warcry+` / `Power Through+` 手牌·弃牌漂移 —— 4 次，全部带 `forced after 90f`，
+  疑与「上一手还没结算完就对比」有关。
+- `hp -1` + `Next Turn Block +3` —— 2 次（我们多掉 1 血 → 自成形黏土多给 3 格挡）。
+- `Madness` 费用（`draw[4]: Madness+(1) vs (0)`）—— 1 次。根因是 `getRandomCard` 按**手牌下标**取牌，
+  而我们把「手牌」当无序多重集比对；要修得先让手牌顺序与实机一致。
+- `Pen Nib: (missing) vs 1` —— 1 次。第 10 击实机会挂 `PenNibPower 1`，我们只改遗物计数。
+
+### 结构性问题（不要用捷径绕）
+
+`SEARCH_REUSED = 0`，全部是 `SEARCH_REUSE_MISS`，首差都是 1~3 点：
+
+```
+block: expected=0 actual=3
+hp:    expected=33 actual=32
+hp:    expected=32 actual=31
+```
+
+只要这个精度上不去，跨回合续跑永不命中 → 每个回合边界都重算 → 用户看到的「路线每回合变」。
+**用户 12:39 明确选 B：不加「失配后重建影子」的鲁棒性通道，只治本。**
+
+**回退**：本轮 5 个 commit 相互独立，
+`git revert a2d82b3 ae4ea80 66c39db 0f2e581 f0d75f2` 可回到 `ead6257`（真机修镜像之前的状态）。
