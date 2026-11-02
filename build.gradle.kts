@@ -92,6 +92,7 @@ tasks.test {
             includeTestsMatching("*SelfPlayTest*")
             includeTestsMatching("*MismatchReplayTest*")
             includeTestsMatching("*ContinuationPairProbeTest*")
+            includeTestsMatching("*BeamWidthProbeTest*")
         }
         systemProperty("sts1.experiments", "true")
     }
