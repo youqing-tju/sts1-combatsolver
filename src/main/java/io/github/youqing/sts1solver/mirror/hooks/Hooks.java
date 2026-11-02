@@ -152,10 +152,10 @@ public final class Hooks {
         // BeatOfDeathPower.onAfterUseCard（CorruptHeart）：每打一张牌，玩家掉 amount 点血。
         // 字节码：new DamageAction(player, new DamageInfo(owner, amount, **THORNS**))
         // → THORNS 不是 HP_LOSS，所以**吃格挡**（AbstractCreature.damage 的判据）。
+        // ⚠️ 这里**不能**过滤 hp <= 0：原版 UseCardAction.update 遍历 getMonsters().monsters
+        // 逐只派发 onAfterUseCard，这段没有 isDeadOrEscaped() 判定 —— 刚被这张牌打死、
+        // 仍留在列表里的心脏照样扣血（影子也保留 0 血怪，见 CardPlayer.play 末尾）。
         for (SimMonster beatMonster : state.monsters) {
-            if (beatMonster.hp <= 0) {
-                continue;
-            }
             Integer beat = beatMonster.powers.get("BeatOfDeath");
             if (beat != null && beat.intValue() > 0) {
                 io.github.youqing.sts1solver.sim.CombatFlow

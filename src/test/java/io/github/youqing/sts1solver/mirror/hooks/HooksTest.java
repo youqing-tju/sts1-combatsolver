@@ -3,6 +3,8 @@ package io.github.youqing.sts1solver.mirror.hooks;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 import io.github.youqing.sts1solver.mirror.CardPlayer;
 import io.github.youqing.sts1solver.mirror.DamageCalc;
@@ -186,6 +188,31 @@ class HooksTest {
         CardPlayer.play(s, 0, -1);
         assertEquals(30, s.monsters.get(0).hp, "10 damage on the 5th card");
         assertEquals(5, (int) s.playerPowers.get("Panache"), "counter resets to 5");
+    }
+
+    /**
+     * BeatOfDeathPower.onAfterUseCard（腐化之心）：**致死的那张牌也要触发**。
+     *
+     * <p>原版 {@code UseCardAction.update} 遍历 {@code AbstractDungeon.getMonsters().monsters}
+     * 调每只怪的每个 power 的 {@code onAfterUseCard}，这段**没有** {@code isDeadOrEscaped()}
+     * 或 hp 过滤 —— 刚被打死、还留在列表里的心脏照样扣血。
+     */
+    @Test
+    void beatOfDeathFiresEvenWhenTheCardKillsTheHeart() {
+        SimState s = new SimState();
+        s.hp = 37;
+        s.maxHp = 37;
+        s.energy = 3;
+        s.block = 2;
+        Map<String, Integer> powers = new HashMap<String, Integer>();
+        powers.put("BeatOfDeath", 1);
+        s.monsters.add(new SimMonster("CorruptHeart", 2, 750, 0, powers));
+        s.hand.add(new SimCard("Strike_R", false, 1, 6, "ATTACK"));
+
+        CardPlayer.play(s, 0, 0);
+
+        assertEquals(0, s.monsters.get(0).hp, "the card kills the heart");
+        assertEquals(1, s.block, "beat of death still fires after a lethal card: 2 - 1");
     }
 
     /** JuggernautPower.onGainedBlock → 获得格挡就对随机敌人造成伤害。 */
