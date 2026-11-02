@@ -50,7 +50,7 @@ public final class ContinuationStamp {
      * <p>v5：**去掉**累计掉血/累计回血。真机侧没有对应物（原版只有 `damagedThisCombat`
      * 这个「次数」计数），预测侧有值而真机侧恒 0 —— 带进戳就等于「永远不命中」。
      */
-    public static final String VERSION = "sts1-cont-v5";
+    public static final String VERSION = "sts1-cont-v6";
 
     private static final char FIELD_SEP = ';';
     private static final char PAIR_SEP = '=';
@@ -296,6 +296,21 @@ public final class ContinuationStamp {
             num(p + ".intentDmg", m.intentDmg);
             num(p + ".stolenGold", m.stolenGold);
             add(p + ".intentAttack", m.intentAttack);
+            // 🔴 这里**故意不写** {@code pendingMove} 的载荷字段（2026-11-02 真机实证）。
+            //
+            // 载荷是 sim 侧算出来的 `MonsterMove`，而真机侧只有一个字节
+            // `AbstractMonster.nextMove`（存在 `pendingMoveId` 里）。要在 capture 时重建载荷，
+            // 唯一的入口是 `MonsterMoves.next(...)`，可它**要消耗一次 aiRng**
+            // （`rollAi` 是原版 `aiRng.random(99)`）—— 在捕获点掷骰会直接打乱真机的随机流。
+            //
+            // 所以两侧没有共同口径：一边有载荷、一边恒为 null，戳必然不等，
+            // 于是 `SEARCH_REUSED` 永远是 0（真机日志：
+            // `SEARCH_REUSE_MISS ... monsters[0].pendingMove.id: expected=1 actual=(missing)`）。
+            //
+            // 可观测的共同口径由三样覆盖：`pendingMoveId`（是第几招）、
+            // `damageBase`（每段基础伤害，capture 直接读 `AbstractMonster.damage`）、
+            // `intentDmg`（本回合总意图伤害）。这三者能唯一确定「这一招打多少」，
+            // 也就是决定下回合会不会死的部分；招式附带的 buff/减益由 powers 与 moveHistory 反映。
 
             num(p + ".moveHistory.size", m.moveHistory.size());
             for (int i = 0; i < m.moveHistory.size(); i++) {
@@ -309,7 +324,6 @@ public final class ContinuationStamp {
             for (Map.Entry<String, Integer> e : m.powers.entrySet()) {
                 num(p + ".powers." + e.getKey(), e.getValue().intValue());
             }
-            move(p + ".pendingMove", m.pendingMove);
         }
 
         /**

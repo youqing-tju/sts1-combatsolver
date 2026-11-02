@@ -247,18 +247,27 @@ class ContinuationStampTest {
         pendingId.monsters.get(0).pendingMoveId = 4;
         assertNotEquals(stampOf(a), stampOf(pendingId), "本回合招式字节必须进戳");
 
-        // 同一个招式 id，但载荷（伤害）不同 = 语义不同
+        // 🔴 反向合同（2026-11-02 真机实证）：{@code pendingMove} 载荷**不进戳**。
+        //
+        // 载荷是 sim 侧算出来的 MonsterMove，真机侧只有 `AbstractMonster.nextMove` 这一个字节
+        // （= pendingMoveId）。要在 capture 时重建载荷，只能调 `MonsterMoves.next(...)`，
+        // 而它要消耗一次 aiRng（`rollAi` = 原版 `aiRng.random(99)`）——
+        // 捕获点掷骰会打乱真机随机流。两侧没有共同口径，带进戳就是「永远不命中」：
+        // 真机日志 `SEARCH_REUSE_MISS ... pendingMove.id: expected=1 actual=(missing)`。
+        // 「这一招打多少」由 pendingMoveId + damageBase + intentDmg 三样共同确定，已在戳内。
         SimState payload = base();
-        payload.monsters.get(0).pendingMove = MonsterMove.attack(3, 9);
-        assertNotEquals(stampOf(payload), stampOf(a), "pendingMove 载荷必须比较语义，不能只看 id");
-
-        SimState multi = base();
-        multi.monsters.get(0).pendingMove = MonsterMove.multiAttack(3, 11, 2);
-        assertNotEquals(stampOf(multi), stampOf(a), "段数属于载荷");
+        payload.monsters.get(0).pendingMove = MonsterMove.attack(3, 1);
+        assertEquals(stampOf(a), stampOf(payload),
+                "载荷不参与比较：真机侧重建它必须掷 aiRng，做不到");
 
         SimState none = base();
         none.monsters.get(0).pendingMove = null;
-        assertNotEquals(stampOf(none), stampOf(a), "「没镜像的怪」与「镜像的怪」不能混为一谈");
+        assertEquals(stampOf(a), stampOf(none), "同上：null 与有载荷不算差异");
+
+        // 但**招式编号**必须比：它是真机唯一给得出的字节。
+        SimState otherMove = base();
+        otherMove.monsters.get(0).pendingMoveId = 7;
+        assertNotEquals(stampOf(a), stampOf(otherMove), "pendingMoveId 必须进戳");
 
         SimState intent = base();
         intent.monsters.get(0).intentDmg = 14;
@@ -323,11 +332,11 @@ class ContinuationStampTest {
     void firstDifferenceNamesExactFieldPath() {
         SimState expected = base();
         SimState actual = base();
-        actual.monsters.get(0).pendingMove = MonsterMove.attack(3, 9);
+        actual.monsters.get(0).intentDmg = 9;
 
         String first = stampOf(expected).describeFirstDifference(stampOf(actual));
-        assertTrue(first.contains("monsters[0].pendingMove.damage"),
-                "首个差异必须指名到 pendingMove 的字段，实际是：" + first);
+        assertTrue(first.contains("monsters[0].intentDmg"),
+                "首个差异必须指名到具体字段，实际是：" + first);
         assertTrue(first.contains("expected=11"), "要给出预测侧的值，实际是：" + first);
         assertTrue(first.contains("actual=9"), "要给出实机侧的值，实际是：" + first);
 
