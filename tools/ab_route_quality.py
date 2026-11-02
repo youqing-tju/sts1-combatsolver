@@ -34,12 +34,19 @@ def load(path):
 
 
 def main():
-    if len(sys.argv) != 3:
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    allow = "--allow-format-mismatch" in sys.argv
+    if len(args) != 2:
         raise SystemExit(__doc__)
-    base_fmt, base = load(sys.argv[1])
-    new_fmt, new = load(sys.argv[2])
+    base_fmt, base = load(args[0])
+    new_fmt, new = load(args[1])
     if base_fmt != new_fmt:
-        raise SystemExit(f"format mismatch: {base_fmt} vs {new_fmt} (not comparable)")
+        if not allow:
+            raise SystemExit(f"format mismatch: {base_fmt} vs {new_fmt} (not comparable); "
+                             "pass --allow-format-mismatch to compare only the shared columns")
+        # 只在显式要求时才做：跨格式只比两边都有的列，缺的列一律不当成 0。
+        print(f"WARNING cross-format comparison: {base_fmt} vs {new_fmt}; "
+              "only shared columns are compared")
 
     shared = sorted(set(base) & set(new))
     only_base = sorted(set(base) - set(new))

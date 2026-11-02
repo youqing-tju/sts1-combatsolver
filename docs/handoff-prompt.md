@@ -1,38 +1,21 @@
-# STS1 战斗求解器 · 交接说明（2026-11-01 22:45 版）
+# STS1 战斗求解器 · 交接说明（2026-11-02 01:30 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
-> **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-01 22:45，测试 **696 条全绿**（0 fail / 0 err，15 skipped），
-> 代码 HEAD = `de9de4b`，未 push。
-> 已安装 `build 1101-222554`；⚠️ 游戏进程是**装之前**启动的，**必须重启 MTS** 才生效。
+> **项目根**：`C://Users//22757//Desktop//sts1-combatsolver`　**分支**：`master`（不是 main）
+> **当前状态**：2026-11-02 01:30，测试 **774 条全绿**（0 fail / 0 err，15 skipped），
+> 代码 HEAD = `f0d75f2`，未 push。
+> 已安装 `build 1102-091257`（含本轮全部改动）；⚠️ 安装时**没有游戏进程在跑**，启动 MTS 即是新 jar。
 >
-> 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做**。
-> 20:28 之前：严格纠偏 Task 1–5 全部落地（`44e8ae6` / `ff2e6ee` / `8c429ac` / `652ae13` / `638e970`）。
-> 20:28 之后：**真机连着打了 5 局，按日志修掉 8 个真 bug**（见 §十一）。
-> 这一段的教训是：自动化全绿只证明口径自洽，**不证明影子准** —— 8 个 bug 全是真机日志暴露的。
+> 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做。**
+> 本轮（11-01 22:45 → 11-02 01:30）做的是「路线质量」：把最终选择换成蓝本的
+> **18 键 `FinalPlanOrdering`**，并补齐它需要的成长/卖血/资源数据。见 §十二。
 >
-> 🔴 **用户 22:41 拍的下一阶段主线**：**不能光赢，要「战损最小 + 收益最大」的赢法**，与蓝本一致。
-> 现成差距见 §九第 3 条（源码实为 `FinalPlanOrdering` **18 键**，当前落了 9 键，缺成长/收益与统一最终选择链）。
-> 🔴 **最新设计已批准**：只做 `docs/plans/2026-11-01-final-plan-ordering.md`；完整候选池、资格过滤、18 键与必要数据源一起复刻，禁止只扩写 `better()`。
+> 🔴 **真机仍是 0 项**：本轮所有改动**一次都没进过游戏**。自动化 774 绿 + 173 快照 A/B
+> 只能证明「口径与蓝本一致、路线在这些快照上更好」，不证明影子准、也不证明真机更好。
 >
-> 🔴 **用户 22:41 拍板（决策 A）**：**不新增**「未找到生还路线就交还控制」的闸 ——
-> 蓝本没有这条（`Survives` 只是排序键，`FinalPlanOrdering.cs:250-252`），
-> 停手只保留 `DeathTurn` 与 `LiveRisk` 两道。
-> 真机日志实测（`2026-11-01.log`，旧 build）：234 次规划 / **48 次 miss / 0 次命中**。
-> 用 497 个快照做相邻回合配对复现（97 对）定位到两个硬 bug 并已修：
-> ① 玩家虚体 ID 是 **`IntangiblePlayer`**（`IntangiblePlayerPower`，javap 核实），
-> 我们全程只认 `Intangible` → 影子看不到减伤，`hp` 首差 **45/97**；
-> ② `hpLossCount` 从来没捕获过（恒 0），影子却每次掉血 +1 → 首差 **16/97**。
-> 剩余首差：`playerPowers.size/id` 12+3、`energy` 6、`discardPile` 5、`hand` 2、`block` 2。
-> 用户反馈三条已修（`db60ff7`）：① 无生还路线 → 停手交还控制（蓝本 `StopFullAutoOnDeathTurn`，
-> 含一个会让它失效的 off-by-one）；② 回合翻页不再清空预览（消除「路线每回合闪一下」）；
-> ③ 路线区行数 3 → 按屏幕自适应（1080p 约 16 行）。🔴 **三条均未真机验证**。
-> ✅ **回合末触发已在真机验证通过**（2026-11-01 13:17 用户确认）。
-> ✅ **P7（跨回合精确续跑）与 P8（药水策略 D5）已实施，自动化全绿**；
-> 🔴 **两者的真机验收都是 0 项**（用户 2026-11-01 挂起真机），本文件不把自动化通过当作真机闭环。
-> ⚠️ UI 十条验收仍是 **0/10**；药水三选一修复（`769f919`）与药水闸假阴性修复（`3da4e6c`）同样未真机复测。
-
----
+> 🔴 **两条已拍板的事没变**：
+> ① 不新增「无生还路线就交还控制」的闸（蓝本没有，`Survives` 只是排序键）；
+> ② 目标是「战损最小 + 收益最大」，不是「能赢就行」。
 
 ## 一、你是谁 / 这是什么
 
@@ -453,60 +436,23 @@ private void callEndOfTurnActions() {
 
 ## 九、下一轮怎么开工
 
-> 上一份施工计划 `docs/plans/2026-11-01-strict-blueprint-parity.md` 的 Task 1–4 已全部完成，
-> Task 5 的审计表已带结果列。**下一阶段的主线是「赢得更省」**（用户 22:41 拍板）。
+> 本轮施工计划 `docs/plans/2026-11-01-final-plan-ordering.md` 的 Task 0–7 已完成
+> （执行结果表在该文件顶部），Task 8 只剩真机与双评审。**下一轮第一件事是真机。**
 
-1. **先装再验**：`./gradlew test --offline`（应为 696 绿）→ `./gradlew jar` → `tools/install.ps1`
-   → **重启 MTS**。不重启就是旧盘，前面所有修复都白搭（本轮踩了两次）。
-2. **真机验收本夜 8 条**（§十一 表格逐条对应）：多段意图、神化不升状态、木乃伊候选、
-   觉醒者半死/REBIRTH、无活怪结束回合、开局发牌不抢跑、回合末风险按真规则推演、抢錢怪可杀。
-3. 🔴 **路线质量 = 战损最小 + 收益最大**（新主线，设计已批准）。蓝本
-   `FinalPlanOrdering.cs:253-271` 实为 **18 键**；当前 9 键之外还缺
-   `GrowthHpCredit / GrowthRewardCount / PolicyHpDeficit / HealthResourceCost / LongTermResourceValue /
-   AngerCopiesGenerated / PolicyBoundaryRank / OptionalPotionCount / StrategicSold`。
-   `PotionStrategicCost` 不是独立最终键，`depth` 需用合同证明等于 `ActionCount`。
-   本轮必须连完整候选池、interim/final 比较器边界、统一药水资格和数据源一起做；
-   唯一施工依据 = `docs/plans/2026-11-01-final-plan-ordering.md`，不许只扩写 `better()` 或自选子集。
-4. **镜像失配清理**（真机 145 次对拍里 30 次失配）：`Plated Armor` 递减差 1~4（多段时每段递减）、
-   `Reaper` 回血量差 1~2、`Headbutt` 弃牌堆顺序导致按 index 取错牌、`Barricade` 量对不上。
-5. **未做就登记未做**：`AdoptRoute`、`RouteFrozen`、`SolverProgress.play_depth`、
+1. `git log --oneline -9`（应为 `f0d75f2` 起）→ `./gradlew test --offline`（774 绿）
+   → `./gradlew jar --offline` → `tools/install.ps1` → **重启 MTS**。不重启全白搭。
+2. **真机验收本夜 8 项 + 本轮排序**（§十一 + §十二）：重点看
+   「低战损优先」「Feed/HoG 会不会为了成长多挨打」「跨回合重搜还卖不卖同一份血」。
+3. **镜像失配**仍是最大噪音源（上轮 145 次对拍 / 30 次失配）：`Plated Armor` 递减、
+   `Reaper` 回血、`Headbutt` 弃牌堆顺序、`Barricade` 量。修完再谈「路线为什么变」。
+4. **未做的蓝本机制**（不要补半成品）：`AdoptRoute`、`RouteFrozen`、`SolverProgress.play_depth`、
    `PotionRewardOutlook`、琥珀限制、`SolverTheftPolicy.LetEscape` 的 UI 开关。
 
-### 已拍板（本轮新增）
+### 已拍板（不变）
 
 - **决策 A（2026-11-01 22:41）**：不新增「无生还路线 → 交还控制」的闸。蓝本没有
   （`FinalPlanOrdering.cs:250-252` 里 `Survives` 只是排序键）。停手只保留 `DeathTurn` + `LiveRisk`，
-  且后者已改成**按真实规则推演整回合**（死亡豁免/多段/易伤都算进去）。
-- **决策 B（2026-11-01 22:43 后）**：批准完整 FinalPlanOrdering 复刻设计。
-  不采用“只补缺失排序键”的局部方案；按正式设计和 TDD 任务书施工。
-
-### 🔴 自创清单（不是“登记后继续”，而是必须撤销/返工）
-
-1. 默认采纳冻结、失配照打，以及把 AdoptRoute 与 RouteFrozen 合并；
-2. 单步走不通只剔一步；
-3. 无生还路线禁止出牌；
-4. 点 Tn 有界 AUTO、冻结模式额外诊断等蓝本没有的本地机制；
-5. P7 节点链代替最终路线回放、单入口 stamp、手牌无序化；
-6. D5 全局 Disabled 压 Force、全局 policy 落盘、policyRevision、Force 失败钉住补搜→null；
-7. 其他写着“最小等价 / 本地扩展 / 项目自定义 / 用户规则 / UI 适配”的行为，逐项重新审计。
-
-### 不要做
-
-- 不要用冻结、剔步或删 stamp 字段掩盖 `SEARCH_REUSE_MISS`。
-- 不要用“用户此前要求”对抗 2026-11-01 19:35 的最新禁止自创规则。
-- 不要把 672 条测试全绿当成蓝本 parity；其中多条旧测试需要改成蓝本反向合同。
-- 不要新建 `CHANGELOG.md`（这个仓库从来没有过）。
-
-### 历史遗留（仍未闭环）
-
-1. UI 十条验收（`docs/plans/2026-10-31-ui-parity.md`）——0/10。
-2. 药水三选一卡死修复（`769f919`）、药水闸假阴性修复（`3da4e6c`）、对拍队列修复（`319bd6e`）的真机复测。
-3. P2 第一嫌疑（最终排序不看 `persistentBuffValue`）—— 需要能赢的样本才准动，见 P2。
-4. `BeamSolver.offensiveProgressOf` 把**抽牌堆里的 Body Slam** 也算「格挡=进攻推进」，
-   导致怪物不攻击时也会先出格挡（`turn-A1F16T2` 复现：那一回合格挡纯白给）。
-   改法只有一行（只认手牌），但要先在 497 个快照上跑 paired A/B，有改善才入库。
-
----
+  后者已改成**按真实规则推演整回合**（死亡豁免/多段/易伤都算）。
 
 ## 十、2026-11-01 纠偏结果表（Task 1–5）
 
@@ -557,3 +503,42 @@ private void callEndOfTurnActions() {
 
 **未闭环**（下一阶段）：`Plated Armor` 递减差 1~4 / `Reaper` 回血差 1~2 / `Headbutt` 弃牌堆顺序 /
 `Barricade` 量对不上；以及 §九第 3 条的「收益最大化」完整 18 键与最终选择链复刻。
+
+---
+
+## 十二、2026-11-02 路线质量（18 键 FinalPlanOrdering）
+
+> 目标（用户 11-01 22:41）：「不能光赢，要战损最小 + 收益最大的赢法，和蓝本一样」。
+
+| 改动 | commit | 蓝本证据 | 自动化 | 快照 A/B | 真机 |
+|---|---|---|---|---|---|
+| 18 键纯数据排序（1 OrderBy + 17 ThenBy） | `4571418` | `FinalPlanOrdering.cs:253-271` | `FinalPlanOrderingTest`(16)+`RouteQualityTest`(6) | — | 未验证 |
+| Feed / 贪婪之手 / 愤怒 真实事件账本 | `f249d13` | `CorePowerSupport.cs:100-265` + javap `FeedAction`/`GreedAction` | 5 个测试类 24 条 | — | 未验证 |
+| 逐回合可避免卖血 + 战斗已承诺卖血 | `86aee8f` | `Terminal.cs:160-235`、`BattleDamageTracker.cs` | `TurnOutcomeTest`(7)+`SoldHpAnnotationTest`(3)+`BattleDamageTrackerTest`(7) | — | 未验证 |
+| 完整候选池（全部 completed + frontier + 药水泳道） | `cd47ceb` | `CombatBeamSolver.cs` finalPool | `FinalCandidatePoolTest`(4) | — | 未验证 |
+| 药水资格并入最终选择器（删「先选再换」） | `cd47ceb` | `PotionUsePolicy.IsEligible` | 5 条旧测试改成反向合同 | — | 未验证 |
+| 探针 v3 + 四个端到端 golden | `f0d75f2` | — | `RouteQualityGoldenTest`(4) | 见下 | 未验证 |
+
+**paired A/B（173 个 `turn-*.json`，同配置同节点上限）**
+
+```
+胜负        172 → 172（唯一那条本来就不生还），无 won→lost
+收尾血量    8274 → 8354（+80，均值 +0.46/快照） 更好/持平/更差 = 17/150/6
+路线        首手变 17、整条变 37、动作 +14、用药 +29
+```
+
+**可重复性**：同一份代码连跑两次（`new-v3.tsv` vs `new-v3b.tsv`）**逐字节相同**
+（胜负 0 变化、血量 ±0、路线 0 变化），所以这 173 条上的差异是真实行为差异，不是计时抖动。
+⚠️ 脚本默认拒绝跨 FORMAT 比较（v2 与 v3 的列不同），需要时显式加 `--allow-format-mismatch`，
+它只会比两边都有的列。
+
+**退化样本已归因**（`A2F33T2`：56 → 46 血，34 → 30 动作，首手 Inflame+ → Combust+）：
+把新实现整个 1744 条候选池按 18 键排开，所有胜利路线里最好的 `strategicHpDeficit` 就是 7 ——
+旧那条根本不在池子里。卖血罚分（`SoldHpPenalty = -20_000`，与蓝本逐值相同）现在进节点分与剪枝，
+旧分支被剪掉了。**不是比较器选错**。
+
+**三条已知偏差（登记，不补）**：第 13 键没有产生方（蓝本也没有 `NoCards`/`Shuffle` 赋值点）；
+没有 `StateKey` 第 19 键（18 键全同保持输入顺序）；成长预算默认空（蓝本默认也是空）。
+
+**回退**：本轮 7 个 commit 相互独立。`git revert f0d75f2 ead6257 cd47ceb 86aee8f f249d13 4571418 24c3394`
+即回到 `2ae3b4b`（18 键之前的 9 键比较器）。

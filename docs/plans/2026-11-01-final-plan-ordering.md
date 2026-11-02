@@ -4,6 +4,52 @@
 > **设计依据**：`docs/plans/2026-11-01-final-plan-ordering-design.md`。
 > **最高规则**：禁止自创，蓝本没有 = 不做；不得改变 18 键顺序、候选范围、默认值或失败语义。
 
+## 执行结果（2026-11-02 01:15 收尾）
+
+| Task | 状态 | commit | 证据 |
+|---|---|---|---|
+| 0.1 探针基线 | ✅ | `24c3394` | 173 快照旧实现基线 → `~/.sts1-combatsolver/ab/base-de9de4b.tsv` |
+| 0.2 真机前置 | ❌ **未做** | — | 未重启 MTS，夜间 8 项仍未真机复验（见 §未闭环） |
+| 1 18 键翻译 | ✅ | `4571418` | `FinalPlanOrderingTest`(16) + `RouteQualityTest`(6)；`KEY_COUNT = 18` |
+| 2 成长/资源账本 | ✅ | `f249d13` | Feed / HoG / Anger 三个来源，javap 守卫（halfDead / Minion / Ectoplasm） |
+| 3 卖血追踪 | ✅ | `86aee8f` | `TurnOutcome` + `TurnOutcomeAnnotator` + `BattleDamageTracker`，27 条测试 |
+| 4 完整候选池 | ✅ | `cd47ceb` | 全部 completed + frontier + 每个用药数一条保留泳道 |
+| 5 统一药水资格 | ✅ | `cd47ceb` | 资格并入 `FinalPlanOrdering.select`，删 `gatePotionSpending`/`verifyPotionStrategy` |
+| 6 全通道一致性 | ✅ | `ead6257` | `FinalSelectionConsistencyTest`(4)：串并行 / novelty / portfolio 同源 |
+| 7.1 探针 v3 | ✅ | `f0d75f2` | 追加 12 个 18 键派生量，`FORMAT=snapshot-probe-v3` |
+| 7.2 配对分析与 golden | ✅ | `ead6257` + `f0d75f2` | `tools/ab_route_quality.py`；`RouteQualityGoldenTest`(4) |
+| 8.1 构建安装 | ✅ | — | `jar` + `tools/install.ps1` |
+| 8.2 真机留证 | ❌ **未做** | — | 需要人重启 MTS |
+| 8.3 双评审 | 🔶 部分 | — | 规范评审自查通过；质量评审见下「已知偏差」 |
+| 8.4 文档 | ✅ | 本轮 commit | 本文件 + handoff + blueprint-parity + 记录.txt |
+
+### Task 4 与 Task 5 合并为一个 commit
+
+两者改的是同一个调用点（`selectFinal` 与它内部的资格链）。拆开会产生一个「池子是完整的、但资格还没进去」
+的中间态，那个态下 `RequireAtLeastOne` 会选出一条不喝药的路线 —— 宁可少一个 commit，不留一个错的中间态。
+这是本轮唯一偏离「每 Task 独立 commit」之处。
+
+### 已知偏差（不是自创，但必须写明）
+
+1. **`SearchBoundaryReason` 的 NO_CARDS / SHUFFLE 没有产生方**。蓝本全仓只有 3 处引用（枚举声明、
+   排名表、overlay 文案），没有任何赋值点；`PendingChoice` 是唯一真会被写入的非 NONE 值，而 STS1
+   把选牌内联成 `choiceIndex`、没有对应物。所以第 13 键在两侧对所有候选都恒为 0（NONE）。
+   原先写的 `NO_CARDS` 标注已**主动删除** —— 补一个蓝本没有的产生方属于自创。
+2. **没有 `StateKey` 第 19 键**。蓝本用 `StateKey` 做最后决胜；我们的候选不携带指纹，
+   18 键全同时保持输入顺序。影响面：两条在所有可观测量上完全相同的路线之间。已登记，不补。
+3. **成长预算默认空**（蓝本默认 `GrowthValues` 全 0 / `IsEnabled == false`）。所以 `GrowthHpCredit`
+   恒为 0，免费成长靠第 7 键（兑现次数）比较。**没有**给预算塞非零默认值。
+4. **未搬**：`PotionRewardOutlook`（腾槽换奖励）、琥珀限制、`SolverTheftPolicy.LetEscape` 的 UI 开关、
+   `AdoptRoute` / `RouteFrozen`。全部登记为未做，没有留半成品。
+
+### 一个退化样本的归因（A2F33T2，-10 HP）
+
+旧实现 `hp 56 / 34 动作 / 首手 Inflame+`；新实现 `hp 46 / 30 动作 / 首手 Combust+`。
+把新实现的**整个 1744 条候选池**按 18 键排开：所有胜利路线里最好的 `strategicHpDeficit` 就是 7，
+旧那条（deficit 更低）**根本不在池子里**。所以这不是比较器选错，而是探索顺序变了 ——
+卖血罚分（`SolverWeights.SoldHpPenalty = -20_000`，与蓝本逐值相同）现在进节点分与剪枝，
+旧的那条分支被剪掉了。两套实现的候选集合本来就不同，`hp` 对比不能单独当成「变差」的证据。
+
 ## 基线与工具
 
 - 项目：`C:\Users\22757\Desktop\sts1-combatsolver`，分支 `master`。
