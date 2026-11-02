@@ -56,6 +56,20 @@ public final class DamageCalc {
         }
         float dmg = targetSideModifiers(state, base + power(state, STRENGTH)
                 + power(state, "Vigor"), target);
+        return finishAttackDamage(state, dmg);
+    }
+
+    /**
+     * 攻击伤害的**尾部链**（所有「玩家打怪物」的攻击入口共用，顺序不可改）：
+     * 笔尖翻倍 → 一次 floor → 靴子下限。
+     *
+     * <p>原版依据：{@code PenNibPower.atDamageGive} 在 powers 列表尾部，晚于力量执行；
+     * {@code AbstractCard.calculateCardDamage} 末尾才 {@code MathUtils.floor} 一次；
+     * {@code AbstractMonster.damage()} 里在算完伤害之后才套靴子的抬升。
+     * 重刃（{@code HeavyBlade.use}）只是把「力量 × 倍率」写进 baseDamage，
+     * 之后仍走同一条 calculateCardDamage → damage 流程，所以尾部必须一致。
+     */
+    private static int finishAttackDamage(SimState state, float dmg) {
         // 笔尖：计数为 9 时打出的这一击（= 第 10 击）翻倍。原版是 PenNibPower.atDamageGive，
         // 而 power 是**后加进列表的排在尾部**，所以它在 Strength 之后执行 —— 加完力量再翻倍。
         // 它同样是 float 乘，不在这里截断（原版末尾才 floor）。
@@ -682,12 +696,12 @@ public final class DamageCalc {
         target.pendingMoveId = 4;
     }
 
-    /** 力量按倍率生效（重刃：力量 ×3/×5）。倍率作用在**力量那一档**，其余照常一次 floor。 */
+    /** 力量按倍率生效（重刃：力量 ×3/×5）。倍率作用在**力量那一档**，其余照常走同一条尾部链。 */
     public static int attackDamageWithStrengthMult(SimState state, int base, int mult,
                                                    SimMonster target) {
         float dmg = targetSideModifiers(state,
                 base + power(state, STRENGTH) * mult + power(state, "Vigor"), target);
-        return Math.max(0, (int) Math.floor(dmg));
+        return finishAttackDamage(state, dmg);
     }
 
     /**
