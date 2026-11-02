@@ -50,6 +50,15 @@ public final class ShadowTracker {
      * 只要被选的牌排在打出的牌后面就会整体左移 1 —— 实测战吼：游戏选 Strike_R，影子搬走 Bash。
      */
     private static final java.util.List<Integer> pendingChoiceIndices = new java.util.ArrayList<Integer>();
+    /**
+     * 每个选择来自哪个牌堆（{@code HAND} / {@code DISCARD} / {@code DRAW} /
+     * {@code EXHAUST} / {@code GENERATED}），与上面两个列表一一对应。
+     *
+     * <p>为什么必须记：True Grit+ 从手牌选、Headbutt 从弃牌堆选、发掘从消耗堆选，
+     * 它们的 {@code choiceIndex} 是**各自牌堆**里的下标。只记手牌下标的话，
+     * Headbutt 会退化成 -1（影子不应用选择），真机就报 hand-2 / discard+1。
+     */
+    private static final java.util.List<String> pendingChoicePiles = new java.util.ArrayList<String>();
     /** 影子算出来的「四堆总张数」。实机达到这个数才算结算完毕。 */
     private static int expectedTotal;
     private static String pendingKey;
@@ -197,6 +206,7 @@ public final class ShadowTracker {
         pendingDeferred = false;
         pendingChoiceKeys.clear();
         pendingChoiceIndices.clear();
+        pendingChoicePiles.clear();
         expectedTotal = -1;
         pending = false;
         pendingKey = null;
@@ -215,10 +225,9 @@ public final class ShadowTracker {
             return;
         }
         pendingChoiceKeys.add(card.cardID + (card.upgraded ? "+" : ""));
-        pendingChoiceIndices.add(AbstractDungeon.player == null
-                || AbstractDungeon.player.hand == null
-                || AbstractDungeon.player.hand.group == null
-                ? -1 : AbstractDungeon.player.hand.group.indexOf(card));
+        String pile = pileOf(card);
+        pendingChoicePiles.add(pile);
+        pendingChoiceIndices.add(indexInPile(card, pile));
     }
 
     /**
@@ -230,6 +239,64 @@ public final class ShadowTracker {
     public static void onGeneratedChoicePicked(int index) {
         pendingChoiceKeys.add(null);
         pendingChoiceIndices.add(index);
+        pendingChoicePiles.add("GENERATED");
+    }
+
+    /**
+     * 这张牌此刻在哪个牌堆里（原版选择界面的来源）。
+     *
+     * <p>顺序按「选择界面能打开的那些」排：手牌选择屏 / 弃牌堆网格 / 抽牌堆网格 / 消耗堆网格。
+     * 找不到就返回 {@code null} —— 那时调用方必须显式拒绝，不能猜成手牌。
+     */
+    static String pileOf(AbstractCard card) {
+        try {
+            AbstractPlayer p = AbstractDungeon.player;
+            if (p == null) {
+                return null;
+            }
+            if (p.hand != null && p.hand.group != null && p.hand.group.contains(card)) {
+                return "HAND";
+            }
+            if (p.discardPile != null && p.discardPile.group != null
+                    && p.discardPile.group.contains(card)) {
+                return "DISCARD";
+            }
+            if (p.drawPile != null && p.drawPile.group != null
+                    && p.drawPile.group.contains(card)) {
+                return "DRAW";
+            }
+            if (p.exhaustPile != null && p.exhaustPile.group != null
+                    && p.exhaustPile.group.contains(card)) {
+                return "EXHAUST";
+            }
+        } catch (Throwable ignored) {
+            // 不在战斗/字段不可见：按「来源未知」处理
+        }
+        return null;
+    }
+
+    private static int indexInPile(AbstractCard card, String pile) {
+        try {
+            AbstractPlayer p = AbstractDungeon.player;
+            if (p == null || pile == null) {
+                return -1;
+            }
+            if ("HAND".equals(pile)) {
+                return p.hand.group.indexOf(card);
+            }
+            if ("DISCARD".equals(pile)) {
+                return p.discardPile.group.indexOf(card);
+            }
+            if ("DRAW".equals(pile)) {
+                return p.drawPile.group.indexOf(card);
+            }
+            if ("EXHAUST".equals(pile)) {
+                return p.exhaustPile.group.indexOf(card);
+            }
+        } catch (Throwable ignored) {
+            return -1;
+        }
+        return -1;
     }
 
     /** 给执行层评估「选哪张更好」用的实机快照（只读副本）。 */
@@ -283,7 +350,8 @@ public final class ShadowTracker {
         }
         int[] out = new int[pendingChoiceKeys.size()];
         for (int i = 0; i < out.length; i++) {
-            out[i] = choiceIndexOf(sim, pendingChoiceKeys.get(i), pendingChoiceIndices.get(i));
+            out[i] = choiceIndexOf(sim, pendingChoiceKeys.get(i), pendingChoiceIndices.get(i),
+                    pendingChoicePiles.size() > i ? pendingChoicePiles.get(i) : null);
         }
         return out;
     }
@@ -515,6 +583,7 @@ public final class ShadowTracker {
         pendingDeferred = false;
         pendingChoiceKeys.clear();
         pendingChoiceIndices.clear();
+        pendingChoicePiles.clear();
         pre = null;
         expectedTotal = -1;
         baseline = null;
@@ -528,12 +597,14 @@ public final class ShadowTracker {
         boolean deferred = pendingDeferred;
         java.util.List<String> choiceKeys = new java.util.ArrayList<String>(pendingChoiceKeys);
         java.util.List<Integer> choiceHints = new java.util.ArrayList<Integer>(pendingChoiceIndices);
+        java.util.List<String> choicePiles = new java.util.ArrayList<String>(pendingChoicePiles);
         pre = null;
         pendingSim = null;
         pendingRejection = null;
         pendingDeferred = false;
         pendingChoiceKeys.clear();
         pendingChoiceIndices.clear();
+        pendingChoicePiles.clear();
         expectedTotal = -1;
 
         if (sim == null && deferred && before != null) {
@@ -541,7 +612,8 @@ public final class ShadowTracker {
             sim = before.copy();
             int[] choices = new int[choiceKeys.size()];
             for (int i = 0; i < choices.length; i++) {
-                choices[i] = choiceIndexOf(sim, choiceKeys.get(i), choiceHints.get(i));
+                choices[i] = choiceIndexOf(sim, choiceKeys.get(i), choiceHints.get(i),
+                        choicePiles.get(i));
             }
             try {
                 CardPlayer.playByKey(sim, pendingKey, pendingTarget,
@@ -575,7 +647,7 @@ public final class ShadowTracker {
                     + " limbo=" + liveLimboSize()
                     + " cards=" + sim.totalCards() + "/" + live.totalCards()
                     + tag + ": " + head(diffs));
-            dumpMismatch(before, sim, live, diffs, choiceKeys, choiceHints);
+            dumpMismatch(before, sim, live, diffs, choiceKeys, choiceHints, choicePiles);
         }
         baseline = live;
     }
@@ -592,7 +664,8 @@ public final class ShadowTracker {
     private static void dumpMismatch(SimState before, SimState sim, SimState live,
                                      List<String> diffs,
                                      java.util.List<String> choiceKeys,
-                                     java.util.List<Integer> choiceHints) {
+                                     java.util.List<Integer> choiceHints,
+                                     java.util.List<String> choicePiles) {
         if (before == null || mismatchDumps >= MAX_MISMATCH_DUMPS) {
             return;
         }
@@ -625,9 +698,7 @@ public final class ShadowTracker {
                     sb.append('"').append(key).append('"');
                 }
                 sb.append(",\"index\":").append(hint.intValue())
-                  // 目前只有「从手牌选」与「从生成候选里选」两种来源；
-                  // 弃牌堆/抽牌堆/消耗堆的选择在 Task 5B 之前还不存在。
-                  .append(",\"pile\":\"").append(key == null ? "GENERATED" : "HAND")
+                  .append(",\"pile\":\"").append(choicePiles.get(i))
                   .append("\"}");
             }
             sb.append("],\"diffs\":[");
@@ -827,21 +898,47 @@ public final class ShadowTracker {
      * <p>优先用「实机选牌瞬间的下标」（hint）：两份手牌的顺序理论上一致，
      * 只要该位置上的牌确实是选中的那张就直接采用。不一致才退回按牌名查找。
      */
-    private static int choiceIndexOf(SimState sim, String choiceKey, int hint) {
+    static int choiceIndexOf(SimState sim, String choiceKey, int hint, String pile) {
         if (choiceKey == null) {
             // 「生成候选」型选择（发现）：下标本来就是生成列表里的位置，直接照抄
             return hint;
         }
-        if (hint >= 0 && hint < sim.hand.size()
-                && sim.hand.get(hint).key().equals(choiceKey)) {
+        java.util.List<io.github.youqing.sts1solver.sim.SimCard> source = pileOf(sim, pile);
+        if (source == null) {
+            // 🔴 来源未知时**不许猜手牌**：Headbutt 从弃牌堆选、发掘从消耗堆选，
+            //    猜成手牌会得到一个「看起来像但选错牌」的下标，比对结果毫无意义。
+            Trace.warn("DIFF choice source unknown for " + choiceKey + " (hint=" + hint + ")");
+            return -1;
+        }
+        if (hint >= 0 && hint < source.size() && source.get(hint).key().equals(choiceKey)) {
             return hint;
         }
-        for (int i = 0; i < sim.hand.size(); i++) {
-            if (sim.hand.get(i).key().equals(choiceKey)) {
+        for (int i = 0; i < source.size(); i++) {
+            if (source.get(i).key().equals(choiceKey)) {
                 return i;
             }
         }
+        Trace.warn("DIFF chosen card " + choiceKey + " not found in " + pile
+                + " (hint=" + hint + ", size=" + source.size() + ")");
         return -1;
+    }
+
+    /** 影子侧同名牌堆；{@code pile == null}（来源未知）返回 null，不退回手牌。 */
+    static java.util.List<io.github.youqing.sts1solver.sim.SimCard> pileOf(
+            SimState sim, String pile) {
+        if ("HAND".equals(pile)) {
+            return sim.hand;
+        }
+        if ("DISCARD".equals(pile)) {
+            return sim.discard;
+        }
+        if ("DRAW".equals(pile)) {
+            return sim.draw;
+        }
+        if ("EXHAUST".equals(pile)) {
+            return sim.exhaust;
+        }
+        return null;
     }
 
     public static String stats() {
