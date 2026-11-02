@@ -80,12 +80,18 @@ tasks.test {
     // 批量探针的可选参数：-Dout=<tsv 落盘路径>（paired A/B 基线）、-Dlimit=<n>（冒烟）。
     providers.systemProperty("out").orNull?.let { systemProperty("out", it) }
     providers.systemProperty("limit").orNull?.let { systemProperty("limit", it) }
+    // 失配回放：-Dcase=<dump 文件或目录>。用于「修完根因后重放真机稳定样本」。
+    providers.systemProperty("case").orNull?.let { systemProperty("case", it) }
+    // 离线段对：-DbatchPair=<冻结快照目录>（严格相邻回合 continuation 配对）。
+    providers.systemProperty("batchPair").orNull?.let { systemProperty("batchPair", it) }
     // 离线实验（@Disabled 的那些）靠这个开关打开：gradle test -Pexperiments
     // 这样不用改源码就能跑 A/B，也就不会出现「忘了把 @Disabled 加回去」。
     if (project.hasProperty("experiments")) {
         filter {
             includeTestsMatching("*ScoreAbTest*")
             includeTestsMatching("*SelfPlayTest*")
+            includeTestsMatching("*MismatchReplayTest*")
+            includeTestsMatching("*ContinuationPairProbeTest*")
         }
         systemProperty("sts1.experiments", "true")
     }

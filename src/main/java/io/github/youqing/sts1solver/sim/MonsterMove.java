@@ -610,6 +610,28 @@ public final class MonsterMove {
             this.extraSelfBuffAmount = Math.max(0, extraSelfBuffAmount);
         }
 
+        /**
+         * 反序列化入口：把 {@link #isEmpty()} / 各工厂写出的全部字段原样装回去。
+         *
+         * <p>为什么必须有一个全参入口：快照回放要求「写出去的 {@code pendingMove}
+         * 能逐字段读回来」（{@code ContinuationStamp} 是逐字段比较的），而现有工厂只覆盖
+         * 单一天然组合，拼不出 {@code CorruptHeart} 那种「第三个减益 + 抽牌堆塞 5 张 +
+         * 第二个自身能力」的组合。这里**不做任何语义加工**，只赋值；越界裁剪与私有构造器一致，
+         * 不新增任何战斗规则。
+         */
+        public static Extra restore(Summon summon, String blockAllyType, int blockAllyTypeAmount,
+                                    int blockAllies, String playerDebuff3, int playerDebuff3Amount,
+                                    boolean cleanseSelf, String statusDrawCard, int statusDrawCount,
+                                    boolean selfDestruct, String absentBuff, int absentBuffAmount,
+                                    boolean reincarnate, boolean blockFromDamage,
+                                    String[] drawPileCards, String extraSelfBuff,
+                                    int extraSelfBuffAmount) {
+            return new Extra(summon, blockAllyType, blockAllyTypeAmount, blockAllies,
+                    playerDebuff3, playerDebuff3Amount, cleanseSelf, statusDrawCard,
+                    statusDrawCount, selfDestruct, absentBuff, absentBuffAmount, reincarnate,
+                    blockFromDamage, drawPileCards, extraSelfBuff, extraSelfBuffAmount);
+        }
+
         public static Extra summon(Summon summon) {
             return new Extra(summon, null, 0, 0, null, 0, false, null, 0, false, null, 0, false,
                     false);

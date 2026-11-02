@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -89,14 +90,22 @@ class SimStateTest {
         assertEquals("Bash", new SimCard("Bash", false, 2).key());
     }
 
+    /**
+     * 手牌换序**必须**报差（2026-11-02 反向合同，以前这里钉的是「换序不算差」）。
+     *
+     * <p>原版 `MadnessAction` 按**手牌下标**抽牌（`MathUtils.random(hand.size()-1)`），
+     * 同样三张牌换个顺序，被降费的那张就换人了 —— 后续整条世界线不同。
+     * 手牌顺序也参与续跑戳（`ContinuationStamp` v2 起保序）。
+     * 把它当无序多重集比较，等于把「随机下标落错位置」静默吞掉。
+     */
     @Test
-    void handOrderIsNotADifference() {
+    void handOrderIsADifference() {
         SimState a = sample();
         SimState b = a.copy();
         java.util.Collections.reverse(b.hand);
 
-        assertTrue(a.diff(b).isEmpty(),
-                "the same cards in a different order are the same hand: " + a.diff(b));
+        assertFalse(a.diff(b).isEmpty(),
+                "different hand order changes which card Madness picks: " + a.diff(b));
     }
 
     @Test

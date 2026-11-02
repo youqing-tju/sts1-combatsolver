@@ -596,8 +596,12 @@ public final class SimState {
 
         diffMap(out, "playerPowers", playerPowers, o.playerPowers);
         diffMap(out, "powerAux", powerAux, o.powerAux);
-        // 手牌顺序对策略没有意义（同名牌完全等价），按多重集比较，避免位置噪声淹没真问题
-        diffHand(out, "hand", hand, o.hand);
+        // 🔴 手牌**保序**比较。以前这里按多重集比（排序后比），理由是「同名牌完全等价」——
+        // 那是错的：原版 `MadnessAction` 按**手牌下标**取随机牌
+        // （`player.hand.group.get(MathUtils.random(hand.size()-1))`），
+        // 同样三张牌换个顺序，被降费的那张就不同，后续世界线完全不同。
+        // 手牌顺序同时也是续跑戳的一部分（ContinuationStamp v2 起就保序）。
+        diffCards(out, "hand", hand, o.hand);
         diffCards(out, "draw", draw, o.draw);
         diffCards(out, "discard", discard, o.discard);
         diffCards(out, "exhaust", exhaust, o.exhaust);
@@ -720,21 +724,6 @@ public final class SimState {
     }
 
     /** Hand order carries no strategic meaning, so it is compared as a multiset. */
-    private static void diffHand(List<String> out, String path, List<SimCard> a, List<SimCard> b) {
-        List<SimCard> x = new ArrayList<SimCard>(a);
-        List<SimCard> y = new ArrayList<SimCard>(b);
-        java.util.Collections.sort(x, BY_KEY);
-        java.util.Collections.sort(y, BY_KEY);
-        diffCards(out, path + "(unordered)", x, y);
-    }
-
-    private static final java.util.Comparator<SimCard> BY_KEY = new java.util.Comparator<SimCard>() {
-        @Override
-        public int compare(SimCard left, SimCard right) {
-            return left.key().compareTo(right.key());
-        }
-    };
-
     /**
      * Removes monsters at 0 HP. The game keeps them during the death animation, so any
      * comparison must normalize both sides first — otherwise the list length differs for
@@ -943,6 +932,12 @@ public final class SimState {
           .append(",\"block\":").append(block)
           .append(",\"energy\":").append(energy)
           .append(",\"energyPerTurn\":").append(energyPerTurn)
+          // 🔴 v5 快照必须带这四个：ContinuationStamp 逐字段比较它们，缺一个就永远不命中。
+          //    以前 toJson 只写了「给搜索用」的字段，于是回放读回来的局面 turn 恒 1、
+          //    hpLossCount 恒 0 —— 与真机不是同一个局面，配对命中率自然恒 0。
+          .append(",\"turn\":").append(turn)
+          .append(",\"hpLossCount\":").append(hpLossCount)
+          .append(",\"turnForcedEnd\":").append(turnForcedEnd)
           .append(",\"deathSaveUsed\":").append(deathSaveUsed)
           .append(",\"deathSaveUseCount\":").append(deathSaveUseCount)
           .append(",\"deathSaveHpRestored\":").append(deathSaveHpRestored)
@@ -962,6 +957,8 @@ public final class SimState {
         sb.append("  \"exhaust\":").append(cardsJson(exhaust)).append(",\n");
         sb.append("  \"relics\":").append(mapJson(relics)).append(",\n");
         sb.append("  \"potions\":").append(listJson(potions)).append(",\n");
+        // 槽位数与「哪几个槽是空的」一起决定捡到的新药水落哪，是状态而不是常量。
+        sb.append("  \"potionSlots\":").append(potionSlots).append(",\n");
         sb.append("  \"monsters\":").append(monstersJson()).append(",\n");
         sb.append("  \"rng\":").append(rngJson()).append("\n}");
         return sb.toString();
@@ -1031,13 +1028,127 @@ public final class SimState {
               .append(",\"intentDmg\":").append(m.intentDmg)
               .append(",\"intentAttack\":").append(m.intentAttack)
               .append(",\"pendingMoveId\":").append(m.pendingMoveId)
-              .append(",\"powers\":").append(mapJson(m.powers)).append('}');
+              // v5：这三样都参与 ContinuationStamp 的逐字段比较，缺了就无法 round-trip。
+              .append(",\"invincibleMax\":").append(m.invincibleMax)
+              .append(",\"stolenGold\":").append(m.stolenGold)
+              .append(",\"damageBase\":").append(intListJson(m.damageBase))
+              .append(",\"moveHistory\":").append(intListJson(m.moveHistory))
+              .append(",\"powers\":").append(mapJson(m.powers))
+              .append(",\"pendingMove\":").append(moveJson(m.pendingMove))
+              .append('}');
         }
         return sb.append(']').toString();
     }
 
-    private String rngJson() {
-        StringBuilder sb = new StringBuilder("{");
+    private static String intListJson(java.util.List<Integer> values) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(values.get(i));
+        }
+        return sb.append(']').toString();
+    }
+
+    /**
+     * 招式载荷的完整序列化。
+     *
+     * <p>字段与 {@code ContinuationStamp.Fields.move/extra} 一一对应：那边比较什么，
+     * 这边就必须写什么，否则「读回来的局面」与「写出去的局面」在续跑戳上不等 ——
+     * 快照再准也永远 miss。这里只做忠实展开，不推断任何缺失值。
+     */
+    private static String moveJson(MonsterMove move) {
+        if (move == null) {
+            return "null";
+        }
+        StringBuilder sb = new StringBuilder(256);
+        sb.append("{\"id\":").append(move.id)
+          .append(",\"damage\":").append(move.damage)
+          .append(",\"hits\":").append(move.hits)
+          .append(",\"block\":").append(move.block)
+          .append(",\"blockRandomAlly\":").append(move.blockRandomAlly)
+          .append(",\"selfBuff\":").append(strJson(move.selfBuff))
+          .append(",\"selfBuffAmount\":").append(move.selfBuffAmount)
+          .append(",\"playerDebuff\":").append(strJson(move.playerDebuff))
+          .append(",\"playerDebuffAmount\":").append(move.playerDebuffAmount)
+          .append(",\"playerDebuff2\":").append(strJson(move.playerDebuff2))
+          .append(",\"playerDebuff2Amount\":").append(move.playerDebuff2Amount)
+          .append(",\"statusCard\":").append(strJson(move.statusCard))
+          .append(",\"statusCount\":").append(move.statusCount)
+          .append(",\"splitInto\":").append(strJson(move.splitInto))
+          .append(",\"splitCount\":").append(move.splitCount)
+          .append(",\"splitInto2\":").append(strJson(move.splitInto2))
+          .append(",\"splitCount2\":").append(move.splitCount2)
+          .append(",\"escape\":").append(move.escape)
+          .append(",\"vampire\":").append(move.vampire)
+          .append(",\"healAllies\":").append(move.healAllies)
+          .append(",\"buffAlliesPower\":").append(strJson(move.buffAlliesPower))
+          .append(",\"buffAlliesAmount\":").append(move.buffAlliesAmount)
+          .append(",\"extra\":").append(extraJson(move.extra))
+          .append('}');
+        return sb.toString();
+    }
+
+    private static String extraJson(MonsterMove.Extra extra) {
+        if (extra == null) {
+            return "null";
+        }
+        StringBuilder sb = new StringBuilder(160);
+        sb.append("{\"summon\":");
+        if (extra.summon == null) {
+            sb.append("null");
+        } else {
+            sb.append("{\"count\":").append(extra.summon.count)
+              .append(",\"cap\":").append(extra.summon.cap)
+              .append(",\"minion\":").append(extra.summon.minion)
+              .append(",\"pool\":[");
+            for (int i = 0; i < extra.summon.pool.length; i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                MonsterMove.Spawn spawn = extra.summon.pool[i];
+                sb.append("{\"type\":").append(strJson(spawn.type))
+                  .append(",\"hpMin\":").append(spawn.hpMin)
+                  .append(",\"hpMax\":").append(spawn.hpMax).append('}');
+            }
+            sb.append("]}");
+        }
+        sb.append(",\"blockAllyType\":").append(strJson(extra.blockAllyType))
+          .append(",\"blockAllyTypeAmount\":").append(extra.blockAllyTypeAmount)
+          .append(",\"blockAllies\":").append(extra.blockAllies)
+          .append(",\"playerDebuff3\":").append(strJson(extra.playerDebuff3))
+          .append(",\"playerDebuff3Amount\":").append(extra.playerDebuff3Amount)
+          .append(",\"cleanseSelf\":").append(extra.cleanseSelf)
+          .append(",\"statusDrawCard\":").append(strJson(extra.statusDrawCard))
+          .append(",\"statusDrawCount\":").append(extra.statusDrawCount)
+          .append(",\"selfDestruct\":").append(extra.selfDestruct)
+          .append(",\"absentBuff\":").append(strJson(extra.absentBuff))
+          .append(",\"absentBuffAmount\":").append(extra.absentBuffAmount)
+          .append(",\"reincarnate\":").append(extra.reincarnate)
+          .append(",\"blockFromDamage\":").append(extra.blockFromDamage)
+          .append(",\"drawPileCards\":[");
+        for (int i = 0; i < extra.drawPileCards.length; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(strJson(extra.drawPileCards[i]));
+        }
+        sb.append("],\"extraSelfBuff\":").append(strJson(extra.extraSelfBuff))
+          .append(",\"extraSelfBuffAmount\":").append(extra.extraSelfBuffAmount)
+          .append('}');
+        return sb.toString();
+    }
+
+    /** 可空字符串：null 写成 JSON {@code null}，不能写成字符串 {@code "null"}。 */
+    private static String strJson(String value) {
+        if (value == null) {
+            return "null";
+        }
+        return '"' + value.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
+    }
+
+    private String rngJson() {        StringBuilder sb = new StringBuilder("{");
         boolean first = true;
         for (RngKind kind : RngKind.values()) {
             RngStream s = rng.get(kind);
