@@ -135,6 +135,8 @@ public final class AutoPilot {
         searchStartedAt = 0;
         deployDriftsThisTurn = 0;
         io.github.youqing.sts1solver.search.AsyncSearch.reset();
+        BattleDamageTracker.reset();
+        battleSnapshot = new BattleDamageTracker.Snapshot(0, 0, 0, 0);
         clearPlan();
         // 换战斗才真的清空预览：这时保留上一场的路线是误导
         preview = null;
@@ -401,6 +403,11 @@ public final class AutoPilot {
     }
 
     public static void tick() {
+        // ①.0 战斗级血账（每帧一次，主线程，只读数字）：
+        //     `SimState.capture()` 读不到「整场掉了多少血」（原版只有 `damagedThisCombat`
+        //     这个「次数」计数），所以累计值只能由**观察帧间血量变化**得到。
+        //     它是排序第 5 键 `StrategicHpDeficit` 的来源之一，跨回合重搜不许清零。
+        observeBattleHp();
         // ① 只展示：把动作落地后的策略现状刷新一遍。即使 AUTO 被手动关闭也要刷完，
         //    否则关掉 AUTO 之后打的牌都不会反映到面板上。它绝不能触发搜索或执行。
         trackScreenTransitions();
@@ -593,6 +600,44 @@ public final class AutoPilot {
         }
     }
 
+    /** 最近一帧的战账（{@link #observeBattleHp()} 更新，捕获时读它，不再重复算）。 */
+    private static volatile BattleDamageTracker.Snapshot battleSnapshot =
+            new BattleDamageTracker.Snapshot(0, 0, 0, 0);
+
+    /** 每帧把「当前血量 + 回合号」喂给战账；掉血/回血都在这里累计。 */
+    private static void observeBattleHp() {
+        AbstractPlayer player = AbstractDungeon.player;
+        if (player == null) {
+            return;
+        }
+        try {
+            int turn = AbstractDungeon.actionManager == null
+                    ? 0 : AbstractDungeon.actionManager.turn;
+            battleSnapshot = BattleDamageTracker.observe(player.currentHealth, turn, 0);
+        } catch (Throwable t) {
+            Trace.warn("battle hp observe failed: " + t);
+        }
+    }
+
+    /**
+     * 战斗级累计掉血（{@code BattleDamageTracker.HpLostSoFar}）。
+     *
+     * <p>它**不进**状态戳与对拍（真机侧无法独立观测，见 {@code SimState.diff} 的注释），
+     * 但必须进搜索起点的 {@code cumulativeHpLost}：否则每次重搜都会把「这一场已经掉了 40 血」
+     * 忘成 0，从而把「再卖 10 点」看得和「一点没卖」一样便宜。
+     */
+    static int battleHpLostSoFar() {
+        return battleSnapshot.hpLostSoFar;
+    }
+
+    /** 真机捕获的唯一入口：捕获之后补上战账里那两个只有主线程知道的数。 */
+    static io.github.youqing.sts1solver.sim.SimState captureLive() {
+        io.github.youqing.sts1solver.sim.SimState state =
+                io.github.youqing.sts1solver.sim.SimState.capture();
+        state.cumulativeHpLost = battleSnapshot.hpLostSoFar;
+        return state;
+    }
+
     /**
      * 结束回合前的最后一道闸（蓝本 {@code LiveEndTurnRiskEvaluator}）：
      * 实机局面投影会死就**不结束回合**，直接交还控制。
@@ -604,7 +649,7 @@ public final class AutoPilot {
     private static boolean stopIfEndTurnWouldKill(AbstractPlayer player) {
         try {
             io.github.youqing.sts1solver.sim.SimState live =
-                    io.github.youqing.sts1solver.sim.SimState.capture();
+                    captureLive();
             int handSize = player == null ? 5 : player.gameHandSize;
             if (!endTurnWouldKillUs(live, handSize)) {
                 return false;
@@ -771,7 +816,7 @@ public final class AutoPilot {
     private static void dumpTurnSnapshot(int turn) {
         try {
             io.github.youqing.sts1solver.sim.SimState snap =
-                    io.github.youqing.sts1solver.sim.SimState.capture();
+                    captureLive();
             String path = snap.saveAs("turn-A" + snap.act + "F" + snap.floor
                     + "T" + turn + ".json");
             Trace.info("TURN snapshot " + path);
@@ -871,7 +916,7 @@ public final class AutoPilot {
             // 先清 dirty 再捕获：万一 capture 抛异常，也不能变成每帧重试
             strategySnapshotDirty = false;
             io.github.youqing.sts1solver.sim.SimState snap =
-                    io.github.youqing.sts1solver.sim.SimState.capture();
+                    captureLive();
             strategySnapshot = io.github.youqing.sts1solver.ui.StrategyStatusSnapshot.from(snap);
             io.github.youqing.sts1solver.ui.SolverPanel.setStrategyStatus(strategySnapshot);
             Trace.info("STRATEGY snapshot refreshed mid-turn  T" + snap.turn
@@ -1504,8 +1549,7 @@ public final class AutoPilot {
      */
     private static io.github.youqing.sts1solver.search.ContinuationStamp liveStampOrNull() {
         try {
-            return io.github.youqing.sts1solver.search.ContinuationStamp.captureLive(
-                    io.github.youqing.sts1solver.sim.SimState.capture());
+            return io.github.youqing.sts1solver.search.ContinuationStamp.captureLive(captureLive());
         } catch (Throwable t) {
             Trace.warn("continuation stamp failed: " + t);
             return null;
@@ -1515,7 +1559,7 @@ public final class AutoPilot {
     /** 当前局面指纹；抓不到（还没捕获根状态）时返回 null = 不做有效性校验。 */
     private static String currentFingerprint() {
         try {
-            return io.github.youqing.sts1solver.sim.SimState.capture().fingerprint();
+            return captureLive().fingerprint();
         } catch (Throwable t) {
             return null;
         }
@@ -1526,7 +1570,7 @@ public final class AutoPilot {
         searchStartedAt = System.currentTimeMillis();
         try {
             io.github.youqing.sts1solver.sim.SimState snapshot =
-                    io.github.youqing.sts1solver.sim.SimState.capture();
+                    captureLive();
             if (snapshot == null) {
                 return;
             }

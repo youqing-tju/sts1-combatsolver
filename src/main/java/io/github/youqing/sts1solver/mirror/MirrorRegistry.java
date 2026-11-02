@@ -356,8 +356,9 @@ public final class MirrorRegistry {
         register("Trip+", Effects.powerOnAll(DamageCalc.VULNERABLE, 2));
 
         // 黑暗镣铐：0 费，目标 -9/-15 力量，消耗
-        registerExhaust("Dark Shackles", Effects.powerOnTarget(DamageCalc.STRENGTH, -9));
-        registerExhaust("Dark Shackles+", Effects.powerOnTarget(DamageCalc.STRENGTH, -15));
+        // 黑暗镣铐：-9/-15 力量，本回合结束还回去（GainStrengthPower = ID "Shackled"）
+        registerExhaust("Dark Shackles", Effects.darkShackles(9));
+        registerExhaust("Dark Shackles+", Effects.darkShackles(15));
 
         // 技巧：0 费 2/4 格挡 + 抽 1，消耗
         registerExhaust("Finesse", Arrays.asList(Effects.block(2), Effects.draw(1)));

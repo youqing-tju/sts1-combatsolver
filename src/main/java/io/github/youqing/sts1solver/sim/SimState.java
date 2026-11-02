@@ -584,8 +584,11 @@ public final class SimState {
         cmp(out, "handOfGreedGrowth", handOfGreedGrowth, o.handOfGreedGrowth);
         cmp(out, "longTermResourceValue", longTermResourceValue, o.longTermResourceValue);
         cmp(out, "angerCopiesGenerated", angerCopiesGenerated, o.angerCopiesGenerated);
-        cmp(out, "cumulativeHpLost", cumulativeHpLost, o.cumulativeHpLost);
-        cmp(out, "recoveredPlayerHp", recoveredPlayerHp, o.recoveredPlayerHp);
+        // ⚠️ 累计掉血 / 累计回血**故意不比**：它们在真机侧根本没有对应物。
+        // 原版只有 `AbstractPlayer.damagedThisCombat`（被打了几**次**，javap：`iadd 1`），
+        // 没有「整场掉了多少血」的计数；`capture()` 只能给 0。
+        // 把它们放进对拍 == 任何一次掉血/回血都必然失配 → 每几个动作就 DEPLOY_REPLAN。
+        // 它们仍然进 `copy()` / 指纹 / JSON，供搜索内部排序使用。
         cmp(out, "hp", hp, o.hp);
         cmp(out, "maxHp", maxHp, o.maxHp);
         cmp(out, "block", block, o.block);

@@ -95,6 +95,17 @@ public final class SimCard {
         return new SimCard(id, upgraded, newCost, baseDamage, type, costForTurn);
     }
 
+    /**
+     * 永久降费**同时**清掉本回合费用（原版 {@code card.cost = 0; card.costForTurn = 0}）。
+     *
+     * <p>神化 / 疯狂这类效果要的是「这场战斗里它一直是 0 费」，只改一个字段会让
+     * 下一回合或换堆之后又变回原价 —— 2026-11-02 真机 `hand[0]: Inflame+(1) vs Inflame+(0)`
+     * 与 `draw[1]: Madness+(1) vs Madness+(0)` 就是这么来的。
+     */
+    public SimCard withCostAndTurn(int newCost) {
+        return new SimCard(id, upgraded, newCost, baseDamage, type, newCost);
+    }
+
     /** 只改**本回合**费用（{@code AbstractCard.setCostForTurn}）。 */
     public SimCard withCostForTurn(int newCostForTurn) {
         return new SimCard(id, upgraded, cost, baseDamage, type, newCostForTurn);

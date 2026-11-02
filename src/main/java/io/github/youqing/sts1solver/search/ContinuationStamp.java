@@ -47,8 +47,10 @@ public final class ContinuationStamp {
      * 它现在参与最终排序，必须逐字段比对。
      * <p>v4：成长/长期资源/Anger 复制数（最终排序第 6/7/11/12 键）——
      * 与 {@code stolenGold} 同一个理由：只差这些字段的两份状态会选出不同路线。
+     * <p>v5：**去掉**累计掉血/累计回血。真机侧没有对应物（原版只有 `damagedThisCombat`
+     * 这个「次数」计数），预测侧有值而真机侧恒 0 —— 带进戳就等于「永远不命中」。
      */
-    public static final String VERSION = "sts1-cont-v4";
+    public static final String VERSION = "sts1-cont-v5";
 
     private static final char FIELD_SEP = ';';
     private static final char PAIR_SEP = '=';

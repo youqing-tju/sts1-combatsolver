@@ -1111,18 +1111,59 @@ public final class Effects {
     }
 
     /** 随机一张手牌费用归零（疯狂 Madness）。 */
+    /**
+     * 疯狂 {@code Madness} / {@code Madness+}：把**一张**随机手牌的费用永久降到 0。
+     *
+     * <p>逐行照 {@code MadnessAction.update} + {@code findAndModifyCard}（javap 核实）：
+     * <pre>
+     * boolean all = 手上存在 costForTurn &gt; 0 的牌；
+     * if (!all &amp;&amp; 没有任何 cost &gt; 0 的牌) return;          // 无事可做，**不掷色子**
+     * loop { card = hand.getRandomCard(cardRandomRng);        // 整手牌均匀抽，不是过滤后的候选表
+     *        if (all ? card.costForTurn &gt; 0 : card.cost &gt; 0) { card.cost = 0; card.costForTurn = 0; return; }
+     *      }                                                    // 抽到不能降的牌就**再抽一次**
+     * </pre>
+     *
+     * <p>⚠️ 旧实现「过滤出候选 → 抽一次 → 无条件改费」三处都错：
+     * 候选表不同 → 抽到另一张；抽一次 vs 抽到能降为止 → {@code cardRandomRng} 少走一格；
+     * 无条件改费 → 会把打不出的伤口也降成 0 费。2026-11-02 真机
+     * {@code rng.CARD … 1 vs 2} + {@code Wound(0) vs Wound(-2)} 就是这三处叠加。
+     */
     public static Effect freeRandomHandCard() {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
-                if (state.hand.isEmpty()) {
+                int size = state.hand.size();
+                if (size == 0) {
                     return;
+                }
+                boolean anyCostForTurn = false;
+                boolean anyCost = false;
+                for (SimCard card : state.hand) {
+                    if (effectiveCostForTurn(card) > 0) {
+                        anyCostForTurn = true;
+                    } else if (card.cost > 0) {
+                        anyCost = true;
+                    }
+                }
+                if (!anyCostForTurn && !anyCost) {
+                    return;                       // 原版这一帧直接 return，不掷色子
                 }
                 io.github.youqing.sts1solver.sim.RngStream rng =
                         state.rng.get(SimState.RngKind.CARD);
-                int index = rng == null ? 0 : rng.random(state.hand.size() - 1);
-                index = Math.min(index, state.hand.size() - 1);
-                state.hand.set(index, state.hand.get(index).withCost(0));
+                // 每抽一次都可能落在「降不了」的牌上（伤口/诅咒），原版会重抽 ——
+                // 上限取手牌数：手上总得有一张能降的，否则上面的守卫已经返回。
+                for (int attempt = 0; attempt < size; attempt++) {
+                    int index = rng == null ? 0 : rng.random(size - 1);
+                    index = Math.max(0, Math.min(index, size - 1));
+                    SimCard card = state.hand.get(index);
+                    boolean reducible = anyCostForTurn
+                            ? effectiveCostForTurn(card) > 0
+                            : card.cost > 0;
+                    if (reducible) {
+                        state.hand.set(index, card.withCostAndTurn(0));
+                        return;
+                    }
+                }
             }
 
             @Override
@@ -1130,6 +1171,11 @@ public final class Effects {
                 return "randomHandCardCost=0";
             }
         };
+    }
+
+    /** 我们自己的 {@code costForTurn = -1} 是「本回合没改过」的哨兵，原版里恒等于 cost。 */
+    private static int effectiveCostForTurn(SimCard card) {
+        return card.costForTurn >= 0 ? card.costForTurn : card.cost;
     }
 
     /** 把选中的手牌放到抽牌堆底（预谋 Forethought）。 */
@@ -1268,6 +1314,38 @@ public final class Effects {
             return 0;
         }
         return state.relics.containsKey("Ectoplasm") ? 0 : amount;
+    }
+
+    /**
+     * 黑暗镣铐 {@code Dark Shackles}：目标 -N 力量，**并在本回合结束时还回去**。
+     *
+     * <p>javap 核实（{@code DarkShackles.use}）：先 {@code StrengthPower(-N)}，然后
+     * {@code if (!m.hasPower("Artifact")) addToBot(new ApplyPowerAction(..., new GainStrengthPower(N)))}
+     * —— 被神器吃掉时不再补还（减益没落地，没什么可还的）。
+     *
+     * <p>⚠️ {@code GainStrengthPower} 的 ID 就是 **"Shackled"**（我们自己的 `PowerHooks` /
+     * `MirrorRegistry` 早就为这个坑写过注释）。它由 {@code atEndOfRound} 还原力量：
+     * 见 {@code CombatFlow} ④.5。旧实现只减力量、不挂 Shackled，
+     * 于是影子以为 Boss 一直被削 9 点力量 —— 比真实情况乐观一整个战斗。
+     */
+    public static Effect darkShackles(final int amount) {
+        return new Effect() {
+            @Override
+            public void applyTo(SimState state, int targetIndex, SimCard played) {
+                SimMonster target = requireTarget(state, targetIndex);
+                if (!applyDebuff(state, target, DamageCalc.STRENGTH, -amount)) {
+                    return;                       // 神器吃掉：不补还
+                }
+                add(target.powers, "Shackled", amount);
+                io.github.youqing.sts1solver.mirror.hooks.Hooks.onPowerApplied(
+                        state, DamageCalc.STRENGTH, -amount, target);
+            }
+
+            @Override
+            public boolean needsMonsterTarget() {
+                return true;
+            }
+        };
     }
 
     /** 空效果（史莱姆粘液 Slimed：只有 Exhaust）。 */

@@ -143,6 +143,15 @@ public final class CombatFlow {
                 Integer str = m.powers.get("Strength");
                 m.powers.put("Strength", (str == null ? 0 : str) + ritual);
             }
+            // GainStrengthPower（ID 就是 **"Shackled"**）的 atEndOfRound：
+            // 黑暗镣铐先减 N 力量，回合结束时把这 N 点还回去并移除能力。
+            // 少了这条，影子会以为被镣铐锁住的怪永远弱 N 点 —— 整个战斗都过于乐观。
+            Integer shackled = m.powers.get("Shackled");
+            if (shackled != null && shackled > 0) {
+                Integer str = m.powers.get("Strength");
+                m.powers.put("Strength", (str == null ? 0 : str) + shackled);
+                m.powers.remove("Shackled");
+            }
             // MalleablePower.atEndOfTurn → amount = basePower（默认 3）
             if (m.powers.containsKey("Malleable")) {
                 m.powers.put("Malleable", Integer.valueOf(3));
