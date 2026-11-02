@@ -1,27 +1,28 @@
-# STS1 战斗求解器 · 交接说明（2026-11-02 13:00 版）
+# STS1 战斗求解器 · 交接说明（2026-11-02 14:40 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-02 13:00，测试 **784 条全绿**（0 fail / 0 err，15 skipped），
-> 代码 HEAD = `a2d82b3`，未 push。
-> 已安装 `build 1102-124214`（真机已加载，见 §十三）。
+> **当前状态**：2026-11-02 14:40，测试 **806 条全绿**（0 fail / 0 err，17 skipped），
+> 代码 HEAD = `8ea4bd6`，未 push。已安装 `build 1102-142125`（**需重启游戏才生效**）。
 >
 > 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做。**
 >
-> 🔴 **真机这一轮通了**：11-02 12:29 起连打三场，第三场是**腐化之心**，
-> `started 41 → 55 血（净赚 14）`，赢了。但失配率仍 46%（16/35 次对拍），
-> 且 `SEARCH_REUSED = 0` —— 每个回合边界都在重算。见 §十三。
+> 🔴 **本轮（14:00–14:40）是「稳定对拍 + 模型根因」批**：删掉了 90 帧到期强判
+> （那是真机 `forced after 90f` 假失配的唯一来源），补齐 v5 快照与严格回放，
+> 并修了 8 个已由字节码证实与蓝本无关的镜像缺口。见 §十四。
 >
-> 🔴 **已拍板的三条**：
+> 🔴 **真机尚未复测**：本轮全部结论是「自动化 + 离线回放」，
+> 旧 dump 全部 `incomplete_schema`（缺 v5 字段），所以**没有一条真机失配被离线证明修好**。
+> 下一轮第一件事 = 重启游戏打几场，用新 dump 重跑 `MismatchReplayTest`。
+>
+> 🔴 **已拍板的三条**（不变）：
 > ① 不新增「无生还路线就交还控制」的闸（蓝本没有，`Survives` 只是排序键）；
 > ② 目标是「战损最小 + 收益最大」，不是「能赢就行」；
-> ③ **不加「失配后用实机重建影子」这类鲁棒性机制**（2026-11-02 12:39 用户选 B）：
->    只治本，逐条消灭镜像根因，不引入蓝本没有的重同步通道。
+> ③ **不加「失配后用实机重建影子」这类鲁棒性机制**：只治本，逐条消灭镜像根因。
 >
-> 🔴 **13:00 后大幅推进审计已完成**：新唯一施工计划为
-> `docs/plans/2026-11-02-mirror-fidelity.md`，可转交提示词仍是
-> `docs/plans/2026-11-01-next-round-prompt.md`。旧「逐卡牌猜格挡/PenNib缺失/Madness只是顺序」
-> 假设已被源码与三态样本纠正；本轮先做稳定对拍与完整回放，再并行修已证实模型根因。
+> 🔴 **并行施工教训**：多个 agent 共用 `~/.sts1-combatsolver/build` 会互相踩坏
+> （`NoSuchFileException: in-progress-results-generic.bin` / `EOFException`）。
+> 并行时必须各自 `local.properties` 指独立 `build.dir`。
 
 ## 一、你是谁 / 这是什么
 
@@ -622,3 +623,90 @@ hp:    expected=32 actual=31
 
 **回退**：本轮 5 个 commit 相互独立，
 `git revert a2d82b3 ae4ea80 66c39db 0f2e581 f0d75f2` 可回到 `ead6257`（真机修镜像之前的状态）。
+
+---
+
+## 十四、2026-11-02 镜像精度批（13:00 → 14:40）
+
+> 口径：**自动化** = `./gradlew test --offline`；**离线回放** = `-Pexperiments -Dcase=<dump>`；
+> **真机** = 进游戏实跑。本轮真机 **未复测**。
+
+### 14.1 提交与状态
+
+| commit | 内容 |
+|---|---|
+| `e382207` | 致死出牌仍执行 BeatOfDeath（`onAfterUseCard` 无存活过滤） |
+| `60ec7df` | 重刃力量倍率入口补 PenNib/Boot（与普通攻击共用尾部链） |
+| `f92b84e` | v5 快照全字段 + `Extra.restore` + 严格/legacy 两档 parser + mismatch 回放 + 手牌保序 diff |
+| `20eb7c0` | 稳定门纳入 `currentAction`；90 帧不再强判；choices 在清空 pending 前落盘 |
+| `a9f78e9` | 六个模型缺口（Brutality / Rupture / 通用升级 / Madness 重抽 / Fiend Fire 批消耗 / 10 张上限）+ 颈环清零 + 逆序弃牌 |
+| `dc316e8` | 玩家侧 Vulnerable/Weakened/Frail 轮末递减 + justApplied |
+| `8ea4bd6` | 严格相邻回合 Continuation 配对探针 |
+
+### 14.2 每个根因的证据状态
+
+| 根因 | 原版证据 | 自动化 | 离线回放 | 真机 | 状态 |
+|---|---|---|---|---|---|
+| BeatOfDeath 致死仍触发 | `UseCardAction.update` 尾部遍历 powers 无 hp 过滤 | ✅ `HooksTest` + `BeatOfDeath*` | 旧 dump 缺字段，无 oracle | 未验证 | 已修 |
+| 重刃漏 PenNib | `HeavyBlade.use` 后仍走 `calculateCardDamage` | ✅ `DamageCalcTest`(3) | 同上 | 未验证 | 已修 |
+| 稳定门缺 currentAction | `getNextAction()` 先 remove 再执行 | ✅ `ShadowTrackerSettleTest`(4) | — | 未验证 | 已修 |
+| 90 帧强判 | — | ✅ 同上（500 帧不出结论） | — | 未验证 | 已删 |
+| Brutality 只挂不生效 | `BrutalityPower.atStartOfTurnPostDraw` | ✅ `BrutalityTest`(4) | 同上 | 未验证 | 已修 |
+| Rupture 只在 loseHp | `RupturePower.wasHPLost` | ✅ `BrutalityTest` + 既有 | 同上 | 未验证 | 已修 |
+| 升级保留旧费用/伤害 | `CardExporter` 的 makeCopy+upgrade 数据 | ✅ `CardPlayerTest` + 表驱动 | 同上 | 未验证 | 已修 |
+| Madness 自造上限 | `findAndModifyCard` 递归 | ✅ 既有 Madness 合同 | 同上 | 未验证 | 已修 |
+| 整手牌正序弃牌 | `DiscardAction` + `getTopCard()` | ✅ `CombatFlowTest` | 同上 | 未验证 | 已修 |
+| Fiend Fire 同步抽牌污染池 | `ExhaustAction` 批 + `addToBot` 抽牌 | ✅ 既有 + 新 | 同上 | 未验证 | 已修 |
+| 手牌上限 10 未执行 | `MakeTempCardInHandAction.update` | ✅ `CardPlayerTest` | 同上 | 未验证 | 已修 |
+| 颈环跨回合不清零 | `VelvetChoker.atTurnStart` | ✅ `RelicHooksTest` | — | 未验证 | 已修 |
+| 玩家减益不递减 | `VulnerablePower.atEndOfRound` | ✅ `PlayerDebuffRoundTickTest`(5) | 同上 | 未验证 | 已修 |
+| 快照缺 v5 字段 | — | ✅ `SnapshotReplayContractTest`(3) | — | — | 已修 |
+| 旧 dump 不能当 oracle | — | ✅ `MismatchReplayTest`（221 全 incomplete） | — | — | 已登记 |
+
+### 14.2.5 路线质量 A/B（188 份 turn-*.json，同配置）
+
+基线 = `a2d82b3`（worktree + 独立 build.dir），对照 = `8ea4bd6`。
+原始数据：`runs/2026-11-02-mirror-fidelity/ab-base.tsv` / `ab-head.tsv`。
+
+```
+胜负        175 仍胜 / 7 负→胜 / 0 胜→负 / 6 仍负
+收尾血量    总计 -1（188 份，均值 -0.01） 更好/持平/更差 = 24/140/24
+路线        首手变 36、整条变 71、动作 +55、用药 -2
+```
+
+**关键**：7 条「原来判必败」变成「现在能赢」，且**没有一条从赢变输**。
+最可能的原因就是本轮修掉的「玩家减益从不递减」—— 以前易伤/虚弱永远不减，
+搜索把后续每一击都按 1.5 倍估伤，直接判死。24 条更差是同一批数值修正的副作用
+（估值变了，路线自然不同），总血量几乎不动，暂不逐条归因。
+
+### 14.3 旧证据的结论（重要的负结果）
+
+- `runs/2026-11-02-mirror-fidelity/mismatch-1102/` 的 **221 份**真机 dump
+  **全部** `incomplete_schema`（缺 `player.turn` / `meta.boss` / `pendingMove` 等）。
+  它们**不能**用来证明任何修复 —— 必须用新 build 重新采集。
+- `ContinuationPairProbeTest` 对 188 份旧 `turn-*.json` 报
+  `total=0 incomplete_schema=188`：旧 151/188 对同样不能算命中率。
+  这正面确认了「`SEARCH_REUSED=0/30` 是快照缺字段 + 稳定门早拍共同造成」。
+- 因此本轮**不宣称**失配率下降或续跑命中提升；只宣称「已证实的模型缺口被按原版修掉」。
+
+### 14.4 下一轮第一件事
+
+1. 重启游戏（新 jar `1102-142125` 已装），打一场多回合战斗 + 一场带 Brutality/易伤的战斗。
+2. 用新 `mismatch/*.json` 跑：
+   ```bash
+   ./gradlew test --offline -Pexperiments --tests "*MismatchReplayTest" -Dcase=<新 dump 目录>
+   ```
+   只有 `replay=*` 的样本能出结论；`incomplete_schema` 必须为 0。
+3. 用新 `turn-*.json` 跑：
+   ```bash
+   ./gradlew test --offline -Pexperiments --tests "*ContinuationPairProbeTest" \
+       -DbatchPair=<冻结目录> -Dout=<pair.tsv>
+   ```
+   第一次得到**真实**命中率。
+4. 仍要做（本轮未做）：`SporeCloud` 死亡联动、`SpireShield` 死亡清理、
+   `choicePile` 坐标（HAND/DISCARD/EXHAUST）、跨卡 flush 基线锚点。
+
+### 14.5 回退
+
+本轮 commit 相互独立，`git revert 8ea4bd6 dc316e8 a9f78e9 20eb7c0 f92b84e 60ec7df e382207`
+可回到 `4172fd1`（即上一轮的 `a2d82b3` + 两个 docs）。

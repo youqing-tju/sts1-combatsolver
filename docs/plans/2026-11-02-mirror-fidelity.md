@@ -1,5 +1,10 @@
 # 2026-11-02 镜像精度与跨回合命中实施计划
 
+> **状态（2026-11-02 14:40）**：Task 1、2、3A、3B、3C、4A、4B、4C、4D、4E、5A、5C(部分)、6 已完成；
+> Task 5B（choicePile 坐标）、5C 的 SporeCloud/SpireShield、5D（跨卡 flush 基线）**未做**；
+> Task 7 的构建安装已完成（`build 1102-142125`），**真机复测未做**（需重启游戏）；
+> Task 8 文档已更新。完成明细见 `docs/handoff-prompt.md` §十四。
+>
 > **For implementer:** 全程 TDD。每个根因先写失败测试并看到预期失败，再写最小实现。目标内自主调查、修改、测试、构建、安装、真机验证和本地 commit；不 push。
 >
 > 设计依据：`docs/plans/2026-11-02-mirror-fidelity-design.md`。禁止重同步、删戳字段、放宽比较、冻结路线或砍搜索预算。

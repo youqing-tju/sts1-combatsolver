@@ -203,3 +203,15 @@ read_when:
 
 **纪律**：任何行为只能是【蓝本，给 file:line】或【STS1 原版补正，给 javap】；
 蓝本没有的一律移除。测试全绿不等于 parity，钉住自创语义的旧测试必须改成蓝本反向合同。
+
+---
+
+## 2026-11-02 14:40：本轮没有新增蓝本对应关系
+
+`2026-11-02-mirror-fidelity.md` 的 Task 1–6 全部是 **STS1 原版机制**的镜像修正
+（BeatOfDeath 尾部钩子、重刃 PenNib、Brutality、升级数值、Madness 重抽、逆序弃牌、
+Fiend Fire 批消耗、10 张上限、颈环清零、玩家减益轮末递减），证据一律是 `javap`
+字节码，**与蓝本 `reference/sts2-combatsolver` 无关**，因此不在这里登记对应关系。
+
+蓝本侧仍然未做的项不变：`AdoptRoute`、`RouteFrozen`、`play_depth`、
+`PotionRewardOutlook`、琥珀限制、`SolverTheftPolicy.LetEscape` 的 UI 开关。

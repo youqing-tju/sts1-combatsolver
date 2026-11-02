@@ -231,3 +231,21 @@ STS1 CombatSolver 工程经验记录
     124214 在12:56后的真机基线为 SEARCH_REUSED=0/30，新配对必须按 build/run 冻结并严格读全 v5 字段。
 98. 本轮采用多根因并行审计，形成 `2026-11-02-mirror-fidelity-design.md` 与同名 Task 0–8 计划；
     先稳定观测/回放，再并行修模型，最后真机命中验收。设计阶段未改 Java、未跑测试、未 push。
+99. 对拍稳定门不能有「到期强判」：`resolve(true)` 到期就写 MISMATCH，涨 mismatchSeq 触发 DEPLOY_REPLAN，
+    而多段动作（Fiend Fire / BeatOfDeath）本来就要跑 2 秒以上。正确语义是未决就继续等，
+    只限频打 `DIFF WAIT`，不计数、不写 baseline、不放 isIdle；稳定后仍不同才报。
+100. `actions=[]` 不代表当前动作执行完：`GameActionManager.getNextAction()` 先 remove 再执行，
+     执行期间 `currentAction` 非空。稳定门必须同时看它 —— 固定等待帧替代不了。
+101. Rupture 是 `wasHPLost`（AbstractCreature.damage 派发），任何真实掉血都触发，
+     不只放血卡。写在 Effects.loseHp 里等于把「挨打掉血」「Brutality 掉血」全漏掉；
+     正确位置是唯一扣血口 hitPlayer。
+102. 玩家侧回合制减益（Vulnerable/Weakened/Frail）的 atEndOfRound 以前完全没实现，
+     易伤挂 3 层永远 3 层 —— 系统性地高估伤害。justApplied 是私有布尔，
+     用 powerAux 作两侧共同载体（预测侧写、capture 反射读）。
+103. 整手牌弃牌必须从尾张开始：`DiscardAction` 反复 `getTopCard()`（= group.get(size-1)），
+     正序 addAll 会改变洗牌后的世界线。
+104. 共用 `~/.sts1-combatsolver/build` 时不能并发跑 Gradle：两个进程同时写 test-results
+     会让另一个直接 `NoSuchFileException: in-progress-results-generic.bin` / `EOFException`，
+     看起来像测试挂了，其实是构建目录被踩。并行 agent 必须各自 local.properties 指独立 build.dir。
+105. 旧 mismatch dump（v5 之前）全部缺 turn/boss/pendingMove 等字段，严格读一律 incomplete_schema。
+     这不是失败，是「这批证据不足以下结论」；把「全是 incomplete」判成失败会逼人补默认值 = 伪造 oracle。
