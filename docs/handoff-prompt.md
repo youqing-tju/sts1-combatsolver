@@ -1,9 +1,9 @@
-# STS1 战斗求解器 · 交接说明（2026-11-02 14:40 版）
+# STS1 战斗求解器 · 交接说明（2026-11-02 14:45 版）
 
 > **用法**：整份贴进新对话，第一条消息就给全上下文。
 > **项目根**：`C:\Users\22757\Desktop\sts1-combatsolver`　**分支**：`master`（不是 main）
-> **当前状态**：2026-11-02 14:40，测试 **806 条全绿**（0 fail / 0 err，17 skipped），
-> 代码 HEAD = `8ea4bd6`，未 push。已安装 `build 1102-142125`（**需重启游戏才生效**）。
+> **当前状态**：2026-11-02 14:45，测试 **816 条全绿**（0 fail / 0 err，17 skipped），
+> 代码 HEAD = `966db98`，未 push。已安装 `build 1102-142939`（**需重启游戏才生效**）。
 >
 > 🔴 **硬规则第一条 = 禁止自创，蓝本没有 = 不做。**
 >
@@ -642,6 +642,8 @@ hp:    expected=32 actual=31
 | `a9f78e9` | 六个模型缺口（Brutality / Rupture / 通用升级 / Madness 重抽 / Fiend Fire 批消耗 / 10 张上限）+ 颈环清零 + 逆序弃牌 |
 | `dc316e8` | 玩家侧 Vulnerable/Weakened/Frail 轮末递减 + justApplied |
 | `8ea4bd6` | 严格相邻回合 Continuation 配对探针 |
+| `b375a2f` | 孢子云：真菌兽战斗中死亡给玩家 +2 易伤（战斗要结束时不触发） |
+| `966db98` | 选择坐标按来源牌堆解析（HAND/DISCARD/DRAW/EXHAUST），未知来源拒绝而非猜手牌 |
 
 ### 14.2 每个根因的证据状态
 
@@ -660,6 +662,8 @@ hp:    expected=32 actual=31
 | 手牌上限 10 未执行 | `MakeTempCardInHandAction.update` | ✅ `CardPlayerTest` | 同上 | 未验证 | 已修 |
 | 颈环跨回合不清零 | `VelvetChoker.atTurnStart` | ✅ `RelicHooksTest` | — | 未验证 | 已修 |
 | 玩家减益不递减 | `VulnerablePower.atEndOfRound` | ✅ `PlayerDebuffRoundTickTest`(5) | 同上 | 未验证 | 已修 |
+| 孢子云死亡联动 | `SporeCloudPower.onDeath` | ✅ `SporeCloudTest`(3) | 同上 | 未验证 | 已修 |
+| 选择坐标只查手牌 | True Grit+ / Headbutt / Exhume 的来源牌堆 | ✅ `ChoicePileCoordinateTest`(7) | 同上 | 未验证 | 已修 |
 | 快照缺 v5 字段 | — | ✅ `SnapshotReplayContractTest`(3) | — | — | 已修 |
 | 旧 dump 不能当 oracle | — | ✅ `MismatchReplayTest`（221 全 incomplete） | — | — | 已登记 |
 
@@ -703,8 +707,8 @@ hp:    expected=32 actual=31
        -DbatchPair=<冻结目录> -Dout=<pair.tsv>
    ```
    第一次得到**真实**命中率。
-4. 仍要做（本轮未做）：`SporeCloud` 死亡联动、`SpireShield` 死亡清理、
-   `choicePile` 坐标（HAND/DISCARD/EXHAUST）、跨卡 flush 基线锚点。
+4. 仍要做（本轮未做）：`SpireShield` 死亡清理（`Surrounded`/`BackAttack` 我们没有建模，
+   所以这条目前无对应物，需先确认是否要建）、跨卡 flush 的基线锚点（Task 5D）。
 
 ### 14.5 回退
 
