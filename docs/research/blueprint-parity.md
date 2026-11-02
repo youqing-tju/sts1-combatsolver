@@ -32,7 +32,7 @@ read_when:
 | `DarkEmbracePower` / `FeelNoPainPower` 的 `onExhaust` | `Effects.exhaustCard`（唯一消耗口） | ✅ **已复刻（2026-11-02，`ae4ea80`）**：以前两张能力只被 `powerOnPlayer` 写进 `powers` 表、**没有任何读取方**，于是每次消耗牌真机抽 1/加格挡、影子都不动（真机 `hand.size: 5 vs 9`、`draw.size: 13 vs 9`）。现在 `exhaustCard` 里按 `DrawCardAction(amount)` / `GainBlockAction(amount)` 翻译 |
 | `InvinciblePower.onAttackedToChangeDamage` | `DamageCalc.hitAndReturnDealt` | ✅ **已复刻（`a2d82b3`）**：每回合累计上限 + `atStartOfTurn` 重置。以前只挂在 `hit()`，多段/AoE/逐张结算（Fiend Fire、Sword Boomerang）绕过上限 → 真机 `monsters[0].hp: 387 vs 441` 且 `Invincible: 0 vs 54`。现在上限在**唯一扣血口**，两条路径共用一份额度 |
 | `BarricadePower`（amount = 卡牌 `magicNumber` = -1） | `MirrorRegistry` + `CombatFlow` ⑤ | ✅ **已复刻（`ae4ea80`）**：原版存 -1，我们存 1 → 打出后**永久失配**。改成 -1 的同时把「格挡是否衰减」的判据从 `amount > 0` 改为 `containsKey`，否则壁垒会静默失效 |
-| `MadnessAction.findAndModifyCard` | `Effects.freeRandomHandCard` | ✅ **已复刻（`66c39db`）**：整手牌均匀抽 + 抽到不能降的**重抽** + 同时写 `cost`/`costForTurn`。旧实现过滤候选、只抽一次、无条件降费（真机 `Wound(0) vs Wound(-2)` + `rng.CARD … 1 vs 2`）。⚠️ 仍未解决：`getRandomCard` 按**手牌下标**取牌，而手牌只按无序多重集比对 |
+| `MadnessAction.findAndModifyCard` | `Effects.freeRandomHandCard` | 🔶 **部分（`66c39db`）**：已改整手牌均匀抽、重抽与同步写 `cost`/`costForTurn`；但仍有自造 size 重抽上限，普通 `SimState.diff` 仍忽略手牌顺序。Apotheosis 的 draw[4] 费用差已证实是通用 upgradeOf 保留旧 cost，不是本条随机映射。按 `2026-11-02-mirror-fidelity.md` 继续纠偏 |
 | `GainStrengthPower`（ID 为 `"Shackled"`）| `Effects.darkShackles` + `CombatFlow` ④.5 | ✅ **已复刻（`66c39db`）**：黑暗镣铐先 `StrengthPower(-N)`，未被神器吃掉时再挂 `GainStrengthPower(N)`，`atEndOfRound` 还原。旧实现只减力量 → 影子以为 Boss 整场弱 N 点 |
 | `GrowthValues`（Feed / HandOfGreed / Anger 三个来源） | `search/GrowthValues` + `SimState.feedGrowth/handOfGreedGrowth/longTermResourceValue/angerCopiesGenerated` | ✅ **已复刻（`f249d13`）**：只映射 STS1 同名且 javap 核实的来源 —— `FeedAction`（`!halfDead && !Minion` 才 `increaseMaxHp(magicNumber,true)`）、`GreedAction`（同两条守卫；`AbstractPlayer.gainGold` 遇 `Ectoplasm` 直接返回，所以长期资源 = 实收金额、成长事件仍计数）、`Anger` 的 `MakeTempCardInDiscardAction`。Dual Wield 等其它复制效果**不记账**。Beam 侧按 `SolverWeights.cs:46-49,78` 计价（`LongTermResourceBeamValue/Cap = 25_000`、`AngerCopyBeamPenalty = -15_000`）。未搬：蓝本其余 8 个成长来源（STS1 没有同名机制） |
 | `BattleDamageTracker` + 逐回合 `FutureSoldHp` | `verify/BattleDamageTracker` + `search/TurnOutcomeAnnotator` | ✅ **已复刻（`86aee8f`）**：`CumulativePlayerHpLost` / `RecoveredPlayerHp` 由影子真实累计（不再用「起点血量 − 当前血量」近似）；回合结果按 `(回合, 回合起点指纹, 药水槽掩码)` 分组求最低可达掉血，多掉的部分记 `FutureSoldHp`，罚分 `SoldHpPenalty = -20_000`（与 `SolverWeights.cs:98` 逐值相同）；主线程 `BattleDamageTracker` 结算 `min(计划, 实际)`，跨重搜不清零 |
@@ -161,7 +161,7 @@ read_when:
 
 > 2026-11-01 19:35 用户取消此前所有本地例外。下表不是“登记后保留”，而是撤改清单。
 > 严格纠偏 `2026-11-01-strict-blueprint-parity.md` Task 1–5 已完成。
-> 当前路线质量施工计划：`docs/plans/2026-11-01-final-plan-ordering.md`。
+> 当前镜像精度施工计划：`docs/plans/2026-11-02-mirror-fidelity.md`（18键路线质量计划已完成）。
 
 | 当前行为 | 蓝本标准与证据 | 处置 | 结果 |
 |---|---|---|---|

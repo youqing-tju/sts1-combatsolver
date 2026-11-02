@@ -206,3 +206,28 @@ STS1 CombatSolver 工程经验记录
     `START_OF_TURN_POST_DRAW`。**动手前先 grep 一遍读取方**，别只看 sim 层。
 87. 用户 12:39 选 B：不加「失配后重建影子」的鲁棒性通道（蓝本没有）。所以下一步只有一条路 ——
     把镜像精度磨上去，尤其是回合边界的 1~3 点 hp/block（它决定 `SEARCH_REUSED` 能不能命中）。
+
+十六、2026-11-02 镜像精度并行审计与施工设计
+
+88. `actions=[]` 不等于当前动作执行完：GameActionManager 先把 action 出列再执行。
+    对拍稳定门必须同时看 `currentAction`，否则 UseCardAction 尾部的 onAfterUseCard 队列还没落地就出假失配。
+89. 未决样本不能写成真实 MISMATCH、增加 mismatchSeq 或触发 DEPLOY_REPLAN；但也不能一刀切吞掉 forced。
+    正确口径是未决不出结论，稳定后仍不同的真失配照常报告。
+90. 致死出牌仍执行怪物 `onAfterUseCard`。UseCardAction 先打出效果再遍历 powers，
+    该点没有 isDeadOrEscaped/hp 过滤；不要拿普通帧末死亡清理语义套这个时点。
+91. 一个遗物/能力要沿原版完整副作用链审查：Heavy Blade 的力量倍率入口漏 PenNib，
+    普通攻击入口正确并不代表倍率入口也正确。PenNib 第9挂/第10摘早已存在，别重复修。
+92. 通用 upgradeOf 不能只翻 upgraded 并保留旧数值。CardExporter 已用原版 makeCopy()+upgrade()
+    机械导出16个改费、34个改伤条目，应表驱动复用；SimCard.equals 漏 baseDamage，对拍没报不等于状态没差。
+93. 手牌顺序是随机语义的一部分：整手牌回合末从尾部逐张进弃牌堆，洗牌后同一随机下标才会落到同一张卡。
+    普通 diff 也不能再把 hand 排序成无序多重集；ContinuationStamp 保序不等于诊断层已保序。
+94. Madness 原版是“不可降就重抽直到成功”，自造 size 上限会静默不降费。
+    Brutality 则是另一个独立缺口：START_OF_TURN_POST_DRAW 抽 amount + HP_LOSS amount，并继续触发受伤钩子。
+95. 动作队列顺序要区分“数量假失配”和“身份真失配”：Fiend Fire 必须先完成本批消耗再执行 DarkEmbrace 抽牌，
+    否则新抽牌污染本批随机池；Power Through 等生成手牌效果还要执行原生10张上限，溢出入弃牌堆。
+96. 选择回放必须带 choicePile、出牌后候选下标、同名牌 occurrence 与 confirmed 身份。
+    True Grit 用出牌前下标会左移/越界，Headbutt 的弃牌堆选择不能丢；跨卡 flush 的基线必须锚在下一张牌 onPlayCard 前。
+97. 快照缺字段时不能靠默认0/false硬算 continuation 命中率。旧151对只能报 incomplete_schema；
+    124214 在12:56后的真机基线为 SEARCH_REUSED=0/30，新配对必须按 build/run 冻结并严格读全 v5 字段。
+98. 本轮采用多根因并行审计，形成 `2026-11-02-mirror-fidelity-design.md` 与同名 Task 0–8 计划；
+    先稳定观测/回放，再并行修模型，最后真机命中验收。设计阶段未改 Java、未跑测试、未 push。

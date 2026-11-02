@@ -17,6 +17,11 @@
 > ② 目标是「战损最小 + 收益最大」，不是「能赢就行」；
 > ③ **不加「失配后用实机重建影子」这类鲁棒性机制**（2026-11-02 12:39 用户选 B）：
 >    只治本，逐条消灭镜像根因，不引入蓝本没有的重同步通道。
+>
+> 🔴 **13:00 后大幅推进审计已完成**：新唯一施工计划为
+> `docs/plans/2026-11-02-mirror-fidelity.md`，可转交提示词仍是
+> `docs/plans/2026-11-01-next-round-prompt.md`。旧「逐卡牌猜格挡/PenNib缺失/Madness只是顺序」
+> 假设已被源码与三态样本纠正；本轮先做稳定对拍与完整回放，再并行修已证实模型根因。
 
 ## 一、你是谁 / 这是什么
 
@@ -437,20 +442,24 @@ private void callEndOfTurnActions() {
 
 ## 九、下一轮怎么开工
 
-> 先读 §十三：真机已经跑通一轮，剩下的全是**镜像精度**问题，不是排序/执行语义问题。
+> **唯一施工计划**：`docs/plans/2026-11-02-mirror-fidelity.md`；
+> 设计：`2026-11-02-mirror-fidelity-design.md`。18键路线质量已完成，不再重开。
 
-1. `git log --oneline -5`（应为 `a2d82b3` 起）→ `./gradlew test --offline`（784 绿）
-   → `./gradlew jar --offline` → `tools/install.ps1` → **重启 MTS**。
-2. **按 §十三 的失配清单逐条消灭**，优先级：
-   - `block` 差 1（8/16 次，方向不固定）→ 先加「逐张牌格挡增量」诊断日志再定位；
-   - `hp -1 + Next Turn Block +3`（我们多掉 1 血 → 自成形黏土多给 3 格挡）；
-   - `Fiend Fire` / `Warcry+` 的 `forced after 90f` 手牌漂移（疑与「结算未完成就对比」有关）；
-   - `Madness` 费用（手牌**顺序**喂给 `getRandomCard`，而我们只按无序多重集比对）；
-   - `Pen Nib` power（第 10 击那一窗我们只改遗物计数、不挂 power）。
-3. **跨回合续跑命中率**：目前 `REUSED = 0`，miss 的首差都是 1~3 点的 `hp` / `block`。
-   这条不解决，「路线每回合变」就不会消失。不要用放宽比较或重同步绕过（用户已选 B）。
-4. 未做的蓝本机制仍然未做：`AdoptRoute`、`RouteFrozen`、`play_depth`、
+1. `git log --oneline -5` → `./gradlew test --offline`（当前784绿）→ 冻结 build/run 证据。
+2. **先修观测与回放**：完整 v5 快照、单一 JSON parser、稳定 MISMATCH DUMP 重放；
+   对拍稳定门必须包含 `GameActionManager.currentAction`，90帧未决不能写真实 MISMATCH。
+3. **并行修已证实模型根因**：BeatOfDeath 致死仍触发、Heavy Blade+PenNib、Brutality 回合初、
+   通用升级16改费+34改伤、Madness持续重抽、手牌保序diff、整手牌逆序弃牌、
+   Fiend Fire批消耗后抽牌、原生10张手牌上限。
+4. **13:00后长尾**：颈环回合清零 → HAND/DISCARD/EXHAUST选择坐标 →
+   SporeCloud/Vulnerable/SpireShield → 跨卡flush基线。每项独立RED/GREEN/commit。
+5. **续跑验收**：新建严格相邻回合探针；旧151对缺v5字段只能报 incomplete_schema。
+   124214在12:56后的真机基线是 `SEARCH_REUSED=0/30`；不得用旧文件或删字段伪提命中率。
+6. 未做的蓝本机制仍然未做：`AdoptRoute`、`RouteFrozen`、`play_depth`、
    `PotionRewardOutlook`、琥珀限制、`SolverTheftPolicy.LetEscape` 的 UI 开关。
+
+**已推翻的旧施工假设**：不再加逐卡牌格挡日志；前7条block差1是早拍，Bash那条才是致死钩子真bug；
+PenNib第9挂/第10摘已存在；Apotheosis费用差不是Madness随机顺序；Headbutt/True Grit先修选择坐标与证据。
 
 ## 十、2026-11-01 纠偏结果表（Task 1–5）
 
