@@ -4,7 +4,9 @@
 
 对标 [Torch1230/CombatSolver](https://github.com/Torch1230/CombatSolver)（STS2），搜索层是**逐条翻译**它的实现，不是自己发明的机制。
 
-> 当前状态（2026-10-31）：铁甲战士 Act 1–4 可全自动跑通；最新一局以 29/80 血通过第三幕 Boss 进入第四幕。532 条单元/回归测试全绿。真机对拍（每张牌都和游戏结算逐字段比对）失配率约 25%，仍在逐条清零。
+> 当前状态（2026-11-02 阶段性收工）：822 条单元/回归测试全绿（18 skipped）。稳定对拍、完整快照/回放、18 键最终路线排序与 v6 精确续跑戳已落地；最新安装 build `1102-210032` **尚未完成真机复测**。
+>
+> **接手开发请先读 [`docs/handoff-prompt.md`](docs/handoff-prompt.md)**，其中写明当前验证边界、下一步，以及主项目、蓝本和游戏的本地路径与仓库地址。
 
 ## 它怎么工作
 
@@ -35,10 +37,11 @@ verify/        每打一张牌，把影子算出的结果与游戏真实结果�
 # 1) 从游戏目录与创意工坊同步编译所需的两个 jar 到 lib/（不入库）
 powershell -File tools/sync-libs.ps1
 
-# 2) 构建 + 测试（产物是 Java 8 字节码）
-.\gradlew.bat build
+# 2) 全量测试 + 构建 jar（产物是 Java 8 字节码）
+.\gradlew.bat test --offline
+.\gradlew.bat jar --offline
 
-# 3) 安装到游戏 mods/ 并启动
+# 3) 安装到游戏 mods/，随后完全重启 MTS-launch.cmd
 powershell -File tools/install.ps1
 ```
 
@@ -54,6 +57,8 @@ powershell -File tools/install.ps1
 
 ## 文档
 
+- **当前交接总纲**：[`docs/handoff-prompt.md`](docs/handoff-prompt.md)
+- 最新阶段报告：[`docs/reports/2026-11-02-mirror-fidelity-report.md`](docs/reports/2026-11-02-mirror-fidelity-report.md)
 - 设计定稿：[`docs/plans/2026-10-20-design.md`](docs/plans/2026-10-20-design.md)
 - 执行计划（M0–M5）：[`docs/plans/2026-10-20-m0-m5-plan.md`](docs/plans/2026-10-20-m0-m5-plan.md)
 - 蓝本复刻对照表（哪块已搬、哪块没搬、按什么顺序搬）：[`docs/research/blueprint-parity.md`](docs/research/blueprint-parity.md)
