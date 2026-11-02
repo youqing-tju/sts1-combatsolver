@@ -1840,8 +1840,11 @@ public final class AutoPilot {
     private static boolean drained() {
         GameActionManager am = AbstractDungeon.actionManager;
         boolean actionsEmpty = am.actions == null || am.actions.isEmpty();
+        // `getNextAction()` 先把动作移出列表再执行，所以 actions 空 **不代表** 当前动作已落地：
+        // DamageAction / ApplyPowerAction 执行期间 currentAction 非空。出下一手前必须等它。
+        boolean currentActionDone = am.currentAction == null;
         boolean queueEmpty = am.cardQueue == null || am.cardQueue.isEmpty();
         boolean limboEmpty = AbstractDungeon.player.limbo == null || AbstractDungeon.player.limbo.isEmpty();
-        return actionsEmpty && queueEmpty && limboEmpty;
+        return actionsEmpty && currentActionDone && queueEmpty && limboEmpty;
     }
 }

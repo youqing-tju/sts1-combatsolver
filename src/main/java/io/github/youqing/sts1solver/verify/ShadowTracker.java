@@ -69,8 +69,20 @@ public final class ShadowTracker {
     private static boolean debugActive;
 
     private static final int SETTLE_FRAMES = 2;
-    /** 兜底：某张牌让 limbo 一直不空时，等 1.5 秒也要出结论，并标记 forced。 */
+    /**
+     * 未决报告阈值：超过它仍不稳定就**定期**打一行诊断，但**绝不出结论**。
+     *
+     * <p>🔴 2026-11-02：这里以前是 `resolve(true)` —— 1.5 秒到期就强制比对并写 MISMATCH。
+     * 真机日志里那些 `forced after 90f` 的 Fiend Fire / Warcry 样本全是这么来的：
+     * 多段动作队列本来就要跑 2 秒以上，到期那一刻实机还在第 9 击和第 10 击之间，
+     * 影子当然对不上。把它记成「镜像 bug」会让人去改根本没坏的代码。
+     *
+     * <p>正确语义（蓝本 {@code SolverController} 的稳定帧）：等不到就继续等，
+     * 这一张记为未决，不进 comparisons / mismatchSeq / DEPLOY_REPLAN。
+     */
     private static final int MAX_PENDING_FRAMES = 90;
+    /** 未决诊断的限频间隔（帧）：1.5 秒 → 之后每 1 秒一行，别刷爆日志。 */
+    private static final int PENDING_REPORT_INTERVAL = 60;
 
     /**
      * 「实机状态从哪来」的唯一出口：生产永远指向 {@link SimState#capture()}，
@@ -85,6 +97,90 @@ public final class ShadowTracker {
             };
 
     static java.util.function.Supplier<SimState> liveState = DEFAULT_LIVE_STATE;
+
+    /**
+     * 「实机是否已经结算完」的唯一探针。
+     *
+     * <p>为什么要一个探针而不是直接读 {@code AbstractDungeon}：稳定门是这一层最容易改错的
+     * 地方（少一道门就出假失配、多一道门就永远不比），它必须有**纯数据单测**。
+     * 生产实现读游戏字段，测试实现给一串预先编排的布尔序列 —— 与 {@link #liveState}
+     * 同一个套路，不引入第二套状态机。
+     */
+    interface SettleProbe {
+        boolean actionQueueEmpty();
+
+        /** {@code GameActionManager.currentAction == null}。 */
+        boolean currentActionDone();
+
+        boolean cardQueueEmpty();
+
+        /** limbo 张数；{@code -1} = 查询不到（不可知，不阻塞）。 */
+        int limboSize();
+
+        boolean animationsIdle();
+
+        boolean screenUp();
+    }
+
+    static final SettleProbe LIVE_SETTLE_PROBE = new SettleProbe() {
+        // ⚠️ 每个门都包 try/catch：单元测试里 AbstractDungeon 类初始化会失败
+        // （需要游戏资源），此时「查询不到」必须按「不阻塞」处理 ——
+        // 否则纯数据测试会因为一条诊断路径直接崩掉，而生产环境永远不会走这里。
+        @Override
+        public boolean actionQueueEmpty() {
+            try {
+                com.megacrit.cardcrawl.actions.GameActionManager am = AbstractDungeon.actionManager;
+                return am == null || am.actions == null || am.actions.isEmpty();
+            } catch (Throwable t) {
+                return true;
+            }
+        }
+
+        @Override
+        public boolean currentActionDone() {
+            try {
+                com.megacrit.cardcrawl.actions.GameActionManager am = AbstractDungeon.actionManager;
+                return am == null || am.currentAction == null;
+            } catch (Throwable t) {
+                return true;
+            }
+        }
+
+        @Override
+        public boolean cardQueueEmpty() {
+            try {
+                com.megacrit.cardcrawl.actions.GameActionManager am = AbstractDungeon.actionManager;
+                return am == null || am.cardQueue == null || am.cardQueue.isEmpty();
+            } catch (Throwable t) {
+                return true;
+            }
+        }
+
+        @Override
+        public int limboSize() {
+            return liveLimboSize();
+        }
+
+        @Override
+        public boolean animationsIdle() {
+            try {
+                return cardAnimationsIdle();
+            } catch (Throwable t) {
+                return true;
+            }
+        }
+
+        @Override
+        public boolean screenUp() {
+            try {
+                return AbstractDungeon.isScreenUp;
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+    };
+
+    static SettleProbe settleProbe = LIVE_SETTLE_PROBE;
     private static final int MAX_LOGGED_DIFFS = 6;
     /** 每场最多落盘多少个失配样本（防刷盘；一场打完一般也就几个）。 */
     private static final int MAX_MISMATCH_DUMPS = 24;
@@ -247,7 +343,7 @@ public final class ShadowTracker {
      * <p>🔴 连续出牌不能丢掉后一张（2026-10-31 真机日志 {@code DIFF xxx skipped
      * (previous Warcry still pending)}）：那会让后一张既不进 {@code comparisons}、
      * 也不产生属于自己的 MISMATCH，而 {@code pre} 还停在更早那一手 ——
-     * **一条失配顺着往下污染所有条目**。正确做法是先把上一张当场结算（{@link #resolve(boolean)}
+     * **一条失配顺着往下污染所有条目**。正确做法是先把上一张当场结算（{@link #resolve()}
      * 末尾会把基线重设成结算后的实机状态），再用它当这一张的基线。
      */
     static void onCardPlayed(String key, int targetIndex) {
@@ -256,11 +352,16 @@ public final class ShadowTracker {
             return;
         }
         if (pending) {
-            Trace.info("DIFF flush " + pendingKey + " before " + key
-                    + " (previous play had not settled yet)");
-            resolve(true);
+            // 下一张牌已经进了 useCard（前缀钩子），但上一张**可能还没结算完**。
+            // 稳定 → 当场补上这次比对（等价于 tick 晚了一帧）；不稳定 → 两张都记为未决，
+            // 绝不把中间态当结论（2026-11-02 之前的 `resolve(true)` 就在这里造假失配）。
+            if (settled()) {
+                resolve();
+            } else {
+                abandonPending("next card arrived before settle");
+            }
             if (baseline == null) {
-                Trace.info("DIFF " + key + " skipped (no baseline after flush)");
+                Trace.info("DIFF " + key + " skipped (baseline reset after unsettled previous play)");
                 return;
             }
         }
@@ -314,20 +415,11 @@ public final class ShadowTracker {
         }
         try {
             // 选牌网格/地图等界面打开时，状态处于「半途」，连帧计数都要暂停，
-            // 否则 1.5 秒兜底会在界面里强行比对，产生假差异
-            if (AbstractDungeon.isScreenUp) {
+            // 否则未决帧数会在界面里白涨（界面一关就立刻触发一次无意义的等待报告）。
+            if (settleProbe.screenUp()) {
                 return;
             }
-            if (pending) {
-                framesAfterPlay++;
-                if (framesAfterPlay < SETTLE_FRAMES) {
-                    return;
-                }
-                if (actionsDrained() && totalSettled() && cardAnimationsIdle()) {
-                    resolve(false);
-                } else if (framesAfterPlay >= MAX_PENDING_FRAMES) {
-                    resolve(true);
-                }
+            if (advancePendingFrame()) {
                 return;
             }
             if (actionsDrained() && !AbstractDungeon.player.isEndingTurn) {
@@ -338,7 +430,97 @@ public final class ShadowTracker {
         }
     }
 
-    private static void resolve(boolean forced) {
+    /**
+     * 推进一帧「等待对拍」；{@code true} 表示这一帧仍由 pending 占用。
+     *
+     * <p>抽成包内可见的纯函数是为了让「90 帧到期不得出结论」能被**不启动游戏**地测到：
+     * 这个分支的错误代价极高（一次假 MISMATCH 会触发 DEPLOY_REPLAN 丢掉整条规划），
+     * 不能只靠真机观察。
+     */
+    static boolean advancePendingFrame() {
+        if (!pending) {
+            return false;
+        }
+        framesAfterPlay++;
+        if (framesAfterPlay < SETTLE_FRAMES) {
+            return true;
+        }
+        if (settled()) {
+            resolve();
+        } else if (framesAfterPlay >= MAX_PENDING_FRAMES
+                && framesAfterPlay % PENDING_REPORT_INTERVAL == 0) {
+            // 只报告，不出结论：这一张仍然是 pending，isIdle 仍为 false。
+            Trace.warn("DIFF WAIT " + pendingKey + " unsettled after "
+                    + framesAfterPlay + "f: " + unsettledReason());
+        }
+        return true;
+    }
+
+    /**
+     * 真正可以出结论了吗：原生动作队列、卡牌队列、limbo、添加动画**和 currentAction**
+     * 全部落地，并且实机已经产生影子预期的牌数。
+     *
+     * <p>🔴 为什么必须看 {@code GameActionManager.currentAction}：
+     * {@code getNextAction()} 是「先从 actions 列表里 remove，再执行」，所以执行期间
+     * {@code actions} 已经是空的，而 DamageAction / ApplyPowerAction 还没落地。
+     * 只看 {@code actions.isEmpty()} 会在这一帧就宣布「结算完了」—— 这正是真机前 7 条
+     * `block` 差 1 的来源（Bash+ 的 BeatOfDeath 还在执行，影子已经去比了）。
+     * 它不是「多等几帧」的问题：任何固定帧数都会在慢动作上重新踩到。
+     */
+    private static boolean settled() {
+        return actionsDrained() && totalSettled() && settleProbe.animationsIdle();
+    }
+
+    /** 未决时明确说出「卡在哪一道门」，不要让人从 forced 标签猜。 */
+    private static String unsettledReason() {
+        StringBuilder sb = new StringBuilder();
+        SettleProbe probe = settleProbe;
+        if (!probe.actionQueueEmpty()) {
+            sb.append("actions ");
+        }
+        if (!probe.currentActionDone()) {
+            sb.append("currentAction ");
+        }
+        if (!probe.cardQueueEmpty()) {
+            sb.append("cardQueue ");
+        }
+        int limbo = probe.limboSize();
+        if (limbo > 0) {
+            sb.append("limbo=").append(limbo).append(' ');
+        }
+        if (!totalSettled()) {
+            sb.append("cards=").append(expectedTotal).append('>').append(liveTotalCards()).append(' ');
+        }
+        if (!probe.animationsIdle()) {
+            sb.append("animation ");
+        }
+        if (probe.screenUp()) {
+            sb.append("screen ");
+        }
+        return sb.length() == 0 ? "unknown" : sb.toString().trim();
+    }
+
+    /**
+     * 放弃一次**未决**的对拍：不计数、不涨 mismatchSeq、不写 baseline。
+     *
+     * <p>为什么 baseline 也要作废：此时实机正停在中间态，拿它当下一张的起点会把
+     * 「没结算完」变成一条永久的错基线。作废之后 tick 会在动作真正排空时重新捕获。
+     */
+    private static void abandonPending(String reason) {
+        Trace.warn("DIFF PENDING " + pendingKey + " dropped (" + reason + "): "
+                + unsettledReason());
+        pending = false;
+        pendingSim = null;
+        pendingRejection = null;
+        pendingDeferred = false;
+        pendingChoiceKeys.clear();
+        pendingChoiceIndices.clear();
+        pre = null;
+        expectedTotal = -1;
+        baseline = null;
+    }
+
+    private static void resolve() {
         pending = false;
         SimState before = pre;
         SimState sim = pendingSim;
@@ -381,7 +563,7 @@ public final class ShadowTracker {
         // 那会让下一次出牌的怪物下标对不上（实测报过 "effect needs a valid monster target"）。
         List<String> diffs = sim.copy().dropDeadMonsters().diff(live.copy().dropDeadMonsters());
         comparisons++;
-        String tag = forced ? " (forced after " + framesAfterPlay + "f)" : "";
+        String tag = "";
         if (diffs.isEmpty()) {
             matches++;
             Trace.info("DIFF " + pendingKey + " MATCH  (" + matches + "/" + comparisons + ")" + tag);
@@ -393,7 +575,7 @@ public final class ShadowTracker {
                     + " limbo=" + liveLimboSize()
                     + " cards=" + sim.totalCards() + "/" + live.totalCards()
                     + tag + ": " + head(diffs));
-            dumpMismatch(before, sim, live, diffs, forced);
+            dumpMismatch(before, sim, live, diffs, choiceKeys, choiceHints);
         }
         baseline = live;
     }
@@ -408,7 +590,9 @@ public final class ShadowTracker {
      * 目录：{@code <dataDir>/mismatch/}（与 observed.jsonl 同一处）。
      */
     private static void dumpMismatch(SimState before, SimState sim, SimState live,
-                                     List<String> diffs, boolean forced) {
+                                     List<String> diffs,
+                                     java.util.List<String> choiceKeys,
+                                     java.util.List<Integer> choiceHints) {
         if (before == null || mismatchDumps >= MAX_MISMATCH_DUMPS) {
             return;
         }
@@ -422,14 +606,29 @@ public final class ShadowTracker {
             java.io.File file = new java.io.File(dir, String.format("%03d-%s.json",
                     Integer.valueOf(mismatchDumps), safeName(pendingKey)));
             StringBuilder sb = new StringBuilder(4096);
+            // forced 字段保留写 false：本版不再存在「到期强判」的样本，读端据此分类。
             sb.append("{\"card\":\"").append(pendingKey).append("\",\"target\":")
-              .append(pendingTarget).append(",\"forced\":").append(forced)
-              .append(",\"choices\":[");
-            for (int i = 0; i < pendingChoiceKeys.size(); i++) {
+              .append(pendingTarget).append(",\"forced\":false")
+              .append(",\"settled\":true,\"choices\":[");
+            // 🔴 选择必须在 resolve 清空 pending 之前抄下来，否则 dump 里永远是空数组 ——
+            // 那样 Headbutt/Warcry/True Grit 的样本就不能当确定性 oracle 用。
+            for (int i = 0; i < choiceKeys.size(); i++) {
                 if (i > 0) {
                     sb.append(',');
                 }
-                sb.append('"').append(pendingChoiceKeys.get(i)).append('"');
+                String key = choiceKeys.get(i);
+                Integer hint = choiceHints.get(i);
+                sb.append("{\"key\":");
+                if (key == null) {
+                    sb.append("null");
+                } else {
+                    sb.append('"').append(key).append('"');
+                }
+                sb.append(",\"index\":").append(hint.intValue())
+                  // 目前只有「从手牌选」与「从生成候选里选」两种来源；
+                  // 弃牌堆/抽牌堆/消耗堆的选择在 Task 5B 之前还不存在。
+                  .append(",\"pile\":\"").append(key == null ? "GENERATED" : "HAND")
+                  .append("\"}");
             }
             sb.append("],\"diffs\":[");
             for (int i = 0; i < diffs.size(); i++) {
@@ -522,13 +721,17 @@ public final class ShadowTracker {
         return AbstractDungeon.player == null || AbstractDungeon.player.discardPile == null
                 ? -1 : AbstractDungeon.player.discardPile.size();
     }
-    /** 实机四个牌堆的总张数。 */
+    /** 实机四个牌堆的总张数。-1 = 查询不到（单元测试 / 战斗刚结束），不阻塞结算判定。 */
     private static int liveTotalCards() {
-        AbstractPlayer p = AbstractDungeon.player;
-        if (p == null) {
+        try {
+            AbstractPlayer p = AbstractDungeon.player;
+            if (p == null) {
+                return -1;
+            }
+            return p.hand.size() + p.drawPile.size() + p.discardPile.size() + p.exhaustPile.size();
+        } catch (Throwable t) {
             return -1;
         }
-        return p.hand.size() + p.drawPile.size() + p.discardPile.size() + p.exhaustPile.size();
     }
 
     /**
@@ -544,7 +747,11 @@ public final class ShadowTracker {
             return true;
         }
         int live = liveTotalCards();
-        return live >= 0 && live >= expectedTotal;
+        if (live < 0) {
+            // 查询不到实机牌堆（单元测试 / 战斗刚结束）：没证据说「还没好」，不阻塞。
+            return true;
+        }
+        return live >= expectedTotal;
     }
 
     /**
@@ -584,15 +791,14 @@ public final class ShadowTracker {
     }
 
     private static boolean actionsDrained() {
-        com.megacrit.cardcrawl.actions.GameActionManager am = AbstractDungeon.actionManager;
-        boolean actionsEmpty = am.actions == null || am.actions.isEmpty();
-        // 卡牌动画队列未空时，牌还没真正进入弃牌堆
-        boolean cardQueueEmpty = am.cardQueue == null || am.cardQueue.isEmpty();
-        // limbo 是「打出去但还没落到弃牌堆」的暂存区；这里不空同样说明还没结算完
-        boolean limboEmpty = liveLimboSize() == 0;
-        // 选牌网格等界面打开时状态是「半途」的，不能用作判据
-        boolean noScreen = !AbstractDungeon.isScreenUp;
-        return actionsEmpty && cardQueueEmpty && limboEmpty && noScreen;
+        SettleProbe probe = settleProbe;
+        // 🔴 `getNextAction()` 先把动作移出 actions 再执行，所以 actions 空 **不代表**
+        //    当前 DamageAction / ApplyPowerAction 已落地 —— 必须同时看 currentAction。
+        //    固定等待帧替代不了它：任何帧数都会在慢动作上重新踩到。
+        // limbo = -1 表示查询不到（单元测试无游戏对象），按「不可知即不阻塞」处理。
+        return probe.actionQueueEmpty() && probe.currentActionDone()
+                && probe.cardQueueEmpty() && probe.limboSize() <= 0
+                && !probe.screenUp();
     }
 
     private static boolean inCombat() {
