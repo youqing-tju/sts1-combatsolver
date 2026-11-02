@@ -250,6 +250,20 @@ public final class SimState {
         }
         capturePowers(p.powers, s.playerPowers, s.powerAux);
         captureJustApplied(p.powers, s.powerAux);
+        // Anger 的复制张数：原版 `Anger.use` 的 `MakeTempCardInDiscardAction` 造出来的是
+        // **临时牌**，只在战斗内存在；牌组（masterDeck）里的张数是固定基线。
+        // 所以「战斗内四堆的 Anger 数 − 牌组 Anger 数」就是这场已生成的复制数，
+        // 不需要额外计数器 —— 这是唯一能精确还原的口径。
+        try {
+            int deckAnger = countById(p.masterDeck.group, "Anger");
+            int combatAnger = countById(p.hand.group, "Anger")
+                    + countById(p.drawPile.group, "Anger")
+                    + countById(p.discardPile.group, "Anger")
+                    + countById(p.exhaustPile.group, "Anger");
+            s.angerCopiesGenerated = Math.max(0, combatAnger - deckAnger);
+        } catch (Throwable ignored) {
+            s.angerCopiesGenerated = 0;
+        }
 
         addCards(p.hand, s.hand);
         addCards(p.drawPile, s.draw);
@@ -440,6 +454,20 @@ public final class SimState {
         AUX_FIELDS.put("Panache", new String[]{"damage"});
     }
 
+    /** 数一个牌堆里某个 {@code cardID} 的张数（升级态不影响 ID）。 */
+    private static int countById(List<AbstractCard> cards, String id) {
+        if (cards == null) {
+            return 0;
+        }
+        int n = 0;
+        for (AbstractCard card : cards) {
+            if (card != null && id.equals(card.cardID)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     /**
      * 玩家减益的私有 {@code justApplied} 标志（原版 WeakPower / VulnerablePower / FrailPower）。
      *
@@ -614,10 +642,14 @@ public final class SimState {
         cmp(out, "deathSaveUsed", deathSaveUsed, o.deathSaveUsed);
         cmp(out, "deathSaveUseCount", deathSaveUseCount, o.deathSaveUseCount);
         cmp(out, "deathSaveHpRestored", deathSaveHpRestored, o.deathSaveHpRestored);
-        // 这几个是**参与最终排序**的账本（第 6/7/11/12 键），必须能对拍出来，
-        // 否则「影子账本多记一次」永远不会被发现。
-        cmp(out, "feedGrowth", feedGrowth, o.feedGrowth);
-        cmp(out, "handOfGreedGrowth", handOfGreedGrowth, o.handOfGreedGrowth);
+        // 🔴 这两个账本**故意不比**（2026-11-02 真机实证）：
+        //    `feedGrowth` / `handOfGreedGrowth` 是蓝本的「成长事件计数」，
+        //    原版 STS1 根本没有这个计数器 —— `capture()` 只能给 0。
+        //    放进对拍 == 每打一张 Feed / 贪婪之手都必然失配一次 → DEPLOY_REPLAN
+        //    丢掉整条规划（真机 20:45:44 / 20:46:12 两次就是 `feedGrowth: 1 vs 0`）。
+        //    它们仍然进 copy / 指纹 / JSON / 最终排序，只是不参与「影子 vs 实机」判定。
+        //    ⚠️ `angerCopiesGenerated` 不同：它可以由「战斗内 Anger 张数 - 牌组 Anger 张数」
+        //    精确还原，所以 capture 会给真值，仍然逐一比较。
         cmp(out, "longTermResourceValue", longTermResourceValue, o.longTermResourceValue);
         cmp(out, "angerCopiesGenerated", angerCopiesGenerated, o.angerCopiesGenerated);
         // ⚠️ 累计掉血 / 累计回血**故意不比**：它们在真机侧根本没有对应物。

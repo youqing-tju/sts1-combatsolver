@@ -490,7 +490,13 @@ public final class ShadowTracker {
             if (advancePendingFrame()) {
                 return;
             }
-            if (actionsDrained() && !AbstractDungeon.player.isEndingTurn) {
+            // 🔴 baseline 捕获必须和「出结论」用**同一个** stable() 判据。
+            //    以前这里只查 actionsDrained()，不含卡牌飞行（ShowCardAndAddToHand /
+            //    SoulGroup）—— 牌在飞的时候它不属于任何牌堆，快照就会少一张。
+            //    下一次出牌拿这份缺一张的基线当起点，live 却已经落位 → hand.size 差 1、
+            //    rng.CARD 差一步，且**方向随机**（有时少有时多），看起来像"随机漂移"。
+            //    真机 20:43–20:47 的 14 次 hand.size 失配全是这个。
+            if (settled() && !AbstractDungeon.player.isEndingTurn) {
                 baseline = liveState.get();
             }
         } catch (Throwable t) {
