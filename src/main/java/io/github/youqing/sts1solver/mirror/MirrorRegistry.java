@@ -214,8 +214,12 @@ public final class MirrorRegistry {
         // ---- 第三批：能力牌 ---------------------------------------------------
         register("Demon Form", Effects.powerOnPlayer("Demon Form", 2));
         register("Demon Form+", Effects.powerOnPlayer("Demon Form", 3));
-        register("Barricade", Effects.powerOnPlayer("Barricade", 1));
-        register("Barricade+", Effects.powerOnPlayer("Barricade", 1));      // 3 费 -> 2 费
+        // 壁垒：原版 `ApplyPowerAction(..., new BarricadePower(p), magicNumber)`，而这张牌的
+        // magicNumber 就是 **-1**（未使用的默认值）—— 真机 `playerPowers.Barricade` 是 -1，
+        // 我们写 1 会让每一次对拍都报「1 vs -1」，从打出那一刻起永久失配。
+        // 所以「有没有壁垒」必须看 key 而不是看数值，见 CombatFlow 第 ⑤ 步。
+        register("Barricade", Effects.powerOnPlayer("Barricade", -1));
+        register("Barricade+", Effects.powerOnPlayer("Barricade", -1));     // 3 费 -> 2 费
         register("Corruption", Effects.powerOnPlayer("Corruption", 3));
         register("Corruption+", Effects.powerOnPlayer("Corruption", 3));    // 3 费 -> 2 费
         register("Dark Embrace", Effects.powerOnPlayer("Dark Embrace", 1));

@@ -701,6 +701,19 @@ public final class Effects {
             return;
         }
         state.exhaust.add(card);
+        // 🔴 消耗触发的**能力**（2026-11-02 真机：手牌少 4 张、抽牌堆多 4 张就是这个漏的）
+        //   DarkEmbracePower.onExhaust  → DrawCardAction(owner, amount)
+        //   FeelNoPainPower.onExhaust   → GainBlockAction(owner, owner, amount)
+        // 两张牌都只被 `powerOnPlayer` 写进了 powers 表，却从来没有人读它 ——
+        // 典型的「能力挂上但不生效」：对拍里 powers 一致，牌数却一路漂。
+        Integer darkEmbrace = state.playerPowers.get("Dark Embrace");
+        if (darkEmbrace != null && darkEmbrace > 0) {
+            io.github.youqing.sts1solver.sim.CombatFlow.drawCards(state, darkEmbrace);
+        }
+        Integer feelNoPain = state.playerPowers.get("Feel No Pain");
+        if (feelNoPain != null && feelNoPain > 0) {
+            state.block += feelNoPain;
+        }
         // AbstractRelic.onExhaust（灰烬之主）：每消耗一张牌，全体 3 点纯伤
         io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onExhaust(state);
         // 死灵诅咒（Necronomicurse.onExhaust）：消耗后**立刻回到手牌**（不是留在消耗堆）

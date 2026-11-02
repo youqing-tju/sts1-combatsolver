@@ -189,7 +189,9 @@ public final class CombatFlow {
         }
 
         // ⑤ 敌人打完，剩余格挡衰减（Barricade 不动；Calipers 只掉 15；否则全清）
-        if (power(state, "Barricade") <= 0) {
+        // 壁垒的 amount 是 -1（原版 magicNumber 默认值），所以**不能按数值判**，
+        // 只能看「有没有这个能力」—— 否则壁垒会被当成不存在，格挡每回合照常清空。
+        if (!state.playerPowers.containsKey("Barricade")) {
             state.block = io.github.youqing.sts1solver.mirror.hooks.RelicHooks
                     .blockAfterTurnEnd(state, state.block);
         }
