@@ -39,7 +39,7 @@
 
 ### 3.1 观测层：只比较真实稳定终态
 
-`ShadowTracker` 的稳定门必须覆盖：
+`ShadowTracker` 与 `AutoPilot` 同名执行等待的稳定门必须共同覆盖：
 
 1. 原生 action/cardQueue/limbo 已排空；
 2. 卡牌添加动画与牌堆总数已稳定；

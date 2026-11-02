@@ -46,17 +46,19 @@
 
 **Files:**
 - Modify：`src/main/java/io/github/youqing/sts1solver/verify/ShadowTracker.java`
+- Modify：`src/main/java/io/github/youqing/sts1solver/verify/AutoPilot.java`（同名执行等待共用 currentAction 屏障）
 - Modify：`src/test/java/io/github/youqing/sts1solver/verify/ShadowTrackerQueueTest.java`
 - Create：`src/test/java/io/github/youqing/sts1solver/verify/ShadowTrackerSettleTest.java`
 - Modify：`src/test/java/io/github/youqing/sts1solver/verify/ShadowTrackerMismatchDumpTest.java`（若现有名称不同，新增对应测试）
 
-1. RED：模拟 Dark Embrace 后第 6–8 帧才排入 BeatOfDeath 的动作。动作落地前不得 MATCH/MISMATCH；落地后必须得到唯一正确结论。
-2. RED：Fiend Fire 多段队列超过 90 帧。到期不得增加 comparisons/mismatches/mismatchSeq，不得触发部署漂移；后续稳定帧仍能完成本次对拍。
-3. 查找所有 `resolve(true)`：90 帧兜底与“下一张牌到达时 flush”都不得在半途产生真实失配。改为明确未决/跳过诊断，不能静默吞掉稳定后的差异。
-4. 稳定门必须把公开字段 `GameActionManager.currentAction` 与 actions/cardQueue/limbo/screen 一起纳入：`getNextAction` 是先把动作移出列表再执行，所以 `actions=[]` 不代表当前 DamageAction/ApplyPowerAction 已落地。覆盖 `onAfterUseCard` 的尾部队列，不用固定毫秒猜测，也不加实机重同步。
+1. RED：`actions=[]` 但 `currentAction!=null`（可用 RemoveSpecificPowerAction）时，ShadowTracker 不得 resolve/baseline，AutoPilot 不得出下一手；`currentAction=null` 但 actions 非空同样等待。模拟 Dark Embrace 后第 6–8 帧才排入 BeatOfDeath，落地后只得唯一正确结论。
+2. RED：Fiend Fire 多段队列超过 90 帧。到期不得增加 comparisons/mismatches/mismatchSeq，不得触发部署漂移、不得把 live 写成 baseline、不得释放 isIdle；只限频报告 `DIFF WAIT/STUCK` 与未满足 gate，后续稳定帧仍完成本次对拍。forced MATCH 也不计入验收。
+3. 查找并移除所有 `resolve(true)` 强制调用路径：90 帧兜底与“下一张牌到达时 flush”都不得在半途产生真实失配。改为明确未决诊断，不能静默吞掉稳定后的差异。
+4. ShadowTracker 与 AutoPilot 的稳定门必须把公开字段 `GameActionManager.currentAction` 与 actions/cardQueue/limbo/screen 一起纳入：`getNextAction` 是先把动作移出列表再执行，所以 `actions=[]` 不代表当前 DamageAction/ApplyPowerAction 已落地。覆盖 `onAfterUseCard` 的尾部队列，不用固定毫秒猜测，也不加实机重同步。baseline 捕获复用同一判据。
 5. RED：Warcry/Headbutt 的选择在 dump 中必须保留牌名、下标与来源牌堆；当前 resolve 先清空再 dump，choices 为空。
 6. 在清 pending 前保存完整选择、target、稳定/forced 状态；未决样本不写伪稳定 oracle。
-7. GREEN：上述时间线和真机已有稳定样本通过；`ShadowTracker.isIdle()` 与 AutoPilot 等待语义不变。
+7. 必测真机时间线：Warcry+ 007 中间态不报、稳定后 hand/draw 差消失；Fiend Fire 008 中间态不报、稳定后只保留真实队列差；Power Through+ 012 稳定后仍报 hand11/10与discard差，证明没有吞真错；Fiend Fire+ 014 的 PenNib 中间态差不进统计，真实 exhaust 差仍报。
+8. GREEN：上述时间线和真机已有稳定样本通过；`ShadowTracker.isIdle()` 只在实验真正完成后释放，AutoPilot 等待语义不抢跑。
 
 **Commands:**
 ```bash
