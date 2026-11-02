@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class SnapshotBatchProbeTest {
 
     /** 输出格式版本。字段增删或口径变化必须升它，否则旧基线会被当成可比。 */
-    static final String FORMAT = "snapshot-probe-v2";
+    static final String FORMAT = "snapshot-probe-v3";
 
     /** 与真机默认档（VERY_HIGH）一致：宽 135 / 回合层 500 / 节点 50 万 / 分支 72。 */
     private static BeamSolver realConfig() {
@@ -71,7 +71,9 @@ class SnapshotBatchProbeTest {
         StringBuilder rows = new StringBuilder();
         StringBuilder tsv = new StringBuilder();
         tsv.append("format\t").append(FORMAT).append('\n');
-        tsv.append("snap\tfirst\twin\tstop\thp\tmaxHp\tenemyHp\tactions\tpotions\tscore\tnodes\troute\n");
+        tsv.append("snap\tfirst\twin\tstop\thp\tmaxHp\tenemyHp\tactions\tpotions\t"
+                + "score\tnodes\tdeficit\thealthCost\tgrowthReward\tgrowthCredit\t"
+                + "longTerm\tanger\toptionalPotions\tsold\tboundary\tpool\trejected\troute\n");
         for (File f : snapshots) {
             SimState root = GoldenPositions.read(f);
             // 2026-10-31 之前的快照没有落盘 boss 标志；按楼层补猜（16/33/50 = 各幕 Boss 房），
@@ -148,11 +150,25 @@ class SnapshotBatchProbeTest {
         m.nodes = 7;
         m.route = "Strike_R@0|POTION:1:Fire Potion|END_TURN";
 
+        m.deficit = 5;
+        m.healthCost = -3;
+        m.growthReward = 1;
+        m.growthCredit = 0;
+        m.longTerm = 20;
+        m.anger = 2;
+        m.optionalPotions = 1;
+        m.sold = 2;
+        m.boundary = "NONE";
+        m.pool = 9;
+        m.rejected = 4;
+
         assertEquals("snap=A1T3 first=Strike_R win=1 stop=victory hp=42 maxHp=80 enemyHp=0"
-                        + " actions=3 potions=1 score=123 route="
+                        + " actions=3 potions=1 score=123 deficit=5 healthCost=-3"
+                        + " growthReward=1 growthCredit=0 longTerm=20 anger=2 optionalPotions=1"
+                        + " sold=2 boundary=NONE pool=9 rejected=4 route="
                         + "Strike_R@0|POTION:1:Fire Potion|END_TURN",
                 m.line());
-        assertEquals("snapshot-probe-v2", FORMAT,
+        assertEquals("snapshot-probe-v3", FORMAT,
                 "改输出字段必须同时升 FORMAT，否则历史基线会被当成可比");
     }
 
@@ -170,6 +186,17 @@ class SnapshotBatchProbeTest {
         long score;
         int nodes;
         String route;
+        int deficit;
+        int healthCost;
+        int growthReward;
+        int growthCredit;
+        int longTerm;
+        int anger;
+        int optionalPotions;
+        int sold;
+        String boundary = "NONE";
+        int pool;
+        int rejected;
 
         String line() {
             return "snap=" + snap
@@ -182,13 +209,27 @@ class SnapshotBatchProbeTest {
                     + " actions=" + actions
                     + " potions=" + potions
                     + " score=" + score
+                    + " deficit=" + deficit
+                    + " healthCost=" + healthCost
+                    + " growthReward=" + growthReward
+                    + " growthCredit=" + growthCredit
+                    + " longTerm=" + longTerm
+                    + " anger=" + anger
+                    + " optionalPotions=" + optionalPotions
+                    + " sold=" + sold
+                    + " boundary=" + boundary
+                    + " pool=" + pool
+                    + " rejected=" + rejected
                     + " route=" + route;
         }
 
         String tsv() {
             return snap + '\t' + first + '\t' + (win ? 1 : 0) + '\t' + stop + '\t' + hp + '\t'
                     + maxHp + '\t' + enemyHp + '\t' + actions + '\t' + potions + '\t' + score
-                    + '\t' + nodes + '\t' + route;
+                    + '\t' + nodes + '\t' + deficit + '\t' + healthCost + '\t' + growthReward
+                    + '\t' + growthCredit + '\t' + longTerm + '\t' + anger
+                    + '\t' + optionalPotions + '\t' + sold + '\t' + boundary
+                    + '\t' + pool + '\t' + rejected + '\t' + route;
         }
     }
 
@@ -235,6 +276,24 @@ class SnapshotBatchProbeTest {
         }
         m.potions = potions;
         m.route = route.length() == 0 ? "-" : route.toString();
+
+        // 蓝本 18 键里**参与比较**的那些派生量（Step 7.1 要求逐快照可见）。
+        // 口径必须与最终选择器一致，所以直接复用 evaluate()，不另写一套公式。
+        m.pool = solver.lastFinalPool.size();
+        m.rejected = solver.lastFinalCandidatesRejected;
+        if (node != null) {
+            FinalPlanOrdering.CandidateResult r = FinalPlanOrdering.evaluate(
+                    solver.finalCandidate(node, 0), solver.finalParams(null));
+            m.deficit = r.strategicHpDeficit;
+            m.healthCost = r.healthResourceCost;
+            m.growthReward = r.quality.growthRewardCount;
+            m.growthCredit = r.quality.growthHpCredit;
+            m.longTerm = r.features.longTermResourceValue;
+            m.anger = r.features.angerCopiesGenerated;
+            m.optionalPotions = r.optionalPotionCount;
+            m.sold = r.strategicSold;
+            m.boundary = String.valueOf(r.features.boundaryReason);
+        }
         return m;
     }
 
