@@ -26,6 +26,24 @@ public final class CombatFlow {
     /** 手牌上限，同 {@code Effects.HAND_LIMIT}。 */
     private static final int HAND_LIMIT = 10;
 
+    /**
+     * 带 {@code atEndOfRound} 递减的玩家减益（原版 WeakPower / VulnerablePower / FrailPower）。
+     *
+     * <p>三者字节码结构相同：先看私有 {@code justApplied}，true 就只清标志不递减。
+     */
+    private static final String[] PLAYER_ROUND_DEBUFFS = {
+            "Vulnerable", "Weakened", "Frail"
+    };
+
+    /**
+     * {@code powerAux} 里「这个减益是本轮刚挂上的」的键前缀。
+     *
+     * <p>为什么要借 {@code powerAux}：{@code justApplied} 是原版 power 的私有字段，
+     * 两侧（真机 capture / 预测）必须用同一个可见载体，否则对拍与续跑戳会差一层。
+     * 真机侧在 {@code capture()} 里反射读出同一个键。
+     */
+    public static final String JUST_APPLIED_PREFIX = "justApplied.";
+
     private CombatFlow() {
     }
 
@@ -180,6 +198,34 @@ public final class CombatFlow {
             io.github.youqing.sts1solver.mirror.DamageCalc.tickIntangible(m.powers);
         }
 
+        // ④.55 玩家身上的回合制减益：**轮末**递减一层（VulnerablePower / WeakPower /
+        //      FrailPower 的 atEndOfRound）。
+        //
+        // 原版字节码（VulnerablePower.atEndOfRound）：
+        //   if (justApplied) { justApplied = false; return; }   // 刚挂上的这轮不递减
+        //   if (amount == 0) RemoveSpecificPowerAction else ReducePowerAction(1)
+        // 三条减益都带这个私有 justApplied 标志，构造器第三参 = true。
+        //
+        // ⚠️ 以前整个玩家侧轮末递减都不存在：易伤挂了 3 层就永远是 3 层，
+        // 影子会一直以为「所有攻击都吃 1.5 倍」—— 那是系统性地高估伤害。
+        // justApplied 是私有字段，capture 时反射读进 powerAux，两侧口径才一致。
+        for (int i = 0; i < PLAYER_ROUND_DEBUFFS.length; i++) {
+            String id = PLAYER_ROUND_DEBUFFS[i];
+            Integer amount = state.playerPowers.get(id);
+            if (amount == null) {
+                continue;
+            }
+            String flag = JUST_APPLIED_PREFIX + id;
+            if (state.powerAux.remove(flag) != null) {
+                continue;                       // 这一轮刚挂上
+            }
+            if (amount.intValue() <= 1) {
+                state.playerPowers.remove(id);
+            } else {
+                state.playerPowers.put(id, Integer.valueOf(amount.intValue() - 1));
+            }
+        }
+
         // ④.6 意图伤害：估值/展示口径。放在 ④.5 之后，否则本回合刚结算的仪式力量
         //      要等下一回合才反映到意图上（原版是执行伤害时现算，我们存的是快照）。
         for (SimMonster m : state.monsters) {
@@ -308,6 +354,14 @@ public final class CombatFlow {
         }
         Integer prior = state.playerPowers.get(id);
         state.playerPowers.put(id, (prior == null ? 0 : prior) + amount);
+        // 原版 ApplyPowerAction 用 `new VulnerablePower(owner, amount, true)` 构造，
+        // 第三参 justApplied = true → 这一轮的 atEndOfRound 只清标志、不递减。
+        for (int i = 0; i < PLAYER_ROUND_DEBUFFS.length; i++) {
+            if (PLAYER_ROUND_DEBUFFS[i].equals(id)) {
+                state.powerAux.put(JUST_APPLIED_PREFIX + id, Integer.valueOf(1));
+                break;
+            }
+        }
     }
 
     /** 结算一只怪这一招的全部载荷（原版 {@code takeTurn()} 排进 action 队列的那些动作）。 */

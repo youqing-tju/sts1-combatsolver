@@ -249,6 +249,7 @@ public final class SimState {
             s.energyPerTurn = 0;
         }
         capturePowers(p.powers, s.playerPowers, s.powerAux);
+        captureJustApplied(p.powers, s.powerAux);
 
         addCards(p.hand, s.hand);
         addCards(p.drawPile, s.draw);
@@ -437,6 +438,41 @@ public final class SimState {
         // TheBombPower(owner, turns, damage) / PanachePower(owner, damage)
         AUX_FIELDS.put("TheBomb", new String[]{"damage"});
         AUX_FIELDS.put("Panache", new String[]{"damage"});
+    }
+
+    /**
+     * 玩家减益的私有 {@code justApplied} 标志（原版 WeakPower / VulnerablePower / FrailPower）。
+     *
+     * <p>它决定这一轮的 {@code atEndOfRound} 是「只清标志」还是「减一层」（javap 核实）。
+     * 不捕获的话，真机「刚挂上的 3 层易伤」在影子里会被立刻减成 2 层，之后每次对拍都差一层。
+     *
+     * <p>载体是 {@code powerAux}（与预测侧 {@code CombatFlow.addPlayerDebuff} 同一个键）：
+     * 普通数据，能进 copy / diff / 续跑戳，不像原版那样是私有布尔。
+     */
+    private static void captureJustApplied(java.util.ArrayList<AbstractPower> list,
+                                           Map<String, Integer> aux) {
+        if (list == null) {
+            return;
+        }
+        for (AbstractPower power : list) {
+            if (power == null || power.ID == null) {
+                continue;
+            }
+            if (!"Vulnerable".equals(power.ID) && !"Weakened".equals(power.ID)
+                    && !"Frail".equals(power.ID)) {
+                continue;
+            }
+            try {
+                java.lang.reflect.Field flag =
+                        power.getClass().getDeclaredField("justApplied");
+                flag.setAccessible(true);
+                if (flag.getBoolean(power)) {
+                    aux.put(CombatFlow.JUST_APPLIED_PREFIX + power.ID, Integer.valueOf(1));
+                }
+            } catch (Throwable ignored) {
+                // 字段不在这个类里（版本差异）= 没有这个语义，按「不是刚挂上」处理
+            }
+        }
     }
 
     private static void capturePowers(java.util.ArrayList<AbstractPower> list,
