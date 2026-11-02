@@ -200,7 +200,10 @@ public final class RelicHooks {
      * 自增、从不清零，于是搜索跨回合推演时会「2 回合各打 2 张 → 误判成攒够 3 张」。
      */
     private static final String[] TURN_RESET_COUNTERS = {
-            "Shuriken", "Ornamental Fan", "Letter Opener", KUNAI
+            "Shuriken", "Ornamental Fan", "Letter Opener", KUNAI,
+            // VelvetChoker.atTurnStart（javap）：`this.counter = 0;` —— 每回合重置。
+            // 漏了它，计数会跨回合累计，第 2 回合打到第 4 张就被误判「超过 6 张」而拒绝出牌。
+            "Velvet Choker"
     };
 
     /** {@code MercuryHourglass}: {@code createDamageMatrix(3, true)}。 */

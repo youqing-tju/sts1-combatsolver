@@ -13,6 +13,14 @@ public final class Effects {
     /** 手牌上限，见 docs/research/mechanics-reference.md §6（A｜字节码 bipush 10）。 */
     public static final int HAND_LIMIT = 10;
 
+    /**
+     * Madness 重抽的**防御性**上界（原版是无限递归，没有这个数）。
+     *
+     * <p>正常 RNG 下命中概率 1，抽不到只可能是 RNG 流坏了 —— 那时必须显式失败，
+     * 而不是像以前那样抽满手牌数就当作「无事发生」。
+     */
+    private static final int MADNESS_MAX_DRAWS = 10_000;
+
     private Effects() {
     }
 
@@ -271,19 +279,11 @@ public final class Effects {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
-                int lost = io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(
+                // Rupture 的 wasHPLost 已经在 hitPlayer（唯一扣血口）里统一派发，
+                // 这里不再重复加力量 —— 否则一次自伤会加两遍。
+                io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(
                         state, amount, null,
                         io.github.youqing.sts1solver.sim.DamageKind.HP_LOSS);
-                // RupturePower.wasHPLost：自己掉血（info.owner == owner）且**实际掉的血 > 0**
-                // 时，+amount 点力量。用「实际掉的血」而不是卡面数值 —— 被钨棒抹成 0 时不该触发。
-                if (lost > 0) {
-                    Integer rupture = state.playerPowers.get("Rupture");
-                    if (rupture != null && rupture > 0) {
-                        Integer str = state.playerPowers.get(DamageCalc.STRENGTH);
-                        state.playerPowers.put(DamageCalc.STRENGTH,
-                                (str == null ? 0 : str) + rupture);
-                    }
-                }
             }
 
             @Override
@@ -327,15 +327,38 @@ public final class Effects {
         };
     }
 
-    /** 把状态牌塞进手牌（硬撑 Power Through：2 张伤口）。手牌插入位置是确定的。 */
+    /**
+     * 把状态牌塞进手牌（硬撑 Power Through：2 张伤口）。
+     *
+     * <p>🔴 必须执行原生的**手牌上限**（{@code MakeTempCardInHandAction.update}，javap 核实）：
+     * <pre>
+     * if (amount + hand.size() &gt; 10) {
+     *     overflow = amount + hand.size() - 10;
+     *     toHand   = amount - overflow;
+     * }
+     * addToHand(toHand);
+     * addToDiscard(overflow);     // ShowCardAndAddToDiscardEffect → discardPile.addToTop
+     * </pre>
+     * 以前这里无条件 {@code hand.add} 两次 —— 真机 012 稳定为 hand 10
+     * （1 张伤口在手、1 张在弃牌），我们却 hand 11，于是每张牌都比对失败。
+     */
     public static Effect addStatusToHand(final String id, final int count) {
         return new Effect() {
             @Override
             public void applyTo(SimState state, int targetIndex, SimCard played) {
-                for (int i = 0; i < count; i++) {
+                int toHand = count;
+                int overflow = 0;
+                if (count + state.hand.size() > HAND_LIMIT) {
+                    overflow = count + state.hand.size() - HAND_LIMIT;
+                    toHand = count - overflow;
+                }
+                for (int i = 0; i < toHand; i++) {
                     // 类型必须标 STATUS：进化（Evolve）是「抽到 STATUS 就再抽」，
                     // 状态牌不带类型的话抽到也不触发（见 addStatusToDiscard 的同款注释）
                     state.hand.add(new SimCard(id, false, -2, -1, "STATUS"));
+                }
+                for (int i = 0; i < overflow; i++) {
+                    state.discard.add(new SimCard(id, false, -2, -1, "STATUS"));
                 }
             }
 
@@ -538,6 +561,12 @@ public final class Effects {
      * 再排队 {@code hand.size()} 次 {@code ExhaustAction(1, isRandom=true)}。
      * 随机分支用的是 {@code hand.moveToExhaustPile(hand.getRandomCard(cardRandomRng))} ——
      * 所以**每消耗一张就消耗一次 cardRandomRng**，且消耗顺序是随机的（不是手牌顺序）。
+     *
+     * <p>🔴 为什么必须「先定完整批、再逐张触发钩子」：{@code DarkEmbracePower.onExhaust}
+     * 是 {@code addToBot(new DrawCardAction)} —— 排到动作队列**尾部**，要等 N 次
+     * ExhaustAction 全部执行完才轮到它。也就是说第 2 次随机消耗时，第 1 张触发抽到的牌
+     * **还没进手牌**。以前这里边消耗边同步抽牌，新抽的 Defend/Wound 立刻进了随机池，
+     * 于是 008/014 出现「exhaust 身份不同但 RNG 相同」。
      */
     public static Effect exhaustHandForDamage(final int damagePer) {
         return new Effect() {
@@ -550,11 +579,18 @@ public final class Effects {
                 }
                 io.github.youqing.sts1solver.sim.RngStream rng =
                         state.rng.get(SimState.RngKind.CARD);
+                // 第一遍：只做「抽随机下标 + 移出手牌」，把整批身份定死。
+                java.util.List<SimCard> batch = new java.util.ArrayList<SimCard>(count);
                 for (int i = 0; i < count && !state.hand.isEmpty(); i++) {
                     int pick = rng == null ? state.hand.size() - 1
                             : rng.random(state.hand.size() - 1);
                     pick = Math.max(0, Math.min(pick, state.hand.size() - 1));
-                    exhaustCard(state, state.hand.remove(pick));
+                    batch.add(state.hand.remove(pick));
+                }
+                // 第二遍：逐张执行消耗钩子（Dark Embrace 的抽牌、Feel No Pain 的格挡、
+                // 灰烬之主的伤害、死灵诅咒回手）。此时随机池已经不会再被新抽的牌污染。
+                for (int i = 0; i < batch.size(); i++) {
+                    exhaustCard(state, batch.get(i));
                 }
             }
 
@@ -1163,9 +1199,18 @@ public final class Effects {
                 }
                 io.github.youqing.sts1solver.sim.RngStream rng =
                         state.rng.get(SimState.RngKind.CARD);
-                // 每抽一次都可能落在「降不了」的牌上（伤口/诅咒），原版会重抽 ——
-                // 上限取手牌数：手上总得有一张能降的，否则上面的守卫已经返回。
-                for (int attempt = 0; attempt < size; attempt++) {
+                // 🔴 原版 `findAndModifyCard` 在抽到「降不了」的牌时**递归调用自己**（javap：
+                //    offset 53-55 / 96-98 是 invokespecial 自身），没有次数上限。
+                //    以前这里写 `attempt < size` —— 手牌 5 张里只有 1 张能降时，
+                //    有 (4/5)^5 ≈ 33% 的概率「抽 5 次都没中」然后静默不降费。
+                //    那正是真机 `draw[4]: Madness+(1) vs (0)` 残留的原因。
+                //    循环上界只做防御：正常 RNG 下必然远早于此命中；真到上限说明 RNG 流坏了，
+                //    显式抛出（ActionRejected），不伪装成「这张牌没事发生」。
+                for (int attempt = 0; ; attempt++) {
+                    if (attempt > MADNESS_MAX_DRAWS) {
+                        throw new ActionRejected("madness could not find a reducible card in "
+                                + MADNESS_MAX_DRAWS + " draws (hand=" + size + ")");
+                    }
                     int index = rng == null ? 0 : rng.random(size - 1);
                     index = Math.max(0, Math.min(index, size - 1));
                     SimCard card = state.hand.get(index);
@@ -1750,8 +1795,49 @@ public final class Effects {
      * 影子里的灼热打击打完只掉个位数血，实机掉 11 点（真机日志：{@code monsters[0].hp 16 vs 5}）。
      * 升级带来的数值上涨本身要靠捕获（下一次对拍会读到真实卡面），这里先保证不丢数据。
      */
+    /**
+     * 原版 {@code AbstractCard.upgrade()} 在本镜像里的等价物：**只改升级会改的字段**。
+     *
+     * <p>以前这里只把 {@code upgraded} 置真，费用与卡面伤害都不动 —— 于是神化之后
+     * 真机 `Madness 0` 而我们还是 `1`，同一次 `upgradeAll` 里的 Strike/Bash/FiendFire/Reaper
+     * 也全部只差 baseDamage（{@code SimCard.equals} 不比它，所以只在续跑戳上暴露）。
+     *
+     * <p>两条必须照原版做的细节：
+     * <ol>
+     *   <li><b>费用</b>：{@code upgradeBaseCost(newCost)} 保留 {@code costForTurn - cost} 的临时差，
+     *       只替换基础费用；{@code costForTurn <= 0} 时不重算（0 是「本回合免费」，
+     *       -1 是我们的「没改过」哨兵）。</li>
+     *   <li><b>伤害</b>：只应用**升级前后差值**，不是把表里的 {@code up.dmg} 直接盖上去。
+     *       Rampage 的 baseDamage 会随打出次数增长，覆盖会把它抹回初始值 ——
+     *       那是一条静默算错（看起来"升级生效了"）。</li>
+     * </ol>
+     *
+     * <p>表里没有的卡（诅咒/状态/升级无改动的卡）只翻 {@code upgraded} 标志，与原来一致。
+     */
     private static SimCard upgradeOf(SimCard c) {
-        return new SimCard(c.id, true, c.cost, c.baseDamage, c.type, c.costForTurn);
+        if (c.upgraded) {
+            return c;
+        }
+        int cost = c.cost;
+        int costForTurn = c.costForTurn;
+        int[] costChange = CardUpgradeTable.costChange(c.id);
+        if (costChange != null) {
+            int newCost = costChange[1];
+            // AbstractCard.upgradeBaseCost：只有「本回合被改过且有正值」才跟着挪。
+            if (costForTurn > 0) {
+                costForTurn = newCost + (costForTurn - cost);
+            }
+            cost = newCost;
+            if (costForTurn < 0) {
+                costForTurn = -1;
+            }
+        }
+        int baseDamage = c.baseDamage;
+        int[] damageChange = CardUpgradeTable.damageChange(c.id);
+        if (damageChange != null) {
+            baseDamage += damageChange[1] - damageChange[0];
+        }
+        return new SimCard(c.id, true, cost, baseDamage, c.type, costForTurn);
     }
 
     /** 消耗指定手牌，然后抽牌（烧牌契约 Burning Pact）。 */

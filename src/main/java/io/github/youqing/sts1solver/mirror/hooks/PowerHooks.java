@@ -194,6 +194,22 @@ public final class PowerHooks {
         });
 
         // ---- 回合初 -------------------------------------------------------------
+        // BrutalityPower.atStartOfTurnPostDraw（javap：先 addToBot(DrawCardAction(owner, amount))，
+        // 再 addToBot(LoseHPAction(owner, owner, amount))）：
+        //   · 抽牌必须在**正常抽牌之后**（所以在 POST_DRAW，而不是 START_OF_TURN）；
+        //   · 掉血走 HP_LOSS —— 无视图格挡，但仍要过「受伤」钩子：
+        //     自成形黏土（Next Turn Block）、Rupture（+力量）、暴怒…都挂在 hitPlayer 上。
+        //     直接 `state.hp -= amount` 会把这些效果一起吞掉，真机就报
+        //     `hp -1` + `Next Turn Block +3`（我们多掉了 1 血 → 黏土多给 3 格挡）。
+        reg("Brutality", HookPhase.START_OF_TURN_POST_DRAW, new Handler() {
+            @Override
+            public void fire(SimState state, int amount, HookContext ctx) {
+                io.github.youqing.sts1solver.sim.CombatFlow.drawCards(state, amount);
+                io.github.youqing.sts1solver.sim.CombatFlow.hitPlayer(state, amount, null,
+                        io.github.youqing.sts1solver.sim.DamageKind.HP_LOSS);
+            }
+        });
+
         // BerserkPower.atStartOfTurn → GainEnergyAction(amount)。
         // 🔴 不能挂 START_OF_TURN：那个阶段在 CombatFlow 的 `energy = energyPerTurn` **之前**，
         //    加的会被回能覆盖掉。原版是 action 入队、回能之后才结算，

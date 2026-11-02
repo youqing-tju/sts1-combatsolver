@@ -44,7 +44,14 @@ public final class CombatFlow {
         //    `if (hasRelic("Runic Pyramid") || hasPower("Equilibrium")) return;` 整段跳过）
         if (!state.relics.containsKey(io.github.youqing.sts1solver.mirror.hooks.RelicHooks
                 .RUNIC_PYRAMID)) {
-            state.discard.addAll(state.hand);
+            // 🔴 **逆序**：原版 `DiscardAction` 是 `while (hand.size() > 0) hand.getTopCard()`
+            //    + 逐张进弃牌堆，而 `CardGroup.getTopCard()` 取的是 `group.get(size-1)`（最后一张）。
+            //    所以 [a,b,c,d,e] → 弃牌堆 [e,d,c,b,a]，不是 [a,b,c,d,e]。
+            //    顺序不是"无所谓"：它决定下一回合洗牌后谁先被抽到，
+            //    也决定 Madness / 随机消耗按**下标**落到哪张牌 —— 正序 addAll 会改变后续世界线。
+            for (int i = state.hand.size() - 1; i >= 0; i--) {
+                state.discard.add(state.hand.get(i));
+            }
             state.hand.clear();
         }
 
@@ -786,6 +793,11 @@ public final class CombatFlow {
         state.hpLossCount++;
         // 原版 wasHPLost（符文立方 / 百夫长谜题 / 自形成黏土）与 onBloodied（红骷髅）
         io.github.youqing.sts1solver.mirror.hooks.RelicHooks.onPlayerHpLost(state, remaining);
+        // RupturePower.wasHPLost（javap：`public void wasHPLost(DamageInfo, int)`）：
+        // 原版在 AbstractCreature.damage 里对**每一次真实掉血**派发 powers 的 wasHPLost，
+        // 不分伤害来源 —— 敌人攻击、LoseHPAction（放血/Brutality）、BeatOfDeath 都算。
+        // 以前只写在 Effects.loseHp 里，于是「挨打掉血」和「Brutality 掉血」都不加力量。
+        applyRupture(state, remaining);
         io.github.youqing.sts1solver.mirror.hooks.RelicHooks.syncRedSkull(state);
         // 致死时先问一次性救命遗物（蜥蜴尾巴）：会改变后续所有路线的可行性
         io.github.youqing.sts1solver.mirror.DeathSaveRelic.applyIfLethal(state);
@@ -794,6 +806,26 @@ public final class CombatFlow {
             io.github.youqing.sts1solver.mirror.DamageCalc.applyFlameBarrier(state, attacker);
         }
         return remaining;
+    }
+
+    /**
+     * RupturePower.wasHPLost：**实际**掉血大于 0 时，+amount 点力量。
+     *
+     * <p>用实际掉血而不是卡面数值：被钨棒抹成 0、被格挡全挡掉时都不该触发。
+     * 调用点是 {@link #hitPlayer}，所以敌人攻击、自伤、BeatOfDeath 共用同一条语义。
+     */
+    private static void applyRupture(SimState state, int lost) {
+        if (lost <= 0) {
+            return;
+        }
+        Integer rupture = state.playerPowers.get("Rupture");
+        if (rupture == null || rupture.intValue() <= 0) {
+            return;
+        }
+        Integer str = state.playerPowers.get(
+                io.github.youqing.sts1solver.mirror.DamageCalc.STRENGTH);
+        state.playerPowers.put(io.github.youqing.sts1solver.mirror.DamageCalc.STRENGTH,
+                Integer.valueOf((str == null ? 0 : str.intValue()) + rupture.intValue()));
     }
 
     /**
